@@ -34,6 +34,12 @@ status. Later async execution and streaming can be introduced behind the same
 conceptual event boundary once iOS cancellation and rendering requirements are
 specified.
 
+Session persistence is explicit and intentionally narrow: `~/.rune/session.state`
+stores the virtual working directory and command history, while environment
+variables are reconstructed for every session and are never serialized. The
+history policy will need configurable redaction before Rune handles workflows
+where users type credentials into commands.
+
 The filesystem starts with a host-backed root for local development. The root
 is a policy boundary: paths are resolved relative to it, `~` maps to the root,
 and traversal outside the root is rejected. An Apple adapter will map that

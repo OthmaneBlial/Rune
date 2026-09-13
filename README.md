@@ -22,7 +22,7 @@ working iOS application or a feature-parity claim.
 | Shell tokenizer/parser | 45% |
 | Command runtime | 35% |
 | Sandboxed filesystem | 35% |
-| Sessions/history | 8% |
+| Sessions/history | 25% |
 | WASM | 0% |
 | Native iOS UI | 5% |
 | Swift/Rust bridge | 4% |
@@ -37,8 +37,9 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 bounded filesystem, with quotes, variables, pipes, redirections, sequencing,
 separate stdout/stderr, and exit status. The iOS app is represented by
 source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
-and runtime gates remain unverified. Persistence, WASM, and package
-management remain planned work.
+and runtime gates remain unverified. Bounded current-directory/history
+persistence now exists in Rust; configuration/redaction and broader session
+recovery remain planned. WASM and package management remain planned work.
 
 No a-Shell compatibility area is marked `supported` without behavior and test
 evidence. See [`compat/a-shell-compatibility.json`](compat/a-shell-compatibility.json).
@@ -95,7 +96,7 @@ git check-ignore -v base/a-shell
 - [x] Environment and path expansion
 - [x] Bounded virtual filesystem
 - [x] Built-in file commands
-- [ ] Sessions and persisted history
+- [x] Bounded session/history persistence
 - [x] Pipes and redirections
 
 ### Phase 3 — Developer environment

@@ -19,11 +19,17 @@ fn main() {
             std::process::exit(1);
         }
     };
-    let mut session = Session::new(filesystem);
+    let mut session = Session::restore(filesystem);
 
     if let Some(command) = command {
         let output = session.execute_line(&command);
         print_output(&output.stdout, &output.stderr);
+        if let Err(error) = session.persist() {
+            eprintln!("rune: could not persist session: {error}");
+            if output.status == 0 {
+                std::process::exit(1);
+            }
+        }
         if output.status != 0 {
             std::process::exit(output.status);
         }
@@ -33,6 +39,10 @@ fn main() {
     let interactive = io::stdin().is_terminal() && io::stdout().is_terminal();
     if let Err(error) = repl(&mut session, interactive) {
         eprintln!("rune: {error}");
+        std::process::exit(1);
+    }
+    if let Err(error) = session.persist() {
+        eprintln!("rune: could not persist session: {error}");
         std::process::exit(1);
     }
 }

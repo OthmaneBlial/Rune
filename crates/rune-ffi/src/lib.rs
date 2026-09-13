@@ -62,7 +62,7 @@ pub extern "C" fn rune_session_new(root: *const c_char) -> *mut std::ffi::c_void
         return std::ptr::null_mut();
     };
     let session = Box::new(RuneSession {
-        core: Session::new(filesystem),
+        core: Session::restore(filesystem),
     });
     Box::into_raw(session).cast()
 }
@@ -75,7 +75,11 @@ pub extern "C" fn rune_session_destroy(handle: *mut std::ffi::c_void) {
     }
     // SAFETY: the pointer came from Box::into_raw in rune_session_new and is
     // consumed at most once by the Swift owner.
-    unsafe { drop(Box::from_raw(handle.cast::<RuneSession>())) };
+    unsafe {
+        let mut session = Box::from_raw(handle.cast::<RuneSession>());
+        let _ = session.core.persist();
+        drop(session);
+    };
 }
 
 /// Executes one Rune command line.

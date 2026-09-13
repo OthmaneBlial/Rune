@@ -5,6 +5,7 @@
 //! semantics into Swift.
 
 mod commands;
+mod persistence;
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -120,6 +121,32 @@ impl Session {
         };
         session.update_pwd();
         session
+    }
+
+    /// Restores current directory and command history from the sandbox state.
+    ///
+    /// Invalid or missing state is ignored and produces a fresh session. The
+    /// environment is deliberately never restored from disk.
+    pub fn restore(filesystem: impl VirtualFileSystem + 'static) -> Self {
+        let mut session = Self::new(filesystem);
+        let state = persistence::load(session.filesystem.as_ref());
+        session.history = state.history;
+        if let Some(directory) = state.current_directory {
+            let _ = session.filesystem.change_dir(&directory);
+        }
+        session.update_pwd();
+        session
+    }
+
+    /// Persists only the current virtual directory and command history.
+    ///
+    /// # Errors
+    ///
+    /// Returns the filesystem error when the state directory cannot be
+    /// created or the state file cannot be written.
+    pub fn persist(&mut self) -> Result<(), FsError> {
+        let directory = self.filesystem.current_dir_display();
+        persistence::save(self.filesystem.as_mut(), &directory, &self.history)
     }
 
     /// Returns the current virtual directory, useful to native frontends.
@@ -333,10 +360,11 @@ mod tests {
         assert_eq!(session.execute_line("echo hello > note.txt").status, 0);
         assert_eq!(session.execute_line("cat note.txt").stdout, "hello\n");
         assert_eq!(session.execute_line("pwd").stdout, "~/work\n");
-        assert_eq!(
-            session.execute_line("cd .. && cat work/note.txt").stdout,
-            "hello\n"
-        );
+        session.persist().expect("state persisted");
+        let restored = Session::restore(SandboxedFileSystem::new(&root).expect("root reopened"));
+        assert_eq!(restored.current_directory(), "~/work");
+        assert!(restored.history().contains(&"cat note.txt".to_string()));
+        assert_eq!(restored.history().last().map(String::as_str), Some("pwd"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

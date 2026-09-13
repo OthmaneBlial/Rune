@@ -10,6 +10,12 @@ invent terminal output. The Rust static library must be linked by the eventual
 Xcode application target; a Swift package manifest alone is not an App Store
 application project.
 
+The Rust handle restores and persists only the virtual working directory and
+typed command history in `~/.rune/session.state` inside the configured sandbox.
+Environment variables are not serialized. History persistence is intentionally
+visible in the local state boundary and will need configurable redaction before
+credential-bearing workflows are treated as safe.
+
 ## Current evidence
 
 - `Package.swift` is a source/package boundary.
