@@ -1,4 +1,5 @@
 use std::fmt::Write as _;
+use std::time::{Duration, Instant};
 
 use crate::{usage, CommandContext, CommandOutput};
 
@@ -282,6 +283,39 @@ pub(super) fn false_command(context: &mut CommandContext<'_>) -> CommandOutput {
         return usage("false", "usage: false");
     }
     CommandOutput::failure(1, "")
+}
+
+pub(crate) fn sleep(context: &mut CommandContext<'_>) -> CommandOutput {
+    let [value] = context.args else {
+        return usage("sleep", "usage: sleep SECONDS");
+    };
+    let Ok(seconds) = value.parse::<f64>() else {
+        return CommandOutput::failure(
+            2,
+            "sleep: duration must be a finite number between 0 and 300 seconds\n",
+        );
+    };
+    if !seconds.is_finite() || !(0.0..=300.0).contains(&seconds) {
+        return CommandOutput::failure(
+            2,
+            "sleep: duration must be a finite number between 0 and 300 seconds\n",
+        );
+    }
+    if let Some(output) = context.take_cancellation() {
+        return output;
+    }
+    let duration = Duration::from_secs_f64(seconds);
+    let started = Instant::now();
+    while let Some(remaining) = duration.checked_sub(started.elapsed()) {
+        if remaining.is_zero() {
+            break;
+        }
+        std::thread::sleep(remaining.min(Duration::from_millis(25)));
+        if let Some(output) = context.take_cancellation() {
+            return output;
+        }
+    }
+    CommandOutput::success("")
 }
 
 pub(super) fn history(context: &mut CommandContext<'_>) -> CommandOutput {

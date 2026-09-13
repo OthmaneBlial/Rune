@@ -32,7 +32,7 @@ const MAX_SCRIPT_BYTES: usize = 256 * 1024;
 const MAX_SCRIPT_LINES: usize = 1_024;
 const MAX_SOURCE_DEPTH: usize = 16;
 const MAX_SOURCE_ARGUMENTS: usize = 64;
-const CANCELLED_STATUS: i32 = 130;
+pub(crate) const CANCELLED_STATUS: i32 = 130;
 const MAX_BOOKMARKS: usize = 256;
 const MAX_BOOKMARK_NAME_CHARS: usize = 64;
 const MAX_BOOKMARK_PATH_BYTES: usize = 64 * 1024;
@@ -2250,6 +2250,45 @@ mod tests {
     }
 
     #[test]
+    fn sleep_observes_cancellation_while_waiting() {
+        let root = test_root();
+        let mut filesystem = SandboxedFileSystem::new(&root).expect("sandbox filesystem created");
+        let mut environment = std::collections::BTreeMap::new();
+        let mut aliases = std::collections::BTreeMap::new();
+        let mut bookmarks = std::collections::BTreeMap::new();
+        let mut config = super::TerminalConfig::default();
+        let mut history = Vec::new();
+        let registry = super::CommandRegistry::default();
+        let runtime = rune_wasm::WasmRunner::default();
+        let args = vec!["1".to_string()];
+        let cancellation = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let trigger = std::sync::Arc::clone(&cancellation);
+        let trigger_thread = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            trigger.store(true, std::sync::atomic::Ordering::Release);
+        });
+        let mut context = super::CommandContext {
+            args: &args,
+            stdin: "",
+            fs: &mut filesystem,
+            env: &mut environment,
+            aliases: &mut aliases,
+            bookmarks: &mut bookmarks,
+            config: &mut config,
+            history: &mut history,
+            command_definitions: registry.definitions(),
+            runtime: &runtime,
+            filesystem_root: None,
+            cancellation: cancellation.as_ref(),
+        };
+        let cancelled = super::commands::shell::sleep(&mut context);
+        trigger_thread.join().expect("cancellation trigger joined");
+        assert_eq!(cancelled.status, CANCELLED_STATUS);
+        assert_eq!(cancelled.stderr, "rune: command cancelled\n");
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn rejects_an_oversized_command_line_before_recording_or_parsing() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
@@ -2936,6 +2975,9 @@ mod tests {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
         assert_eq!(session.execute_line("echo -n ready").stdout, "ready");
+        assert_eq!(session.execute_line("sleep 0").status, 0);
+        assert_eq!(session.execute_line("sleep 301").status, 2);
+        assert_eq!(session.execute_line("sleep nope").status, 2);
         assert_eq!(
             session
                 .execute_line("basename ~/notes/readme.md .md")

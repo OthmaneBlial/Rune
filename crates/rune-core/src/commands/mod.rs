@@ -5,7 +5,7 @@ mod bookmarks;
 mod config;
 mod filesystem;
 mod package;
-mod shell;
+pub(super) mod shell;
 mod text;
 mod utilities;
 mod wasm;
@@ -185,6 +185,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "sort",
         summary: "sort input lines",
         handler: text::sort,
+    },
+    CommandDefinition {
+        name: "sleep",
+        summary: "wait for a bounded duration with cooperative cancellation",
+        handler: shell::sleep,
     },
     CommandDefinition {
         name: "source",

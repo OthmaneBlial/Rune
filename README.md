@@ -20,7 +20,7 @@ working iOS application or a feature-parity claim.
 |---|---:|
 | Rust workspace | 70% |
 | Shell tokenizer/parser | 65% |
-| Command runtime | 89% |
+| Command runtime | 90% |
 | Sandboxed filesystem | 64% |
 | Sessions/history | 62% |
 | Configuration | 48% |
@@ -39,7 +39,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
 `true`, `false`, `cut`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `pkg`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
-`help`, `history`, `uname`, `which`, `whoami`, `source`, and `.` against a
+`help`, `history`, `sleep`, `uname`, `which`, `whoami`, `source`, and `.` against a
 bounded filesystem,
 including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
@@ -73,7 +73,8 @@ command. Nested sourcing is capped at 16 levels and accepts at most 64
 arguments.
 The Rust session and C/Swift bridge also expose cooperative cancellation at
 command, pipeline, script, and bounded traversal boundaries, returning status
-130; an operation already running synchronously is allowed to finish.
+130; `sleep` polls that same cancellation flag in bounded 25 ms intervals, while
+an unrelated synchronous operation is allowed to finish.
 The event-aware Rust/FFI execution path delivers bounded output after each
 completed pipeline and status/directory events at command boundaries. Swift
 copies those borrowed callback strings and renders them through the same
@@ -294,7 +295,7 @@ git check-ignore -v base/a-shell
 - [x] Leading environment assignments
 - [x] Bounded session-local command aliases
 - [x] Bounded script-file sourcing with positional arguments and nested execution limits
-- [x] Cooperative command cancellation boundary
+- [x] Cooperative command cancellation boundary, including cancellable `sleep`
 - [x] `&&` and `||` conditional chaining
 - [x] Bounded recursive `find` traversal
 - [x] Bounded literal `sed` substitutions
