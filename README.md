@@ -37,7 +37,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
 `setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
-`true`, `false`, `awk`, `cut`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `pkg`, `tar`,
+`true`, `false`, `awk`, `cut`, `head`, `tail`, `grep`, `gzip`, `gunzip`, `sort`, `uniq`, `wc`, `wasm`, `pkg`, `tar`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
 `help`, `history`, `sleep`, `uname`, `which`, `whoami`, `pbcopy`, `pbpaste`,
 `source`, and `.` against a
@@ -166,8 +166,9 @@ interpreter fuel, linear memory, tables, and captured output are bounded.
 For the three-root Apple layout, WASI receives `/` for Documents/home and
 explicit `/Library` and `/tmp` preopens; single-root and external-folder
 sessions receive only `/`. No arbitrary guest preopen is inherited.
-Compression, broader WASI resource policy, and the broader Python
-stdlib/package surface remain planned.
+ZIP compression methods, broader WASI resource policy, and the broader Python
+stdlib/package surface remain planned; gzip file transforms are implemented as
+a separate bounded Rust command layer.
 
 The package flow supports `pkg info MANIFEST|NAME [VERSION]`, `pkg verify
 MANIFEST`, `pkg install MANIFEST`, `pkg update MANIFEST`, `pkg list`, `pkg search
@@ -407,7 +408,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded package metadata, integrity, local WASM installation, and local update
 - [x] Portable runtime request/output contract
 - [x] Bounded Rust-owned history, font, font-size, scrollback, toolbar-visible, theme, cursor-color, cursor-shape, background, and foreground configuration
-- [x] Bounded stored ZIP and USTAR tar creation/listing/extraction with path validation
+- [x] Bounded stored ZIP/USTAR tar and gzip file transforms with path validation
 - [x] Explicit host HTTP capability and bounded `curl` transport boundary
 - [x] Bounded HTTPS registry index, remote search, and explicit-version update policy
 - [x] Bounded Python subset runtime evaluation
