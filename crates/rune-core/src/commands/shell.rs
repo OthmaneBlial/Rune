@@ -3,8 +3,15 @@ use std::fmt::Write as _;
 use crate::{usage, CommandContext, CommandOutput};
 
 pub(super) fn echo(context: &mut CommandContext<'_>) -> CommandOutput {
-    let mut stdout = context.args.join(" ");
-    stdout.push('\n');
+    let (newline, arguments) = context
+        .args
+        .first()
+        .filter(|argument| argument.as_str() == "-n")
+        .map_or((true, context.args), |_| (false, &context.args[1..]));
+    let mut stdout = arguments.join(" ");
+    if newline {
+        stdout.push('\n');
+    }
     CommandOutput::success(stdout)
 }
 
@@ -330,13 +337,8 @@ fn history_search(history: &[String], query: &str) -> CommandOutput {
 
 pub(super) fn help(context: &mut CommandContext<'_>) -> CommandOutput {
     match context.args {
-        [] => {
-            let mut stdout = String::from("Rune built-in commands:\n");
-            for definition in context.command_definitions {
-                let _ = writeln!(stdout, "  {:<8} {}", definition.name, definition.summary);
-            }
-            CommandOutput::success(stdout)
-        }
+        [] => help_list(context),
+        [flag] if flag == "-l" => help_list(context),
         [name] => context
             .command_definitions
             .iter()
@@ -352,6 +354,14 @@ pub(super) fn help(context: &mut CommandContext<'_>) -> CommandOutput {
             ),
         _ => usage("help", "usage: help [command]"),
     }
+}
+
+fn help_list(context: &CommandContext<'_>) -> CommandOutput {
+    let mut stdout = String::from("Rune built-in commands:\n");
+    for definition in context.command_definitions {
+        let _ = writeln!(stdout, "  {:<8} {}", definition.name, definition.summary);
+    }
+    CommandOutput::success(stdout)
 }
 
 fn environment_output(context: &CommandContext<'_>) -> CommandOutput {

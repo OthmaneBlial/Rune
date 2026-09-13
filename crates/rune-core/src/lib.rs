@@ -2668,6 +2668,7 @@ mod tests {
     fn executes_bounded_portable_utility_commands() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("echo -n ready").stdout, "ready");
         assert_eq!(
             session
                 .execute_line("basename ~/notes/readme.md .md")
@@ -2765,6 +2766,10 @@ mod tests {
     fn reports_portable_identity_and_registered_command_discovery() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(
+            session.execute_line("help").stdout,
+            session.execute_line("help -l").stdout
+        );
         assert_eq!(session.execute_line("uname").stdout, "Rune\n");
         assert_eq!(session.execute_line("uname -sn").stdout, "Rune rune\n");
         assert_eq!(session.execute_line("whoami").stdout, "rune\n");
