@@ -536,7 +536,7 @@ public struct RuneIOSApp: App {
     public init() {}
 
     public var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "rune-terminal") {
             RuneWorkspaceView()
         }
     }

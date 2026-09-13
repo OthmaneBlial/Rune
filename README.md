@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 50%**
+**Overall progress: 51%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -22,10 +22,10 @@ working iOS application or a feature-parity claim.
 | Shell tokenizer/parser | 63% |
 | Command runtime | 82% |
 | Sandboxed filesystem | 58% |
-| Sessions/history | 60% |
+| Sessions/history | 62% |
 | Configuration | 23% |
 | WASM | 36% |
-| Native iOS UI | 36% |
+| Native iOS UI | 39% |
 | Swift/Rust bridge | 34% |
 | Package manager | 33% |
 | Compatibility evidence | 2% |
@@ -134,9 +134,10 @@ bookmarks independent under `~/.rune/sessions/{id}/session.state`. IDs are
 validated as bounded opaque names (up to 64 ASCII characters from `A-Z`,
 `a-z`, `0-9`, `_`, `-`, and `.`); they are never interpreted as shell paths.
 The source-only Swift workspace uses this FFI boundary for independent
-terminal tabs. Tab persistence and the Rust/FFI behavior are locally tested;
-SwiftUI rendering, iPad multi-window behavior, and Apple runtime behavior
-remain unverified without an Apple build toolchain.
+terminal tabs. Rust persists each named session's state, while Swift persists
+only bounded tab metadata and does not store external paths or bookmark bytes;
+SwiftUI rendering, scene restoration, iPad multi-window behavior, and Apple
+runtime behavior remain unverified without an Apple build toolchain.
 
 Directory changes update the Rust-owned `PWD` and `OLDPWD` values. `cd -`
 returns to the previous directory and prints the resulting virtual path, while

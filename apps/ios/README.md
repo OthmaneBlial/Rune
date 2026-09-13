@@ -81,8 +81,12 @@ directory is restored after the profile.
 uses the legacy default state file; additional tabs receive bounded opaque Rust
 session IDs and persist their cwd/history/bookmarks below
 `~/.rune/sessions/{id}/session.state`. This keeps tab state separate without
-duplicating shell behavior in Swift. Tab rendering, lifecycle behavior, iPad
-multi-window support, and Apple runtime integration remain unverified.
+duplicating shell behavior in Swift. A bounded UserDefaults record now restores
+tab titles and Rust session IDs across launches without persisting external
+paths or security-scoped bookmark bytes. The app declares a named
+`WindowGroup` suitable for later iPad multi-window routing; tab rendering,
+lifecycle behavior, scene routing, and Apple runtime integration remain
+unverified.
 
 ## Current evidence
 

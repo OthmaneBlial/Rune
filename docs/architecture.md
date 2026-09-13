@@ -19,8 +19,8 @@ constraints. It is not a source dependency or an implementation template.
 - `rune-core`: command registry, command context, session state, execution
   results, and the bounded command/path completion query used by native
  frontends.
-- `rune-wasm`: bounded WASI preview1 execution with no host-directory
-  preopens in the initial slice.
+- `rune-wasm`: bounded WASI preview1 execution with an optional explicit
+  capability-scoped preopen supplied by the session VFS.
 - `rune-package`: bounded versioned manifest parsing and SHA-256 artifact
   verification; transport and installation are intentionally outside this
   first boundary.
@@ -142,9 +142,11 @@ binary-safe FFI remains available for a future validated native file type.
 
 The source-only workspace tab layer creates the default session for the first
 tab and named Rust sessions for additional tabs. Swift owns tab selection and
-presentation; Rust owns each tab's shell state and persistence. This does not
-yet prove SwiftUI lifecycle behavior, iPad multi-window support, or device
-runtime behavior.
+presentation; Rust owns each tab's shell state and persistence. Swift persists
+only bounded tab metadata in UserDefaults, excluding external paths and Apple
+bookmark bytes, and the app declares a named WindowGroup for later scene
+routing. This does not yet prove SwiftUI lifecycle behavior, iPad multi-window
+support, scene restoration, or device runtime behavior.
 
 Interactive command calls use a lock-protected Swift FFI handle and run away
 from the SwiftUI main actor. The cancellation method intentionally bypasses
