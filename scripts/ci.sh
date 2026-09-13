@@ -4,6 +4,9 @@ set -euo pipefail
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_root"
 
+echo "==> compatibility matrix validation"
+python3 scripts/validate_compatibility.py
+
 echo "==> cargo fmt --check"
 cargo fmt --all -- --check
 

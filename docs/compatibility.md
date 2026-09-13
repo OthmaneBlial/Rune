@@ -17,6 +17,11 @@ this workspace has no Apple runtime or a-Shell executable harness. The matrix
 therefore exposes the real evidence paths without converting source inspection
 or Rust-only tests into a false compatibility result.
 
+The local CI gate runs `scripts/validate_compatibility.py` before Rust checks.
+It verifies the schema, allowed statuses, ISO review date, repository evidence
+paths, and the Git ignore rule for `base/a-shell`. This is evidence hygiene; it
+does not execute a-Shell or upgrade any comparison state by itself.
+
 For differential tests, record the scenario, observed reference behavior,
 Rune behavior, normalization rules, and the regression test that preserves the
 result. Keep compatibility claims bounded to the tested scenario.
