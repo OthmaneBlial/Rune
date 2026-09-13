@@ -23,10 +23,11 @@ Environment variables and aliases are not serialized. History persistence is
 intentionally visible in the local state boundary. Interactive `export`,
 `setenv`, and assignment command lines are currently replaced by a redaction
 marker before history is stored; arbitrary credential-bearing commands still
-require a configurable policy. The Rust core also persists a bounded
-`history-limit` configuration in `~/.rune/config.state`; the bridge exposes it
-as key/value text. Visual preferences are not wired into the source-only Swift
-view yet.
+require a configurable policy. The Rust core also persists bounded
+`history-limit` and `font-size` configuration in `~/.rune/config.state`; the
+bridge exposes them as key/value text and the source-only Swift view consumes
+`font-size`. Themes, cursor styling, and toolbar preferences are not wired
+through yet.
 
 On restore, the Rust core reads a maximum of 64 KiB from `~/.rune_profile`,
 skips blank/full-line comment entries, runs only registered Rune built-ins, and

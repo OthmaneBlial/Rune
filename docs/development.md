@@ -11,8 +11,8 @@ Xcode, a simulator, an Apple SDK, or a third-party Apple dependency.
 Package metadata and local WASM installation tests are also local-only; no
 registry or download is needed to validate the manifest, digest, and bounded
 package-tree boundaries.
-Configuration tests are local-only as well and verify bounded history settings
-without requiring an Apple runtime.
+Configuration tests are local-only as well and verify bounded history and font
+size settings without requiring an Apple runtime.
 
 ## Local checks
 

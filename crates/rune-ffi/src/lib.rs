@@ -176,8 +176,9 @@ pub extern "C" fn rune_session_configuration(handle: *const std::ffi::c_void) ->
     // SAFETY: the pointer is read-only and owned by the Swift session.
     let session = unsafe { &*handle.cast::<RuneSession>() };
     let configuration = format!(
-        "history-limit={}\n",
-        session.core.configuration().history_limit()
+        "history-limit={}\nfont-size={}\n",
+        session.core.configuration().history_limit(),
+        session.core.configuration().font_size()
     );
     into_owned_c_string(&configuration)
 }
@@ -312,7 +313,10 @@ mod tests {
         // SAFETY: completions was returned by rune_session_complete.
         unsafe { rune_string_free(completions) };
         let configuration = rune_session_configuration(handle);
-        assert_eq!(c_string(configuration), "history-limit=1000\n");
+        assert_eq!(
+            c_string(configuration),
+            "history-limit=1000\nfont-size=15\n"
+        );
         // SAFETY: configuration was returned by rune_session_configuration.
         unsafe { rune_string_free(configuration) };
         let change_directory = CString::new("mkdir sub && cd sub").expect("valid command");

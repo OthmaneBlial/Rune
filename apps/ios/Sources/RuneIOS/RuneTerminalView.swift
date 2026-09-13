@@ -26,6 +26,7 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var entries: [RuneTranscriptEntry] = []
     @Published public var command = ""
     @Published public private(set) var currentDirectory = "~"
+    @Published public private(set) var fontSize: CGFloat = 15
     @Published public private(set) var initializationError: String?
 
     private let session: RuneFFISession?
@@ -54,6 +55,7 @@ public final class RuneTerminalModel: ObservableObject {
                     entries.append(.init(kind: .status, text: "[profile exit \(startup.status)]"))
                 }
             }
+            refreshConfiguration()
         } catch {
             session = nil
             initializationError = error.localizedDescription
@@ -74,6 +76,7 @@ public final class RuneTerminalModel: ObservableObject {
         append(result)
         currentDirectory = session.currentDirectory
         history = session.history()
+        refreshConfiguration()
     }
 
     private func append(_ result: RuneCommandResult) {
@@ -90,6 +93,17 @@ public final class RuneTerminalModel: ObservableObject {
         }
         if result.status != 0 {
             entries.append(.init(kind: .status, text: "[exit \(result.status)]"))
+        }
+    }
+
+    private func refreshConfiguration() {
+        guard let session else { return }
+        for line in session.configuration.split(separator: "\n") {
+            let pair = line.split(separator: "=", maxSplits: 1).map(String.init)
+            guard pair.count == 2, pair[0] == "font-size", let value = Double(pair[1]) else {
+                continue
+            }
+            fontSize = CGFloat(min(max(value, 8), 32))
         }
     }
 
@@ -179,7 +193,7 @@ public struct RuneTerminalView: View {
                             }
                             ForEach(model.entries) { entry in
                                 Text(entry.text)
-                                    .font(.system(size: 15, design: .monospaced))
+                                    .font(.system(size: model.fontSize, design: .monospaced))
                                     .foregroundStyle(color(for: entry.kind))
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .textSelection(.enabled)
@@ -207,7 +221,11 @@ public struct RuneTerminalView: View {
                                     inputFocused = true
                                 }
                                 .buttonStyle(.plain)
-                                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                                .font(.system(
+                                    size: max(model.fontSize - 2, 11),
+                                    weight: .medium,
+                                    design: .monospaced
+                                ))
                                 .foregroundStyle(RunePalette.foreground)
                                 .padding(.horizontal, 11)
                                 .padding(.vertical, 8)
@@ -231,7 +249,7 @@ public struct RuneTerminalView: View {
                         .foregroundStyle(RunePalette.cyan)
                         .lineLimit(1)
                     TextField("Enter a Rune command", text: $model.command, axis: .vertical)
-                        .font(.system(size: 15, design: .monospaced))
+                        .font(.system(size: model.fontSize, design: .monospaced))
                         .foregroundStyle(RunePalette.foreground)
                         .textFieldStyle(.plain)
                         .lineLimit(1...4)

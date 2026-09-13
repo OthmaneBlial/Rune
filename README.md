@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 26%**
+**Overall progress: 27%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -19,14 +19,14 @@ working iOS application or a feature-parity claim.
 | Area | Progress |
 |---|---:|
 | Rust workspace | 70% |
-| Shell tokenizer/parser | 60% |
-| Command runtime | 76% |
-| Sandboxed filesystem | 55% |
-| Sessions/history | 40% |
-| Configuration | 12% |
+| Shell tokenizer/parser | 63% |
+| Command runtime | 78% |
+| Sandboxed filesystem | 58% |
+| Sessions/history | 42% |
+| Configuration | 18% |
 | WASM | 23% |
-| Native iOS UI | 12% |
-| Swift/Rust bridge | 8% |
+| Native iOS UI | 15% |
+| Swift/Rust bridge | 12% |
 | Package manager | 25% |
 | Compatibility evidence | 2% |
 
@@ -69,9 +69,10 @@ a complete secret management policy.
 The iOS app is represented by
 source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
 and runtime gates remain unverified. Bounded current-directory/history
-persistence now exists in Rust; bounded history configuration is available,
-while configurable redaction and broader session recovery remain planned.
-Visual preferences and non-WASM language runtimes remain planned work.
+persistence now exists in Rust; bounded `history-limit` and `font-size`
+configuration is available, and the native source UI consumes the font size.
+Configurable redaction, themes, cursor styling, and broader session recovery
+remain planned. Non-WASM language runtimes remain planned work.
 
 The Rust package boundary now validates a bounded, versioned JSON manifest and
 checks declared file bytes with SHA-256. There is deliberately no network
@@ -101,10 +102,10 @@ The FFI and Swift source boundary also exposes a newline-delimited automation
 script method for a future Shortcuts adapter. It is Rust-executed and locally
 tested, but native Shortcuts registration remains unverified.
 
-The portable configuration boundary currently supports the bounded
-`history-limit` setting through `config get`, `config set`, and `config reset`.
-It persists in `~/.rune/config.state`; fonts, themes, cursor styling, and
-toolbar preferences are not yet consumed by the source-only Swift UI.
+The portable configuration boundary currently supports bounded `history-limit`
+and `font-size` settings through `config get`, `config set`, and `config reset`.
+It persists in `~/.rune/config.state`, and SwiftUI consumes `font-size`; themes,
+cursor styling, and toolbar preferences are not yet wired through.
 
 The `history` built-in also supports `history N` for a bounded recent view and
 `history -c` to clear the current session history.
@@ -189,7 +190,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded WASI preview1 runtime boundary and resource limits
 - [x] Bounded package metadata, integrity, and local WASM installation
 - [x] Portable runtime request/output contract
-- [x] Bounded Rust-owned history configuration
+- [x] Bounded Rust-owned history and font-size configuration
 - [ ] Network registry, search, and update policy
 - [ ] Python, JavaScript, and Lua runtime evaluation
 - [x] Rust-owned first-word command completion and help metadata

@@ -864,15 +864,23 @@ mod tests {
             session.execute_line("config get history-limit").stdout,
             "history-limit=3\n"
         );
+        assert_eq!(session.execute_line("config set font-size 20").status, 0);
+        assert_eq!(
+            session.execute_line("config get font-size").stdout,
+            "font-size=20\n"
+        );
         assert_eq!(session.execute_line("echo one").status, 0);
         assert_eq!(session.execute_line("echo two").status, 0);
         assert!(session.history().len() <= 3);
         assert_eq!(session.execute_line("config set history-limit 0").status, 2);
         assert_eq!(session.configuration().history_limit(), 3);
+        assert_eq!(session.execute_line("config set font-size 33").status, 2);
+        assert_eq!(session.configuration().font_size(), 20);
         session.persist().expect("configuration persisted");
         let mut restored =
             Session::restore(SandboxedFileSystem::new(&root).expect("root reopened"));
         assert_eq!(restored.configuration().history_limit(), 3);
+        assert_eq!(restored.configuration().font_size(), 20);
         assert!(restored.history().len() <= 3);
         assert_eq!(restored.execute_line("config reset").status, 0);
         assert_eq!(restored.configuration().history_limit(), 1_000);

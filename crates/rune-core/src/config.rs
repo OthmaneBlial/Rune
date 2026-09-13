@@ -6,17 +6,22 @@ const CONFIG_HEADER: &str = "RUNE_CONFIG_V1";
 const DEFAULT_HISTORY_LIMIT: usize = 1_000;
 const MIN_HISTORY_LIMIT: usize = 1;
 const MAX_HISTORY_LIMIT: usize = 10_000;
+const DEFAULT_FONT_SIZE: u8 = 15;
+const MIN_FONT_SIZE: u8 = 8;
+const MAX_FONT_SIZE: u8 = 32;
 
 /// Portable session settings currently owned by the Rust core.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalConfig {
     history_limit: usize,
+    font_size: u8,
 }
 
 impl Default for TerminalConfig {
     fn default() -> Self {
         Self {
             history_limit: DEFAULT_HISTORY_LIMIT,
+            font_size: DEFAULT_FONT_SIZE,
         }
     }
 }
@@ -28,8 +33,18 @@ impl TerminalConfig {
         self.history_limit
     }
 
+    /// Returns the monospace terminal font size in points.
+    #[must_use]
+    pub const fn font_size(&self) -> u8 {
+        self.font_size
+    }
+
     pub(super) fn set_history_limit(&mut self, value: usize) {
         self.history_limit = value;
+    }
+
+    pub(super) fn set_font_size(&mut self, value: u8) {
+        self.font_size = value;
     }
 
     pub(super) fn load(filesystem: &dyn VirtualFileSystem) -> Self {
@@ -47,7 +62,10 @@ impl TerminalConfig {
             Ok(()) | Err(FsError::AlreadyExists(_)) => {}
             Err(error) => return Err(error),
         }
-        let content = format!("{CONFIG_HEADER}\nhistory_limit={}\n", self.history_limit);
+        let content = format!(
+            "{CONFIG_HEADER}\nhistory_limit={}\nfont_size={}\n",
+            self.history_limit, self.font_size
+        );
         filesystem.write(CONFIG_PATH, content.as_bytes(), false)
     }
 }
@@ -74,31 +92,81 @@ pub(super) fn update_history_limit(
     Ok(())
 }
 
+pub(super) fn update_font_size(
+    filesystem: &mut dyn VirtualFileSystem,
+    config: &mut TerminalConfig,
+    value: &str,
+) -> Result<(), String> {
+    let parsed = value
+        .parse::<u8>()
+        .map_err(|_| "font-size must be a positive integer".to_string())?;
+    if !(MIN_FONT_SIZE..=MAX_FONT_SIZE).contains(&parsed) {
+        return Err(format!(
+            "font-size must be between {MIN_FONT_SIZE} and {MAX_FONT_SIZE}"
+        ));
+    }
+    let previous = config.clone();
+    config.set_font_size(parsed);
+    if let Err(error) = config.save(filesystem) {
+        *config = previous;
+        return Err(format!("could not persist configuration: {error}"));
+    }
+    Ok(())
+}
+
 fn parse(content: &str) -> Option<TerminalConfig> {
     let mut lines = content.lines();
     if lines.next()? != CONFIG_HEADER {
         return None;
     }
-    let (key, value) = lines.next()?.split_once('=')?;
-    if key != "history_limit" || lines.next().is_some() {
-        return None;
+    let mut config = TerminalConfig::default();
+    let mut seen_history_limit = false;
+    let mut seen_font_size = false;
+    for line in lines {
+        let (key, value) = line.split_once('=')?;
+        match key {
+            "history_limit" if !seen_history_limit => {
+                let history_limit = value.parse::<usize>().ok()?;
+                if !(MIN_HISTORY_LIMIT..=MAX_HISTORY_LIMIT).contains(&history_limit) {
+                    return None;
+                }
+                config.history_limit = history_limit;
+                seen_history_limit = true;
+            }
+            "font_size" if !seen_font_size => {
+                let font_size = value.parse::<u8>().ok()?;
+                if !(MIN_FONT_SIZE..=MAX_FONT_SIZE).contains(&font_size) {
+                    return None;
+                }
+                config.font_size = font_size;
+                seen_font_size = true;
+            }
+            _ => return None,
+        }
     }
-    let history_limit = value.parse::<usize>().ok()?;
-    if !(MIN_HISTORY_LIMIT..=MAX_HISTORY_LIMIT).contains(&history_limit) {
-        return None;
-    }
-    Some(TerminalConfig { history_limit })
+    Some(config)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{parse, TerminalConfig, CONFIG_HEADER};
+    use super::{parse, TerminalConfig, CONFIG_HEADER, DEFAULT_FONT_SIZE};
 
     #[test]
     fn parses_bounded_history_configuration() {
         let content = format!("{CONFIG_HEADER}\nhistory_limit=25\n");
         let config = parse(&content).expect("configuration should parse");
         assert_eq!(config.history_limit(), 25);
+        assert_eq!(config.font_size(), DEFAULT_FONT_SIZE);
+    }
+
+    #[test]
+    fn parses_and_bounds_font_size_while_accepting_older_files() {
+        let content = format!("{CONFIG_HEADER}\nhistory_limit=25\nfont_size=20\n");
+        let config = parse(&content).expect("configuration should parse");
+        assert_eq!(config.font_size(), 20);
+        assert_eq!(config.history_limit(), 25);
+        assert!(parse("RUNE_CONFIG_V1\nfont_size=7\n").is_none());
+        assert!(parse("RUNE_CONFIG_V1\nfont_size=33\n").is_none());
     }
 
     #[test]
@@ -111,6 +179,7 @@ mod tests {
     #[test]
     fn defaults_when_configuration_is_missing_or_malformed() {
         assert_eq!(TerminalConfig::default().history_limit(), 1_000);
+        assert_eq!(TerminalConfig::default().font_size(), DEFAULT_FONT_SIZE);
         assert!(parse("not-rune-config\n").is_none());
     }
 }
