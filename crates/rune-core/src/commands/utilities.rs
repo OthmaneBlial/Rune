@@ -23,6 +23,7 @@ const MAX_MKTEMP_TEMPLATES: usize = 64;
 const MAX_MKTEMP_TEMPLATE_BYTES: usize = 1024;
 const MIN_MKTEMP_X_COUNT: usize = 3;
 const MAX_MKTEMP_X_COUNT: usize = 32;
+const MAX_FILE_PROBE_BYTES: usize = 256 * 1024;
 
 const BASE64_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -1287,6 +1288,152 @@ pub(super) fn stat(context: &mut CommandContext<'_>) -> CommandOutput {
         "  File: {path}\n  Name: {}\n  Size: {}\n  Type: {kind}\n",
         info.name, info.size
     ))
+}
+
+pub(super) fn file(context: &mut CommandContext<'_>) -> CommandOutput {
+    let (brief, mime_type, paths) = match parse_file_args(context.args) {
+        Ok(parsed) => parsed,
+        Err(output) => return output,
+    };
+    let mut output = CommandOutput::success("");
+    for path in paths {
+        let description = match describe_file(context, path, mime_type) {
+            Ok(description) => description,
+            Err(error) => {
+                output.status = 1;
+                let _ = writeln!(output.stderr, "file: {path}: {error}");
+                continue;
+            }
+        };
+        if !brief {
+            output.stdout.push_str(path);
+            output.stdout.push_str(": ");
+        }
+        output.stdout.push_str(&description);
+        output.stdout.push('\n');
+    }
+    output
+}
+
+fn parse_file_args(args: &[String]) -> Result<(bool, bool, Vec<&str>), CommandOutput> {
+    let mut brief = false;
+    let mut mime_type = false;
+    let mut paths = Vec::new();
+    let mut parse_options = true;
+    for argument in args {
+        if parse_options && argument == "--" {
+            parse_options = false;
+        } else if parse_options && matches!(argument.as_str(), "-b" | "--brief") {
+            brief = true;
+        } else if parse_options && argument == "--mime-type" {
+            mime_type = true;
+        } else if parse_options && argument.starts_with('-') && argument != "-" {
+            return Err(usage(
+                "file",
+                "usage: file [-b|--brief] [--mime-type] [--] FILE ...",
+            ));
+        } else {
+            paths.push(argument.as_str());
+        }
+    }
+    if paths.is_empty() {
+        return Err(usage(
+            "file",
+            "usage: file [-b|--brief] [--mime-type] [--] FILE ...",
+        ));
+    }
+    Ok((brief, mime_type, paths))
+}
+
+fn describe_file(
+    context: &mut CommandContext<'_>,
+    path: &str,
+    mime_type: bool,
+) -> Result<String, rune_fs::FsError> {
+    let bytes = if path == "-" {
+        context.stdin.as_bytes().to_vec()
+    } else {
+        let info = context.fs.metadata(path)?;
+        if info.is_symlink {
+            return Ok(if mime_type {
+                "inode/symlink".to_string()
+            } else {
+                "symbolic link".to_string()
+            });
+        }
+        if info.is_directory {
+            return Ok(if mime_type {
+                "inode/directory".to_string()
+            } else {
+                "directory".to_string()
+            });
+        }
+        if info.size > MAX_FILE_PROBE_BYTES as u64 {
+            return Err(rune_fs::FsError::Io {
+                operation: "probe".to_string(),
+                path: path.to_string(),
+                message: format!("file exceeds the {MAX_FILE_PROBE_BYTES}-byte probe limit"),
+            });
+        }
+        context.fs.read(path)?
+    };
+    if bytes.len() > MAX_FILE_PROBE_BYTES {
+        return Err(rune_fs::FsError::Io {
+            operation: "probe".to_string(),
+            path: path.to_string(),
+            message: format!("file exceeds the {MAX_FILE_PROBE_BYTES}-byte probe limit"),
+        });
+    }
+    Ok(classify_file_bytes(&bytes, mime_type))
+}
+
+fn classify_file_bytes(bytes: &[u8], mime_type: bool) -> String {
+    if bytes.is_empty() {
+        return if mime_type {
+            "application/x-empty".to_string()
+        } else {
+            "empty".to_string()
+        };
+    }
+    let (description, mime) = if bytes.starts_with(b"\x7fELF") {
+        ("ELF binary", "application/x-elf")
+    } else if bytes.starts_with(b"\0asm") {
+        ("WebAssembly binary", "application/wasm")
+    } else if bytes.starts_with(b"PK\x03\x04")
+        || bytes.starts_with(b"PK\x05\x06")
+        || bytes.starts_with(b"PK\x07\x08")
+    {
+        ("Zip archive", "application/zip")
+    } else if bytes.starts_with(b"\x1f\x8b") {
+        ("gzip compressed data", "application/gzip")
+    } else if bytes.len() >= 262 && &bytes[257..262] == b"ustar" {
+        ("POSIX tar archive", "application/x-tar")
+    } else if let Ok(text) = std::str::from_utf8(bytes) {
+        if text.chars().all(is_file_text_character) {
+            if bytes.iter().any(|byte| *byte >= 0x80) {
+                ("UTF-8 Unicode text", "text/plain; charset=utf-8")
+            } else {
+                ("ASCII text", "text/plain; charset=us-ascii")
+            }
+        } else {
+            ("data", "application/octet-stream")
+        }
+    } else {
+        ("data", "application/octet-stream")
+    };
+    if mime_type {
+        mime.to_string()
+    } else {
+        description.to_string()
+    }
+}
+
+fn is_file_text_character(character: char) -> bool {
+    character == '\n'
+        || character == '\r'
+        || character == '\t'
+        || character == '\u{0c}'
+        || !character.is_control()
 }
 
 pub(super) fn tee(context: &mut CommandContext<'_>) -> CommandOutput {

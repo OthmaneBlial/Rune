@@ -81,6 +81,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "du"
             | "egrep"
             | "expr"
+            | "file"
             | "find"
             | "fgrep"
             | "grep"
@@ -4707,6 +4708,48 @@ mod tests {
         assert_eq!(session.execute_line("setenv TEMP value").status, 0);
         assert_eq!(session.execute_line("unsetenv TEMP").status, 0);
         assert_eq!(session.execute_line("printenv TEMP").status, 1);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn identifies_bounded_vfs_file_types_and_stdin() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        session
+            .write_file("text.txt", b"hello\n")
+            .expect("text fixture written");
+        session
+            .write_file("binary.bin", &[0, 0xff, 1])
+            .expect("binary fixture written");
+        session
+            .write_file("archive.zip", b"PK\x03\x04fixture")
+            .expect("archive fixture written");
+        session
+            .write_file("module.wasm", b"\0asm\x01\0\0\0")
+            .expect("WASM fixture written");
+        assert_eq!(session.execute_line("mkdir empty-dir").status, 0);
+        assert_eq!(session.execute_line("touch empty-file").status, 0);
+        assert_eq!(
+            session.execute_line("file text.txt binary.bin").stdout,
+            "text.txt: ASCII text\nbinary.bin: data\n"
+        );
+        assert_eq!(
+            session
+                .execute_line("file -b --mime-type archive.zip")
+                .stdout,
+            "application/zip\n"
+        );
+        assert_eq!(
+            session
+                .execute_line("file -b text.txt empty-dir empty-file module.wasm")
+                .stdout,
+            "ASCII text\ndirectory\nempty\nWebAssembly binary\n"
+        );
+        assert_eq!(
+            session.execute_line("printf 'stdin\\n' | file -").stdout,
+            "-: ASCII text\n"
+        );
+        assert_eq!(session.execute_line("file missing.txt text.txt").status, 1);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

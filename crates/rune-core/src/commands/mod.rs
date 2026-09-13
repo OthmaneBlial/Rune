@@ -168,6 +168,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::false_command,
     },
     CommandDefinition {
+        name: "file",
+        summary: "identify bounded VFS files without host libmagic",
+        handler: utilities::file,
+    },
+    CommandDefinition {
         name: "find",
         summary: "walk the bounded filesystem tree",
         handler: filesystem::find,

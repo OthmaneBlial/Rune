@@ -35,7 +35,7 @@ working iOS application or a feature-parity claim.
 The first Rust vertical slice is implemented and locally verified. It executes
 the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum`, `curl`, `date`, `echo`, `expr`, `jsc`, `lua`, `python3`, `md5`, `mkdir`,
 `touch`, `mktemp`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
-`setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`, `unlink`, `tee`, `tr`, `xxd`,
+`setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `file`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
 `true`, `false`, `ar`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`, `type`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
@@ -70,6 +70,10 @@ whole-file unified view, returning status 0 when equal, 1 when different, and
 2 when input, comparison size, or usage bounds are rejected.
 `sort` supports bounded lexical or integer-prefix ordering with `-n`, reverse
 ordering with `-r`, and adjacent-result deduplication with `-u`.
+`file` identifies bounded VFS entries and stdin using a small Rust-owned magic
+surface for directories, empty/text/binary data, ELF, WebAssembly, gzip, ZIP,
+and USTAR; `-b` omits the input label and `--mime-type` returns the bounded MIME
+classification. It is not a `libmagic` replacement.
 `awk` provides a Rust-owned bounded text-processing subset: `-F` field
 separators, `$0`/`$1...`, `NF`/`NR`/`FNR`, `print`, `FS`/`OFS` assignments,
 `BEGIN`/`END`, regular-expression `/.../` filters, simple equality, and
@@ -437,6 +441,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded regular-expression and fixed-string `grep` modes
 - [x] Bounded numeric, reverse, and unique `sort` options
 - [x] Bounded `type` command discovery
+- [x] Bounded Rust-owned `file` identification utility
 
 ### Phase 3 — Developer environment
 

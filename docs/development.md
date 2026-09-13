@@ -70,6 +70,9 @@ outside the bounded surface.
 directory creation, and rejection of insecure `-u` mode;
 the command remains a bounded subset rather than full platform-specific
 `mktemp` compatibility.
+`file` tests cover VFS directories, empty/text/binary data, common archive and
+WASM magic prefixes, stdin, brief output, MIME output, and per-file failures;
+full `libmagic` database compatibility remains outside the profile.
 MD5 tests cover standard stdin/file vectors and invalid operand counts; the
 digest is compatibility evidence, not security evidence.
 `expr` tests cover precedence, comparisons, bounded text operations, division
