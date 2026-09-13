@@ -128,6 +128,26 @@ pub extern "C" fn rune_session_history(handle: *const std::ffi::c_void) -> *mut 
     into_owned_c_string(&history)
 }
 
+/// Returns the registered built-in command names as a newline-separated owned
+/// string. The names are metadata for native completion and do not imply that
+/// Rune can execute arbitrary host commands.
+#[no_mangle]
+pub extern "C" fn rune_session_commands(handle: *const std::ffi::c_void) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the pointer is read-only and owned by the Swift session.
+    let session = unsafe { &*handle.cast::<RuneSession>() };
+    let mut commands: Vec<&str> = session
+        .core
+        .commands()
+        .iter()
+        .map(|definition| definition.name)
+        .collect();
+    commands.sort_unstable();
+    into_owned_c_string(&commands.join("\n"))
+}
+
 /// Releases a string returned by Rune's C ABI.
 ///
 /// # Safety
@@ -146,8 +166,8 @@ pub unsafe extern "C" fn rune_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::{
-        rune_session_current_directory, rune_session_destroy, rune_session_execute,
-        rune_session_new, rune_string_free,
+        rune_session_commands, rune_session_current_directory, rune_session_destroy,
+        rune_session_execute, rune_session_new, rune_string_free,
     };
     use std::ffi::{CStr, CString};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -178,6 +198,12 @@ mod tests {
             rune_string_free(output.stdout);
             rune_string_free(output.stderr);
         }
+        let commands = rune_session_commands(handle);
+        let command_names = c_string(commands);
+        assert!(command_names.lines().any(|name| name == "echo"));
+        assert!(command_names.lines().any(|name| name == "export"));
+        // SAFETY: commands was returned by rune_session_commands.
+        unsafe { rune_string_free(commands) };
         let change_directory = CString::new("mkdir sub && cd sub").expect("valid command");
         let output = rune_session_execute(handle, change_directory.as_ptr());
         assert_eq!(output.status, 0);

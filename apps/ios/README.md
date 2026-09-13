@@ -21,8 +21,10 @@ credential-bearing workflows are treated as safe.
 - `Package.swift` is a source/package boundary.
 - `RuneFFI.h` documents the C ABI layout.
 - `RuneCoreBridge.swift` owns and frees Rust session handles/strings.
+- The bridge receives the Rust built-in command registry for first-word
+  suggestions; it does not advertise arbitrary host executables.
 - `RuneTerminalView.swift` renders stdout, stderr, and non-zero exit status
-  separately.
+  separately and applies the Rust-backed first-word suggestions.
 - `swiftc -parse` and `swift package dump-package` pass with the already
   available Swift toolchain; the full package build is not used as evidence.
 - iOS compilation, simulator behavior, device behavior, and linking are

@@ -28,6 +28,7 @@ public final class RuneTerminalModel: ObservableObject {
 
     private let session: RuneFFISession?
     private var history: [String] = []
+    private var commandNames: [String] = []
     private var historyCursor: Int?
 
     public init(rootURL: URL? = nil) {
@@ -41,6 +42,7 @@ public final class RuneTerminalModel: ObservableObject {
             session = try RuneFFISession(rootURL: root)
             currentDirectory = session?.currentDirectory ?? "~"
             history = session?.history() ?? []
+            commandNames = session?.commands() ?? []
         } catch {
             session = nil
             initializationError = error.localizedDescription
@@ -88,6 +90,26 @@ public final class RuneTerminalModel: ObservableObject {
             historyCursor = next
             command = history[next]
         }
+    }
+
+    public var completionCandidates: [String] {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !trimmed.contains(where: { character in
+                  character.isWhitespace || "|;&<>".contains(character)
+              })
+        else {
+            return []
+        }
+        return commandNames
+            .filter { $0.hasPrefix(trimmed) && $0 != trimmed }
+            .prefix(8)
+            .map { $0 }
+    }
+
+    public func applyCompletion(_ candidate: String) {
+        let leadingWhitespace = String(command.prefix(while: { $0.isWhitespace }))
+        command = "\(leadingWhitespace)\(candidate) "
     }
 }
 
@@ -144,6 +166,23 @@ public struct RuneTerminalView: View {
                             proxy.scrollTo(last.id, anchor: .bottom)
                         }
                     }
+                }
+            }
+
+            if !model.completionCandidates.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(model.completionCandidates, id: \.self) { candidate in
+                            Button(candidate) {
+                                model.applyCompletion(candidate)
+                            }
+                            .buttonStyle(.bordered)
+                            .font(.system(size: 13, design: .monospaced))
+                            .accessibilityLabel("Complete with \(candidate)")
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
                 }
             }
 

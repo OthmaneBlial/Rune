@@ -24,8 +24,8 @@ working iOS application or a feature-parity claim.
 | Sandboxed filesystem | 35% |
 | Sessions/history | 25% |
 | WASM | 0% |
-| Native iOS UI | 5% |
-| Swift/Rust bridge | 4% |
+| Native iOS UI | 7% |
+| Swift/Rust bridge | 6% |
 | Package manager | 0% |
 | Compatibility evidence | 2% |
 
@@ -37,7 +37,8 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `true`, `false`, `clear`, `help`, and `history` against a bounded filesystem,
 with quotes, variables, pipes, redirections, sequencing, separate
 stdout/stderr, and exit status. Environment changes are session-local and are
-not serialized. The iOS app is represented by
+not serialized. The native source UI now receives the Rust command registry and
+offers first-word command suggestions. The iOS app is represented by
 source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
 and runtime gates remain unverified. Bounded current-directory/history
 persistence now exists in Rust; configuration/redaction and broader session
@@ -106,7 +107,7 @@ git check-ignore -v base/a-shell
 - [ ] WASM runtime boundary and resource limits
 - [ ] Package metadata and verification
 - [ ] Python, JavaScript, and Lua runtime evaluation
-- [ ] Completion and help system
+- [ ] Completion and help system (initial first-word suggestions exist)
 
 ### Phase 4 — Apple integration
 
