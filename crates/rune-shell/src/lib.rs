@@ -12,9 +12,11 @@ pub enum WordPart {
     Literal(String),
     /// An environment variable reference such as `$HOME` or `${HOME}`.
     Variable(String),
+    /// An unquoted pathname wildcard. Quoted `*` and `?` remain literals.
+    Wildcard(char),
 }
 
-/// A shell word, preserving enough information to expand variables later.
+/// A shell word, preserving enough information for later expansion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Word {
     parts: Vec<WordPart>,
@@ -38,7 +40,7 @@ impl Word {
         for part in &self.parts {
             match part {
                 WordPart::Literal(text) => value.push_str(text),
-                WordPart::Variable(_) => return None,
+                WordPart::Variable(_) | WordPart::Wildcard(_) => return None,
             }
         }
         Some(value)
@@ -160,6 +162,10 @@ fn append_literal(parts: &mut Vec<WordPart>, text: impl Into<String>) {
 
 fn push_variable(parts: &mut Vec<WordPart>, name: String) {
     parts.push(WordPart::Variable(name));
+}
+
+fn push_wildcard(parts: &mut Vec<WordPart>, wildcard: char) {
+    parts.push(WordPart::Wildcard(wildcard));
 }
 
 fn parse_variable(input: &[char], index: &mut usize) -> Result<Option<String>, ParseError> {
@@ -298,6 +304,10 @@ pub fn tokenize(input: &str) -> Result<Vec<(Token, Option<Word>)>, ParseError> {
                     } else {
                         append_literal(&mut parts, "$".to_string());
                     }
+                    started = true;
+                    index += 1;
+                } else if matches!(character, '*' | '?') {
+                    push_wildcard(&mut parts, character);
                     started = true;
                     index += 1;
                 } else {
@@ -520,6 +530,22 @@ mod tests {
         assert_eq!(
             tokens[3].1.as_ref().expect("expanded argument").parts(),
             &[WordPart::Variable("HOME".to_string())]
+        );
+    }
+
+    #[test]
+    fn keeps_quoted_wildcards_literal_and_marks_unquoted_wildcards() {
+        let tokens = tokenize(r#"echo "*.rs" *.rs"#).expect("valid command");
+        assert_eq!(
+            tokens[1].1.as_ref().expect("quoted pattern").parts(),
+            &[WordPart::Literal("*.rs".to_string())]
+        );
+        assert_eq!(
+            tokens[2].1.as_ref().expect("unquoted pattern").parts(),
+            &[
+                WordPart::Wildcard('*'),
+                WordPart::Literal(".rs".to_string())
+            ]
         );
     }
 

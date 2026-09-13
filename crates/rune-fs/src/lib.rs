@@ -78,6 +78,8 @@ pub trait VirtualFileSystem {
     fn change_dir(&mut self, input: &str) -> Result<(), FsError>;
     fn metadata(&self, input: &str) -> Result<FileInfo, FsError>;
     fn list(&self, input: Option<&str>) -> Result<Vec<FileEntry>, FsError>;
+    /// Expands unquoted `*` and `?` patterns while preserving the sandbox.
+    fn glob(&self, input: &str) -> Result<Vec<String>, FsError>;
     fn read(&self, input: &str) -> Result<Vec<u8>, FsError>;
     fn write(&self, input: &str, content: &[u8], append: bool) -> Result<(), FsError>;
     fn make_directory(&self, input: &str, parents: bool) -> Result<(), FsError>;
@@ -254,6 +256,131 @@ impl SandboxedFileSystem {
     }
 }
 
+#[derive(Debug)]
+struct GlobCandidate {
+    physical: PathBuf,
+    virtual_path: String,
+}
+
+fn append_virtual_path(prefix: &str, component: &str) -> String {
+    if prefix.is_empty() || prefix.ends_with('/') {
+        format!("{prefix}{component}")
+    } else {
+        format!("{prefix}/{component}")
+    }
+}
+
+fn wildcard_match(pattern: &str, value: &str) -> bool {
+    let pattern: Vec<char> = pattern.chars().collect();
+    let value: Vec<char> = value.chars().collect();
+    let mut memo = vec![vec![None; value.len() + 1]; pattern.len() + 1];
+
+    wildcard_match_at(&pattern, &value, 0, 0, &mut memo)
+}
+
+fn wildcard_match_at(
+    pattern: &[char],
+    value: &[char],
+    pattern_index: usize,
+    value_index: usize,
+    memo: &mut [Vec<Option<bool>>],
+) -> bool {
+    if let Some(result) = memo[pattern_index][value_index] {
+        return result;
+    }
+
+    let result = if pattern_index == pattern.len() {
+        value_index == value.len()
+    } else {
+        match pattern[pattern_index] {
+            '*' => {
+                wildcard_match_at(pattern, value, pattern_index + 1, value_index, memo)
+                    || (value_index < value.len()
+                        && wildcard_match_at(pattern, value, pattern_index, value_index + 1, memo))
+            }
+            '?' => {
+                value_index < value.len()
+                    && wildcard_match_at(pattern, value, pattern_index + 1, value_index + 1, memo)
+            }
+            character => {
+                value.get(value_index) == Some(&character)
+                    && wildcard_match_at(pattern, value, pattern_index + 1, value_index + 1, memo)
+            }
+        }
+    };
+    memo[pattern_index][value_index] = Some(result);
+    result
+}
+
+fn expand_glob_component(
+    filesystem: &SandboxedFileSystem,
+    candidates: Vec<GlobCandidate>,
+    pattern: &str,
+    input: &str,
+) -> Result<Vec<GlobCandidate>, FsError> {
+    let has_wildcard = pattern
+        .chars()
+        .any(|character| matches!(character, '*' | '?'));
+    let mut next = Vec::new();
+    for candidate in candidates {
+        if has_wildcard {
+            let metadata = match fs::symlink_metadata(&candidate.physical) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(SandboxedFileSystem::io_error(
+                        "glob",
+                        Path::new(&candidate.virtual_path),
+                        &error,
+                    ));
+                }
+            };
+            if !metadata.is_dir() {
+                continue;
+            }
+            for entry in fs::read_dir(&candidate.physical).map_err(|error| {
+                SandboxedFileSystem::io_error("glob", Path::new(&candidate.virtual_path), &error)
+            })? {
+                let entry = entry.map_err(|error| {
+                    SandboxedFileSystem::io_error(
+                        "glob",
+                        Path::new(&candidate.virtual_path),
+                        &error,
+                    )
+                })?;
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.starts_with('.') && !pattern.starts_with('.') {
+                    continue;
+                }
+                if !wildcard_match(pattern, &name) {
+                    continue;
+                }
+                let physical = entry.path();
+                filesystem
+                    .ensure_inside(&physical, input)
+                    .map_err(|error| SandboxedFileSystem::reframe(error, input))?;
+                next.push(GlobCandidate {
+                    physical,
+                    virtual_path: append_virtual_path(&candidate.virtual_path, &name),
+                });
+            }
+        } else {
+            let physical = candidate.physical.join(pattern);
+            if !physical.exists() {
+                continue;
+            }
+            filesystem
+                .ensure_inside(&physical, input)
+                .map_err(|error| SandboxedFileSystem::reframe(error, input))?;
+            next.push(GlobCandidate {
+                physical,
+                virtual_path: append_virtual_path(&candidate.virtual_path, pattern),
+            });
+        }
+    }
+    Ok(next)
+}
+
 impl VirtualFileSystem for SandboxedFileSystem {
     fn current_dir_display(&self) -> String {
         self.display_path(&self.current_dir)
@@ -312,6 +439,64 @@ impl VirtualFileSystem for SandboxedFileSystem {
         }
         entries.sort_by(|left, right| left.name.cmp(&right.name));
         Ok(entries)
+    }
+
+    fn glob(&self, input: &str) -> Result<Vec<String>, FsError> {
+        if input.is_empty() {
+            return Err(FsError::InvalidPath("empty path".to_string()));
+        }
+        let (base, prefix, relative_input) = if input == "~" {
+            (&self.root, "", "")
+        } else if let Some(path) = input.strip_prefix("~/") {
+            (&self.root, "~/", path)
+        } else if input.starts_with('~') {
+            return Err(FsError::InvalidPath(
+                "only the current user's ~ home is supported".to_string(),
+            ));
+        } else if let Some(path) = input.strip_prefix('/') {
+            (&self.root, "/", path)
+        } else {
+            (&self.current_dir, "", input)
+        };
+
+        let mut candidates = vec![GlobCandidate {
+            physical: base.clone(),
+            virtual_path: prefix.to_string(),
+        }];
+        for component in Path::new(relative_input).components() {
+            match component {
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    for candidate in &mut candidates {
+                        if candidate.physical == self.root || !candidate.physical.pop() {
+                            return Err(FsError::OutsideSandbox(input.to_string()));
+                        }
+                        candidate.virtual_path = append_virtual_path(&candidate.virtual_path, "..");
+                        self.ensure_inside(&candidate.physical, input)
+                            .map_err(|error| Self::reframe(error, input))?;
+                    }
+                }
+                Component::Normal(part) => {
+                    let pattern = part.to_string_lossy().into_owned();
+                    candidates = expand_glob_component(self, candidates, &pattern, input)?;
+                }
+                Component::RootDir | Component::Prefix(_) => {
+                    return Err(FsError::InvalidPath(input.to_string()));
+                }
+            }
+        }
+
+        let mut matches = candidates
+            .into_iter()
+            .map(|candidate| candidate.virtual_path)
+            .collect::<Vec<_>>();
+        matches.sort();
+        matches.dedup();
+        if matches.is_empty() {
+            Ok(vec![input.to_string()])
+        } else {
+            Ok(matches)
+        }
     }
 
     fn read(&self, input: &str) -> Result<Vec<u8>, FsError> {
@@ -488,6 +673,29 @@ mod tests {
         fs.change_dir("-").expect("previous directory restored");
         assert_eq!(fs.current_dir_display(), "~");
         fs.remove("work", true, false).expect("directory removed");
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn expands_bounded_wildcards_without_matching_hidden_entries_by_default() {
+        let root = test_root();
+        let fs = SandboxedFileSystem::new(&root).expect("root created");
+        std::fs::write(root.join("alpha.txt"), b"alpha").expect("alpha written");
+        std::fs::write(root.join("beta.txt"), b"beta").expect("beta written");
+        std::fs::write(root.join(".hidden.txt"), b"hidden").expect("hidden written");
+
+        assert_eq!(
+            fs.glob("*.txt").expect("glob expanded"),
+            ["alpha.txt", "beta.txt"]
+        );
+        assert_eq!(
+            fs.glob(".hidden*").expect("hidden glob expanded"),
+            [".hidden.txt"]
+        );
+        assert_eq!(
+            fs.glob("missing*").expect("unmatched glob preserved"),
+            ["missing*"]
+        );
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 }

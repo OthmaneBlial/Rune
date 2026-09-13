@@ -279,12 +279,19 @@ impl Session {
     }
 
     fn execute_command(&mut self, command: &CommandPlan, external_stdin: &str) -> CommandOutput {
-        let program = expand_word(&command.program, &self.environment, self.last_status);
-        let arguments: Vec<String> = command
-            .arguments
-            .iter()
-            .map(|word| expand_word(word, &self.environment, self.last_status))
-            .collect();
+        let program = expand_word(&command.program, &self.environment, self.last_status).value;
+        let mut arguments = Vec::new();
+        for word in &command.arguments {
+            let expanded = expand_word(word, &self.environment, self.last_status);
+            if expanded.has_wildcard {
+                match self.filesystem.glob(&expanded.value) {
+                    Ok(matches) => arguments.extend(matches),
+                    Err(error) => return fs_failure(&program, &error),
+                }
+            } else {
+                arguments.push(expanded.value);
+            }
+        }
         let mut stdin = external_stdin.to_string();
         let mut stdout_redirect = None;
         let mut stderr_redirect = None;
@@ -292,7 +299,7 @@ impl Session {
         for redirection in &command.redirections {
             let (path, append) = match redirection {
                 Redirection::Stdin { path } => {
-                    let path = expand_word(path, &self.environment, self.last_status);
+                    let path = expand_word(path, &self.environment, self.last_status).value;
                     match self.filesystem.read(&path) {
                         Ok(content) => stdin = String::from_utf8_lossy(&content).into_owned(),
                         Err(error) => {
@@ -305,7 +312,7 @@ impl Session {
                     (path, *append)
                 }
             };
-            let path = expand_word(path, &self.environment, self.last_status);
+            let path = expand_word(path, &self.environment, self.last_status).value;
             match redirection {
                 Redirection::Stdout { .. } => stdout_redirect = Some((path, append)),
                 Redirection::Stderr { .. } => stderr_redirect = Some((path, append)),
@@ -353,20 +360,37 @@ impl Session {
     }
 }
 
-fn expand_word(word: &Word, environment: &BTreeMap<String, String>, last_status: i32) -> String {
-    let mut expanded = String::new();
+struct ExpandedWord {
+    value: String,
+    has_wildcard: bool,
+}
+
+fn expand_word(
+    word: &Word,
+    environment: &BTreeMap<String, String>,
+    last_status: i32,
+) -> ExpandedWord {
+    let mut value = String::new();
+    let mut has_wildcard = false;
     for part in word.parts() {
         match part {
-            WordPart::Literal(value) => expanded.push_str(value),
-            WordPart::Variable(name) if name == "?" => expanded.push_str(&last_status.to_string()),
+            WordPart::Literal(text) => value.push_str(text),
+            WordPart::Variable(name) if name == "?" => value.push_str(&last_status.to_string()),
             WordPart::Variable(name) => {
-                if let Some(value) = environment.get(name) {
-                    expanded.push_str(value);
+                if let Some(variable_value) = environment.get(name) {
+                    value.push_str(variable_value);
                 }
+            }
+            WordPart::Wildcard(wildcard) => {
+                value.push(*wildcard);
+                has_wildcard = true;
             }
         }
     }
-    expanded
+    ExpandedWord {
+        value,
+        has_wildcard,
+    }
 }
 
 fn history_entry(line: &str) -> String {
@@ -538,6 +562,8 @@ mod tests {
             "      1 beta\n      1 alpha\n      1 beta\n"
         );
         assert_eq!(session.execute_line("wc -l lines.txt").stdout, "3\n");
+        assert_eq!(session.execute_line("echo *.txt").stdout, "lines.txt\n");
+        assert_eq!(session.execute_line("echo \"*.txt\"").stdout, "*.txt\n");
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

@@ -64,6 +64,11 @@ file commands and never delegate to a host shell. Their option surfaces are
 deliberately smaller than POSIX utilities until compatibility tests justify
 expanding them.
 
+Unquoted `*` and `?` are expanded by `rune-core` through the VFS `glob` method;
+quoted patterns remain literal, hidden entries require a leading `.`, and an
+unmatched pattern remains a literal argument. The VFS validates every matched
+candidate against its canonical root before returning it.
+
 Apple source integration will be added without installing a new Xcode or
 simulator footprint. Until an existing Apple toolchain is explicitly used,
 Swift compilation and runtime behavior remain unverified gates rather than

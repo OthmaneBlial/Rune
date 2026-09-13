@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 13%**
+**Overall progress: 15%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -19,9 +19,9 @@ working iOS application or a feature-parity claim.
 | Area | Progress |
 |---|---:|
 | Rust workspace | 70% |
-| Shell tokenizer/parser | 45% |
-| Command runtime | 48% |
-| Sandboxed filesystem | 35% |
+| Shell tokenizer/parser | 52% |
+| Command runtime | 52% |
+| Sandboxed filesystem | 43% |
 | Sessions/history | 32% |
 | WASM | 0% |
 | Native iOS UI | 9% |
@@ -35,7 +35,8 @@ The first Rust vertical slice is implemented and locally verified. It executes
 the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `printenv`, `setenv`,
 `true`, `false`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `clear`, `help`,
-and `history` against a bounded filesystem,
+and `history` against a bounded filesystem, including basic `*`/`?` pathname
+expansion with quote and hidden-file rules,
 with quotes, variables, pipes, redirections, sequencing, separate
 stdout/stderr, and exit status. Environment changes are session-local and are
 not serialized. A bounded `~/.rune_profile` is loaded on restore; its supported
@@ -110,6 +111,7 @@ git check-ignore -v base/a-shell
 - [x] Built-in file commands
 - [x] Bounded session/history persistence and startup profile
 - [x] Pipes and redirections
+- [x] Basic bounded pathname expansion
 
 ### Phase 3 — Developer environment
 
