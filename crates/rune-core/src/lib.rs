@@ -27,6 +27,10 @@ const MAX_COMMAND_INPUT_BYTES: usize = 64 * 1024;
 const MAX_INSTALLED_COMMANDS: usize = 4_096;
 const MAX_SCRIPT_BYTES: usize = 256 * 1024;
 const MAX_SCRIPT_LINES: usize = 1_024;
+const MAX_BOOKMARKS: usize = 256;
+const MAX_BOOKMARK_NAME_CHARS: usize = 64;
+const MAX_BOOKMARK_PATH_BYTES: usize = 64 * 1024;
+const MAX_BOOKMARK_BYTES: usize = 256 * 1024;
 const OUTPUT_TRUNCATION_MARKER: &str = "\n[rune: output truncated at 1048576 bytes]\n";
 pub(crate) const PACKAGE_INSTALL_ROOT: &str = "~/.rune/packages";
 
@@ -917,8 +921,9 @@ fn package_runtime_failure(command: &str, error: &rune_package::PackageError) ->
 #[cfg(test)]
 mod tests {
     use super::{
-        persistence::MAX_HISTORY_BYTES, Session, MAX_COMMAND_INPUT_BYTES, MAX_OUTPUT_BYTES,
-        MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES, OUTPUT_TRUNCATION_MARKER,
+        persistence::MAX_HISTORY_BYTES, Session, MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS,
+        MAX_COMMAND_INPUT_BYTES, MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES,
+        OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -1222,6 +1227,29 @@ mod tests {
                 <= u64::try_from(MAX_HISTORY_BYTES + 64).expect("history size fits in u64")
         );
 
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn bounds_session_bookmarks_by_count_and_name_size() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        for index in 0..MAX_BOOKMARKS {
+            assert_eq!(
+                session
+                    .execute_line(&format!("bookmark mark{index}"))
+                    .status,
+                0
+            );
+        }
+        let too_many = session.execute_line("bookmark overflow");
+        assert_eq!(too_many.status, 1);
+        assert!(too_many.stderr.contains("maximum of 256 bookmarks"));
+        assert_eq!(session.bookmarks().len(), MAX_BOOKMARKS);
+
+        let long_name = format!("bookmark {}", "x".repeat(MAX_BOOKMARK_NAME_CHARS + 1));
+        assert_eq!(session.execute_line(&long_name).status, 2);
+        assert_eq!(session.bookmarks().len(), MAX_BOOKMARKS);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

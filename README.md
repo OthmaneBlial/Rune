@@ -104,6 +104,8 @@ The portable core also supports session-local virtual directory bookmarks with
 They persist with the session state and remain confined to the configured VFS;
 external folders and security-scoped bookmark resolution are still Apple-side
 work.
+Bookmark names are limited to 64 characters, a session holds at most 256
+bookmarks, and serialized bookmark data is limited to 256 KiB.
 
 Directory changes update the Rust-owned `PWD` and `OLDPWD` values. `cd -`
 returns to the previous directory and prints the resulting virtual path, while

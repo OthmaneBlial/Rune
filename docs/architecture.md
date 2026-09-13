@@ -60,8 +60,9 @@ inside quotes, or escaped remain literal, so startup profiles can use ordinary
 comments without weakening argument handling.
 
 Session persistence is explicit and intentionally narrow: `~/.rune/session.state`
-stores the virtual working directory and command history, while environment
-variables are reconstructed for every session and are never serialized. The
+stores the virtual working directory, command history, and bounded bookmarks,
+while environment variables are reconstructed for every session and are never
+serialized. The
 current shell environment can be changed by the Rust `export`, `unset`, and
 `setenv` built-ins, or by leading `NAME=value` assignments. Directory changes
 maintain `PWD` and `OLDPWD`; `cd -` returns to the previous virtual directory
@@ -162,9 +163,11 @@ delegating formatting to a host shell.
 Session-local virtual bookmarks are stored as validated names mapped to Rune
 virtual directories. `bookmark`, `showmarks`, `jump`, `renamemark`, and
 `deletemark` mutate or inspect that map; `cd ~NAME` resolves an existing mark
-before asking the VFS to change directory. The map is persisted with the
-bounded session state. It is not an Apple security-scoped bookmark and cannot
-grant access outside the configured VFS.
+before asking the VFS to change directory. Names are limited to 64 characters,
+each session holds at most 256 marks, and serialized bookmark data is limited
+to 256 KiB. The map is persisted with the bounded session state. It is not an
+Apple security-scoped bookmark and cannot grant access outside the configured
+VFS.
 
 The `wasm MODULE [arg ...]` built-in reads the module through the virtual
 filesystem and invokes WASI preview1 `_start` in the Rust runtime. The guest

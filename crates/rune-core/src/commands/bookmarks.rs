@@ -1,6 +1,9 @@
 use std::fmt::Write as _;
 
-use crate::{fs_failure, usage, CommandContext, CommandOutput};
+use crate::{
+    fs_failure, usage, CommandContext, CommandOutput, MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS,
+    MAX_BOOKMARK_PATH_BYTES,
+};
 
 pub(super) fn bookmark(context: &mut CommandContext<'_>) -> CommandOutput {
     if context.args.len() != 1 {
@@ -11,6 +14,20 @@ pub(super) fn bookmark(context: &mut CommandContext<'_>) -> CommandOutput {
         return invalid_name("bookmark", name);
     }
     let path = context.fs.current_dir_display();
+    if path.len() > MAX_BOOKMARK_PATH_BYTES {
+        return CommandOutput::failure(
+            1,
+            format!(
+                "bookmark: current directory exceeds the {MAX_BOOKMARK_PATH_BYTES}-byte limit\n"
+            ),
+        );
+    }
+    if !context.bookmarks.contains_key(name) && context.bookmarks.len() >= MAX_BOOKMARKS {
+        return CommandOutput::failure(
+            1,
+            format!("bookmark: maximum of {MAX_BOOKMARKS} bookmarks reached\n"),
+        );
+    }
     context.bookmarks.insert(name.clone(), path);
     CommandOutput::success("")
 }
@@ -113,6 +130,7 @@ fn invalid_name(command: &str, name: &str) -> CommandOutput {
 
 pub(super) fn is_valid_bookmark_name(name: &str) -> bool {
     !name.is_empty()
+        && name.chars().count() <= MAX_BOOKMARK_NAME_CHARS
         && name.chars().all(|character| {
             character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
         })

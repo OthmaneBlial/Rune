@@ -2,12 +2,14 @@ use std::collections::BTreeMap;
 
 use rune_fs::{FsError, VirtualFileSystem};
 
+use super::{MAX_BOOKMARKS, MAX_BOOKMARK_BYTES};
+
 const STATE_DIRECTORY: &str = "~/.rune";
 const STATE_PATH: &str = "~/.rune/session.state";
 const STATE_HEADER: &str = "RUNE_SESSION_STATE_V1";
 pub(super) const MAX_HISTORY_ENTRIES: usize = 10_000;
 pub(super) const MAX_HISTORY_BYTES: usize = 4 * 1024 * 1024;
-const MAX_SESSION_STATE_BYTES: usize = MAX_HISTORY_BYTES + 256 * 1024;
+const MAX_SESSION_STATE_BYTES: usize = MAX_HISTORY_BYTES + MAX_BOOKMARK_BYTES + 1_024;
 pub(super) const PROFILE_PATH: &str = "~/.rune_profile";
 const PROFILE_LIMIT: usize = 64 * 1024;
 
@@ -42,6 +44,13 @@ pub(super) fn save(
         Err(error) => return Err(error),
     }
     let content = serialize(current_directory, history, bookmarks);
+    if content.len() > MAX_SESSION_STATE_BYTES {
+        return Err(FsError::Io {
+            operation: "serialize session".to_string(),
+            path: STATE_PATH.to_string(),
+            message: format!("session state exceeds the {MAX_SESSION_STATE_BYTES}-byte limit"),
+        });
+    }
     filesystem.write(STATE_PATH, content.as_bytes(), false)
 }
 
@@ -93,11 +102,22 @@ fn serialize(
         content.push_str(escaped);
         content.push('\n');
     }
-    for (name, path) in bookmarks {
+    let mut bookmark_bytes = 0_usize;
+    for (index, (name, path)) in bookmarks.iter().enumerate() {
+        if index >= MAX_BOOKMARKS {
+            break;
+        }
+        let escaped_name = escape(name);
+        let escaped_path = escape(path);
+        let record_bytes = "bookmark=".len() + escaped_name.len() + 1 + escaped_path.len() + 1;
+        if bookmark_bytes.saturating_add(record_bytes) > MAX_BOOKMARK_BYTES {
+            break;
+        }
+        bookmark_bytes += record_bytes;
         content.push_str("bookmark=");
-        content.push_str(&escape(name));
+        content.push_str(&escaped_name);
         content.push('\t');
-        content.push_str(&escape(path));
+        content.push_str(&escaped_path);
         content.push('\n');
     }
     content
@@ -113,6 +133,7 @@ fn parse(content: &str) -> Option<SessionState> {
     }
     let mut state = SessionState::default();
     let mut history_bytes = 0_usize;
+    let mut bookmark_bytes = 0_usize;
     for line in lines {
         let (key, raw_value) = line.split_once('=')?;
         match key {
@@ -128,6 +149,14 @@ fn parse(content: &str) -> Option<SessionState> {
                 state.history.push(unescape(raw_value)?);
             }
             "bookmark" => {
+                if state.bookmarks.len() >= MAX_BOOKMARKS {
+                    return None;
+                }
+                let record_bytes = "bookmark=".len() + raw_value.len() + 1;
+                if bookmark_bytes.saturating_add(record_bytes) > MAX_BOOKMARK_BYTES {
+                    return None;
+                }
+                bookmark_bytes += record_bytes;
                 let (raw_name, raw_path) = raw_value.split_once('\t')?;
                 let name = unescape(raw_name)?;
                 let path = unescape(raw_path)?;
@@ -197,7 +226,7 @@ fn unescape(value: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse, serialize, MAX_HISTORY_BYTES};
+    use super::{parse, serialize, MAX_BOOKMARK_BYTES, MAX_HISTORY_BYTES};
     use std::collections::BTreeMap;
 
     #[test]
@@ -235,5 +264,22 @@ mod tests {
         let state = parse(&content).expect("bounded state should remain valid");
         assert!(state.history.len() < commands.len());
         assert_eq!(state.history.last(), commands.last());
+    }
+
+    #[test]
+    fn bounds_serialized_bookmarks_by_count_and_bytes() {
+        let bookmarks = (0..512)
+            .map(|index| {
+                (
+                    format!("mark{index:03}"),
+                    format!("~/{}", "x".repeat(1_024 + index % 8)),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let content = serialize("~", &[], &bookmarks);
+        assert!(content.len() <= MAX_HISTORY_BYTES + MAX_BOOKMARK_BYTES + 64);
+        let state = parse(&content).expect("bounded state should remain valid");
+        assert!(state.bookmarks.len() < bookmarks.len());
+        assert!(state.bookmarks.contains_key("mark000"));
     }
 }
