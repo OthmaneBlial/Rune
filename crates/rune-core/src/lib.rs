@@ -65,9 +65,11 @@ fn supports_path_completion(command: &str) -> bool {
             | "tail"
             | "tee"
             | "touch"
+            | "unzip"
             | "unlink"
             | "wasm"
             | "xxd"
+            | "zip"
             | "."
     )
 }
@@ -1286,6 +1288,45 @@ mod tests {
             .write_file("transfer/too-large", &oversized)
             .is_err());
         assert!(!root.join("transfer/too-large").exists());
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn creates_and_extracts_a_bounded_stored_zip_archive() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("mkdir -p source/nested").status, 0);
+        assert_eq!(
+            session
+                .execute_line("echo archive-data > source/nested/note.txt")
+                .status,
+            0
+        );
+        assert_eq!(session.execute_line("touch source/empty.txt").status, 0);
+        let created = session.execute_line("zip -r bundle.zip source");
+        assert_eq!(created.status, 0);
+        assert!(created.stdout.contains("4 entries"));
+        assert!(root.join("bundle.zip").exists());
+
+        assert_eq!(session.execute_line("rm -r source").status, 0);
+        let extracted = session.execute_line("unzip bundle.zip restored");
+        assert_eq!(extracted.status, 0);
+        assert_eq!(
+            session
+                .execute_line("cat restored/source/nested/note.txt")
+                .stdout,
+            "archive-data\n"
+        );
+        assert_eq!(
+            session
+                .execute_line("stat restored/source/empty.txt")
+                .status,
+            0
+        );
+        assert_eq!(
+            session.execute_line("unzip bundle.zip ../outside").status,
+            1
+        );
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

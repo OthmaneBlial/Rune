@@ -241,6 +241,15 @@ path-unsafe package versions. Declared file bytes are checked with SHA-256
 before the local installer accepts them.
 This is integrity evidence, not a signature or publisher-trust system; signed
 repositories and installation policy remain future work.
+
+The archive command layer implements a deliberately narrow ZIP32 profile. ZIP
+creation writes stored UTF-8 entries and CRC32 values through the VFS; recursive
+directory traversal is bounded to 10,000 entries and the complete archive to
+64 MiB. Extraction reads the central directory, rejects encryption,
+compression, data descriptors, multi-disk records, duplicate names, absolute
+paths, and dot or parent components, then verifies each local entry's name,
+bounds, and CRC before writing it into the confined destination. ZIP64,
+compression, and broad external compatibility are not claimed.
 The `pkg info` and `pkg verify` built-ins expose only local manifest inspection
 and verification through the VFS. `pkg info NAME [VERSION]` can also resolve
 an installed manifest, but refuses an unversioned lookup when multiple

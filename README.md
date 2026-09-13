@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 48%**
+**Overall progress: 50%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -107,6 +107,13 @@ copies only SHA-256-verified files into `~/.rune/packages`; declared `.wasm`
 commands can then run through the bounded WASI runtime, and `which` discovers
 their installed command names from the local package manifests. Network
 transport, registry search, and update remain unsupported at this stage.
+
+The Rust core also provides bounded zip -r ARCHIVE FILE ... and unzip ARCHIVE
+[DESTINATION] commands. They use ZIP32 stored entries through the VFS, verify
+CRC32 before extraction, reject absolute or parent-traversal archive names, and
+cap archives at 64 MiB and 10,000 entries. Compression methods, ZIP64,
+encrypted archives, and compatibility with every external ZIP producer remain
+unsupported until separately tested.
 
 The portable core also supports session-local virtual directory bookmarks with
 `bookmark`, `showmarks`, `jump`, `cd ~NAME`, `renamemark`, and `deletemark`.
@@ -254,6 +261,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded package metadata, integrity, and local WASM installation
 - [x] Portable runtime request/output contract
 - [x] Bounded Rust-owned history, font-size, and theme configuration
+- [x] Bounded stored ZIP creation/extraction with path validation
 - [ ] Network registry, search, and update policy
 - [ ] Python, JavaScript, and Lua runtime evaluation
 - [x] Rust-owned command/path completion and help metadata

@@ -1,5 +1,6 @@
 use crate::CommandDefinition;
 
+mod archive;
 mod bookmarks;
 mod config;
 mod filesystem;
@@ -246,6 +247,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::unalias,
     },
     CommandDefinition {
+        name: "unzip",
+        summary: "extract bounded uncompressed ZIP archives",
+        handler: archive::unzip,
+    },
+    CommandDefinition {
         name: "unlink",
         summary: "remove one regular file",
         handler: utilities::unlink,
@@ -294,5 +300,10 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "xxd",
         summary: "render bounded hexadecimal input",
         handler: utilities::xxd,
+    },
+    CommandDefinition {
+        name: "zip",
+        summary: "create bounded uncompressed ZIP archives",
+        handler: archive::zip,
     },
 ];
