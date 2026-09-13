@@ -110,8 +110,11 @@ installed version; an explicit version is required when multiple versions are
 present. Install
 copies only SHA-256-verified files into `~/.rune/packages`; declared `.wasm`
 commands can then run through the bounded WASI runtime, and `which` discovers
-their installed command names from the local package manifests. Network
-transport, registry search, and update remain unsupported at this stage.
+their installed command names from the local package manifests. Installed
+WASM commands receive no filesystem preopen by default; a manifest must
+explicitly declare `permissions.filesystem: true` to request the approved Rune
+sandbox as `/`. Network transport, registry search, and update remain
+unsupported at this stage.
 
 The Rust core also provides bounded zip -r ARCHIVE FILE ... and unzip ARCHIVE
 [DESTINATION] commands. They use ZIP32 stored entries through the VFS, verify

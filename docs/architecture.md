@@ -277,7 +277,11 @@ or version. Only declared `.wasm` command entries are executable today, and
 installed module bytes are verified again before execution. There is no
 network client, remote registry, or update flow yet. `pkg search QUERY` performs
 a bounded, case-insensitive search over installed package names, versions,
-descriptions, and command names.
+descriptions, and command names. Installed WASM commands receive no filesystem
+preopen by default. A manifest must explicitly declare
+`permissions.filesystem: true` before that command can receive the approved
+Rune sandbox as `/`; unknown capability fields are rejected. Network access is
+not a package capability.
 
 The runtime contract is owned by Rust and carries only explicit program bytes,
 arguments, environment, and stdin into a provider. `rune-wasm` implements the

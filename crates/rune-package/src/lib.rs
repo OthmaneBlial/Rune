@@ -29,6 +29,18 @@ pub struct PackageManifest {
     pub files: Vec<PackageFile>,
     #[serde(default)]
     pub commands: Vec<PackageCommand>,
+    /// Capabilities explicitly requested by commands in this package.
+    #[serde(default)]
+    pub permissions: PackagePermissions,
+}
+
+/// Least-privilege capabilities available to a package runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct PackagePermissions {
+    /// Allows installed WASM commands to receive the Rune sandbox as `/`.
+    #[serde(default)]
+    pub filesystem: bool,
 }
 
 /// One package file and its expected SHA-256 digest.
@@ -331,6 +343,7 @@ mod tests {
             .expect("manifest should validate");
         assert_eq!(manifest.name, "hello-rune");
         assert_eq!(manifest.commands[0].entry, "bin/hello.wasm");
+        assert!(!manifest.permissions.filesystem);
         assert_eq!(sha256_hex(b"hello"), HELLO_DIGEST);
         manifest
             .verify_file("bin/hello.wasm", b"hello")
@@ -341,6 +354,26 @@ mod tests {
         uppercase_manifest
             .verify_file("bin/hello.wasm", b"hello")
             .expect("digest comparison should be case-insensitive");
+    }
+
+    #[test]
+    fn accepts_an_explicit_filesystem_permission_and_rejects_unknown_permissions() {
+        let permitted = manifest_json(HELLO_DIGEST).replace(
+            "\"commands\":",
+            "\"permissions\": {\"filesystem\": true},\n                \"commands\":",
+        );
+        let manifest =
+            PackageManifest::parse(permitted.as_bytes()).expect("known permission should validate");
+        assert!(manifest.permissions.filesystem);
+
+        let unknown = manifest_json(HELLO_DIGEST).replace(
+            "\"commands\":",
+            "\"permissions\": {\"network\": true},\n                \"commands\":",
+        );
+        assert!(matches!(
+            PackageManifest::parse(unknown.as_bytes()),
+            Err(PackageError::InvalidJson(_))
+        ));
     }
 
     #[test]

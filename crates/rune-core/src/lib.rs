@@ -85,6 +85,7 @@ struct InstalledCommand {
     manifest_path: String,
     module_path: String,
     entry: String,
+    filesystem_access: bool,
 }
 
 type AppliedRedirections = (String, Option<(String, bool)>, Option<(String, bool)>);
@@ -937,7 +938,12 @@ impl Session {
             &self.environment,
             stdin,
         )
-        .with_preopened_root(self.filesystem.host_root())
+        .with_preopened_root(
+            installed_command
+                .filesystem_access
+                .then(|| self.filesystem.host_root())
+                .flatten(),
+        )
         .with_cancellation(Some(&self.cancellation_requested));
         match Runtime::execute(&self.wasm_runner, &request) {
             Ok(execution) => CommandOutput {
@@ -1052,6 +1058,7 @@ fn installed_commands_in_filesystem(
                     manifest_path: manifest_path.clone(),
                     module_path: format!("{version_path}/{}", command.entry),
                     entry: command.entry,
+                    filesystem_access: manifest.permissions.filesystem,
                 });
                 if commands.len() >= MAX_INSTALLED_COMMANDS {
                     return Ok(commands);
@@ -1910,23 +1917,38 @@ mod tests {
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
+    fn package_wasm_probe() -> Vec<u8> {
+        wat::parse_str(
+            r#"
+                (module
+                  (import "wasi_snapshot_preview1" "fd_prestat_get"
+                    (func $fd_prestat_get (param i32 i32) (result i32)))
+                  (import "wasi_snapshot_preview1" "proc_exit"
+                    (func $proc_exit (param i32)))
+                  (memory (export "memory") 1)
+                  (func (export "_start")
+                    (i32.const 3)
+                    (i32.const 0)
+                    (call $fd_prestat_get)
+                    (i32.eqz)
+                    (if
+                      (then
+                        (i32.const 9)
+                        (call $proc_exit))
+                      (else
+                        (i32.const 7)
+                        (call $proc_exit)))))
+            "#,
+        )
+        .expect("valid package module")
+    }
+
     #[test]
     fn installs_lists_runs_and_removes_a_verified_wasm_package() {
         let root = test_root();
         let package_root = root.join("bundle/bin");
         std::fs::create_dir_all(&package_root).expect("package directories created");
-        let wasm = wat::parse_str(
-            r#"
-                (module
-                  (import "wasi_snapshot_preview1" "proc_exit"
-                    (func $proc_exit (param i32)))
-                  (memory (export "memory") 1)
-                  (func (export "_start")
-                    (i32.const 7)
-                    (call $proc_exit)))
-            "#,
-        )
-        .expect("valid package module");
+        let wasm = package_wasm_probe();
         let digest = rune_package::sha256_hex(&wasm);
         std::fs::write(package_root.join("hello.wasm"), &wasm).expect("module written");
         let manifest = format!(
@@ -1957,6 +1979,7 @@ mod tests {
         let installed_info = session.execute_line("pkg info local-wasm");
         assert_eq!(installed_info.status, 0);
         assert!(installed_info.stdout.contains("local-wasm 0.1.0"));
+        assert!(installed_info.stdout.contains("permissions: none"));
         let versioned_info = session.execute_line("pkg info local-wasm 0.1.0");
         assert_eq!(versioned_info.status, 0);
         assert!(versioned_info

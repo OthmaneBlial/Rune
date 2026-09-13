@@ -151,6 +151,12 @@ fn info(manifest: &PackageManifest) -> CommandOutput {
     let _ = writeln!(stdout, "{} {}", manifest.name, manifest.version);
     let _ = writeln!(stdout, "{}", manifest.description);
     let _ = writeln!(stdout, "files: {}", manifest.files.len());
+    let filesystem_permission = if manifest.permissions.filesystem {
+        "filesystem"
+    } else {
+        "none"
+    };
+    let _ = writeln!(stdout, "permissions: {filesystem_permission}");
     for command in &manifest.commands {
         let _ = writeln!(stdout, "command: {} -> {}", command.name, command.entry);
     }
