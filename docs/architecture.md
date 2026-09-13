@@ -121,6 +121,11 @@ with a 10,000-entry limit and rejects symlinks; `mv` can move a directory
 without recursively traversing it. `du` reports a recursive byte total with a
 10,000-entry limit, and `stat` reports only metadata available through the VFS.
 
+The Rust shell includes a bounded `printf` formatter for `%s`, `%c`, `%d`,
+`%i`, `%%`, and the `\\n`, `\\r`, `\\t`, and `\\\\` escapes. It deliberately
+rejects unsupported conversions and malformed integer arguments instead of
+delegating formatting to a host shell.
+
 Session-local virtual bookmarks are stored as validated names mapped to Rune
 virtual directories. `bookmark`, `showmarks`, `jump`, `renamemark`, and
 `deletemark` mutate or inspect that map; `cd ~NAME` resolves an existing mark

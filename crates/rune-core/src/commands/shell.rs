@@ -8,6 +8,16 @@ pub(super) fn echo(context: &mut CommandContext<'_>) -> CommandOutput {
     CommandOutput::success(stdout)
 }
 
+pub(super) fn printf(context: &mut CommandContext<'_>) -> CommandOutput {
+    let Some(format) = context.args.first() else {
+        return usage("printf", "usage: printf FORMAT [ARG ...]");
+    };
+    match format_printf(format, &context.args[1..]) {
+        Ok(stdout) => CommandOutput::success(stdout),
+        Err(error) => CommandOutput::failure(2, format!("printf: {error}\n")),
+    }
+}
+
 pub(super) fn pwd(context: &mut CommandContext<'_>) -> CommandOutput {
     if !context.args.is_empty() {
         return usage("pwd", "usage: pwd");
@@ -236,6 +246,65 @@ fn environment_output(context: &CommandContext<'_>) -> CommandOutput {
         stdout.push('\n');
     }
     CommandOutput::success(stdout)
+}
+
+fn format_printf(format: &str, arguments: &[String]) -> Result<String, String> {
+    if format.len() > 64 * 1024 {
+        return Err("format is too long".to_string());
+    }
+    let characters = format.chars().collect::<Vec<_>>();
+    let mut output = String::new();
+    let mut argument_index = 0;
+    let mut index = 0;
+    while index < characters.len() {
+        match characters[index] {
+            '\\' => {
+                index += 1;
+                let Some(escape) = characters.get(index) else {
+                    return Err("trailing escape".to_string());
+                };
+                output.push(match escape {
+                    'n' => '\n',
+                    'r' => '\r',
+                    't' => '\t',
+                    '\\' => '\\',
+                    _ => *escape,
+                });
+            }
+            '%' => {
+                index += 1;
+                let Some(specifier) = characters.get(index) else {
+                    return Err("trailing format marker".to_string());
+                };
+                match specifier {
+                    '%' => output.push('%'),
+                    's' => {
+                        output.push_str(arguments.get(argument_index).map_or("", String::as_str));
+                    }
+                    'c' => {
+                        if let Some(value) = arguments.get(argument_index) {
+                            output.push(value.chars().next().unwrap_or('\0'));
+                        }
+                    }
+                    'd' | 'i' => {
+                        let value = arguments
+                            .get(argument_index)
+                            .ok_or_else(|| "missing integer argument".to_string())?
+                            .parse::<i64>()
+                            .map_err(|_| "integer argument is invalid".to_string())?;
+                        output.push_str(&value.to_string());
+                    }
+                    other => return Err(format!("unsupported format %{other}")),
+                }
+                if *specifier != '%' {
+                    argument_index += 1;
+                }
+            }
+            character => output.push(character),
+        }
+        index += 1;
+    }
+    Ok(output)
 }
 
 fn aliases_output(context: &CommandContext<'_>) -> CommandOutput {

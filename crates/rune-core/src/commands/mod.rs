@@ -196,6 +196,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::printenv,
     },
     CommandDefinition {
+        name: "printf",
+        summary: "format bounded text without an implicit newline",
+        handler: shell::printf,
+    },
+    CommandDefinition {
         name: "setenv",
         summary: "set one environment variable",
         handler: shell::setenv,

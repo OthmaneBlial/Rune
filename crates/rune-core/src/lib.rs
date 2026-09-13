@@ -831,6 +831,23 @@ mod tests {
     }
 
     #[test]
+    fn formats_bounded_printf_arguments() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(
+            session
+                .execute_line(r"printf 'name=%s count=%d\n' Rune 3")
+                .stdout,
+            "name=Rune count=3\n"
+        );
+        assert_eq!(session.execute_line("printf '100%%'").stdout, "100%");
+        let invalid = session.execute_line("printf '%d' nope");
+        assert_eq!(invalid.status, 2);
+        assert!(invalid.stderr.contains("integer argument is invalid"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn manages_virtual_bookmarks_and_restores_them() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
