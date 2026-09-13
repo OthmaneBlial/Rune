@@ -61,7 +61,9 @@ Session persistence is explicit and intentionally narrow: `~/.rune/session.state
 stores the virtual working directory and command history, while environment
 variables are reconstructed for every session and are never serialized. The
 current shell environment can be changed by the Rust `export`, `unset`, and
-`setenv` built-ins, or by leading `NAME=value` assignments. Assignments are
+`setenv` built-ins, or by leading `NAME=value` assignments. Directory changes
+maintain `PWD` and `OLDPWD`; `cd -` returns to the previous virtual directory
+and prints it. Assignments are
 expanded from the current environment in left-to-right order, remain
 session-local, and may be used without a command. The initial history policy
 replaces parsed `export`, `setenv`, and assignment lines with

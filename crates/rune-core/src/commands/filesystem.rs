@@ -17,6 +17,9 @@ pub(super) fn cd(context: &mut CommandContext<'_>) -> CommandOutput {
         None => directory,
     };
     match context.fs.change_dir(directory) {
+        Ok(()) if directory == "-" => {
+            CommandOutput::success(format!("{}\n", context.fs.current_dir_display()))
+        }
         Ok(()) => CommandOutput::success(""),
         Err(error) => fs_failure("cd", &error),
     }

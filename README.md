@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 34%**
+**Overall progress: 35%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -20,7 +20,7 @@ working iOS application or a feature-parity claim.
 |---|---:|
 | Rust workspace | 70% |
 | Shell tokenizer/parser | 63% |
-| Command runtime | 80% |
+| Command runtime | 82% |
 | Sandboxed filesystem | 58% |
 | Sessions/history | 45% |
 | Configuration | 23% |
@@ -102,6 +102,10 @@ The portable core also supports session-local virtual directory bookmarks with
 They persist with the session state and remain confined to the configured VFS;
 external folders and security-scoped bookmark resolution are still Apple-side
 work.
+
+Directory changes update the Rust-owned `PWD` and `OLDPWD` values. `cd -`
+returns to the previous directory and prints the resulting virtual path, while
+bookmark jumps and aliases that change directories use the same state update.
 
 The FFI and Swift source boundary also exposes a newline-delimited automation
 script method for a future Shortcuts adapter. It is Rust-executed and locally

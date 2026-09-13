@@ -523,6 +523,7 @@ impl Session {
         external_stdin: &str,
         depth: usize,
     ) -> CommandOutput {
+        let previous_directory = self.filesystem.current_dir_display();
         let expanded_command = match self.expand_alias(command, depth) {
             Ok(expanded) => expanded,
             Err(error) => return CommandOutput::failure(2, format!("rune: alias: {error}\n")),
@@ -607,7 +608,7 @@ impl Session {
             CommandOutput::failure(127, format!("{program}: command not found\n"))
         };
         self.apply_history_limit();
-        self.update_pwd();
+        self.update_directory_environment(previous_directory);
 
         if let Some((path, append)) = stdout_redirect {
             let content = std::mem::take(&mut output.stdout);
@@ -743,6 +744,15 @@ impl Session {
     fn update_pwd(&mut self) {
         self.environment
             .insert("PWD".to_string(), self.filesystem.current_dir_display());
+    }
+
+    fn update_directory_environment(&mut self, previous_directory: String) {
+        let current_directory = self.filesystem.current_dir_display();
+        if current_directory != previous_directory {
+            self.environment
+                .insert("OLDPWD".to_string(), previous_directory);
+        }
+        self.update_pwd();
     }
 }
 
@@ -1081,6 +1091,33 @@ mod tests {
         assert!(empty_query
             .stderr
             .contains("history: search query must contain"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn tracks_previous_directory_and_prints_it_for_cd_dash() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("mkdir work").status, 0);
+
+        assert_eq!(session.execute_line("cd work").status, 0);
+        assert_eq!(session.current_directory(), "~/work");
+        assert_eq!(
+            session.environment().get("PWD"),
+            Some(&"~/work".to_string())
+        );
+        assert_eq!(session.environment().get("OLDPWD"), Some(&"~".to_string()));
+
+        let previous = session.execute_line("cd -");
+        assert_eq!(previous.status, 0);
+        assert_eq!(previous.stdout, "~\n");
+        assert_eq!(session.current_directory(), "~");
+        assert_eq!(session.environment().get("PWD"), Some(&"~".to_string()));
+        assert_eq!(
+            session.environment().get("OLDPWD"),
+            Some(&"~/work".to_string())
+        );
+
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
