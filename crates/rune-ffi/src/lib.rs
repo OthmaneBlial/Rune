@@ -202,6 +202,25 @@ pub extern "C" fn rune_session_commands(handle: *const std::ffi::c_void) -> *mut
     into_owned_c_string(&commands.join("\n"))
 }
 
+/// Returns bounded Rust-owned first-word completion candidates as a
+/// newline-separated string. An invalid input or null handle returns null.
+#[no_mangle]
+pub extern "C" fn rune_session_complete(
+    handle: *const std::ffi::c_void,
+    input: *const c_char,
+) -> *mut c_char {
+    let Some(input) = read_string(input) else {
+        return std::ptr::null_mut();
+    };
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the pointer is read-only and owned by the Swift session.
+    let session = unsafe { &*handle.cast::<RuneSession>() };
+    let candidates = session.core.completion_candidates(&input);
+    into_owned_c_string(&candidates.join("\n"))
+}
+
 /// Takes output generated while the session's `~/.rune_profile` was loaded.
 #[no_mangle]
 pub extern "C" fn rune_session_startup_output(handle: *mut std::ffi::c_void) -> RuneOutput {
@@ -234,9 +253,10 @@ pub unsafe extern "C" fn rune_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::{
-        rune_session_commands, rune_session_configuration, rune_session_current_directory,
-        rune_session_destroy, rune_session_execute, rune_session_execute_script, rune_session_new,
-        rune_session_startup_output, rune_string_free,
+        rune_session_commands, rune_session_complete, rune_session_configuration,
+        rune_session_current_directory, rune_session_destroy, rune_session_execute,
+        rune_session_execute_script, rune_session_new, rune_session_startup_output,
+        rune_string_free,
     };
     use std::ffi::{CStr, CString};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -286,6 +306,11 @@ mod tests {
         assert!(command_names.lines().any(|name| name == "export"));
         // SAFETY: commands was returned by rune_session_commands.
         unsafe { rune_string_free(commands) };
+        let prefix = CString::new("ec").expect("valid completion prefix");
+        let completions = rune_session_complete(handle, prefix.as_ptr());
+        assert_eq!(c_string(completions), "echo");
+        // SAFETY: completions was returned by rune_session_complete.
+        unsafe { rune_string_free(completions) };
         let configuration = rune_session_configuration(handle);
         assert_eq!(c_string(configuration), "history-limit=1000\n");
         // SAFETY: configuration was returned by rune_session_configuration.

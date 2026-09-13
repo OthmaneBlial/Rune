@@ -28,7 +28,6 @@ public final class RuneTerminalModel: ObservableObject {
 
     private let session: RuneFFISession?
     private var history: [String] = []
-    private var commandNames: [String] = []
     private var historyCursor: Int?
 
     public init(rootURL: URL? = nil) {
@@ -42,7 +41,6 @@ public final class RuneTerminalModel: ObservableObject {
             session = try RuneFFISession(rootURL: root)
             currentDirectory = session?.currentDirectory ?? "~"
             history = session?.history() ?? []
-            commandNames = session?.commands() ?? []
             if let startup = session?.takeStartupOutput() {
                 if !startup.stdout.isEmpty {
                     entries.append(.init(kind: .stdout, text: startup.stdout))
@@ -104,18 +102,7 @@ public final class RuneTerminalModel: ObservableObject {
     }
 
     public var completionCandidates: [String] {
-        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
-              !trimmed.contains(where: { character in
-                  character.isWhitespace || "|;&<>".contains(character)
-              })
-        else {
-            return []
-        }
-        return commandNames
-            .filter { $0.hasPrefix(trimmed) && $0 != trimmed }
-            .prefix(8)
-            .map { $0 }
+        session?.completionCandidates(for: command) ?? []
     }
 
     public func applyCompletion(_ candidate: String) {

@@ -55,8 +55,9 @@ on restore; its supported Rust built-ins can update the session environment and
 define aliases, with output surfaced to the CLI/native boundary without
 polluting history. Alias expansion is bounded and currently accepts one
 command per alias value; compound alias values are rejected explicitly. The
-native source UI now
-receives the Rust command registry and offers first-word command suggestions.
+native source UI now asks Rust for bounded first-word command completion; the
+registry remains Rust-owned and the bridge exposes only the resulting
+candidates.
 It also has a focused command bar, keyboard-aware history controls, an
 ink/cyan/ember console palette, and accessible completion controls.
 Interactive `export`, `setenv`, and assignment lines are replaced by a
@@ -188,7 +189,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded Rust-owned history configuration
 - [ ] Network registry, search, and update policy
 - [ ] Python, JavaScript, and Lua runtime evaluation
-- [ ] Completion and help system (initial first-word suggestions exist)
+- [x] Rust-owned first-word command completion and help metadata
 
 ### Phase 4 — Apple integration
 

@@ -36,6 +36,12 @@ private func rune_session_configuration(_ handle: OpaquePointer?) -> UnsafeMutab
 @_silgen_name("rune_session_commands")
 private func rune_session_commands(_ handle: OpaquePointer?) -> UnsafeMutablePointer<CChar>?
 
+@_silgen_name("rune_session_complete")
+private func rune_session_complete(
+    _ handle: OpaquePointer?,
+    _ input: UnsafePointer<CChar>
+) -> UnsafeMutablePointer<CChar>?
+
 @_silgen_name("rune_session_startup_output")
 private func rune_session_startup_output(_ handle: OpaquePointer?) -> RuneFFIOutput
 
@@ -122,6 +128,17 @@ public final class RuneFFISession {
 
     public func commands() -> [String] {
         guard let pointer = rune_session_commands(handle) else {
+            return []
+        }
+        defer { rune_string_free(pointer) }
+        let value = String(cString: pointer)
+        guard !value.isEmpty else { return [] }
+        return value.split(separator: "\n").map(String.init)
+    }
+
+    public func completionCandidates(for input: String) -> [String] {
+        let pointer = input.withCString { rune_session_complete(handle, $0) }
+        guard let pointer else {
             return []
         }
         defer { rune_string_free(pointer) }

@@ -41,8 +41,8 @@ directory is restored after the profile.
 - `RuneCoreBridge.swift` owns and frees Rust session handles/strings.
 - `RuneTerminalView.swift` includes the `@main` SwiftUI application entry point
   and launches the real terminal view.
-- The bridge receives the Rust built-in command registry for first-word
-  suggestions; it does not advertise arbitrary host executables.
+- The bridge asks Rust for bounded first-word completion candidates; it does
+  not advertise arbitrary host executables.
 - `RuneTerminalView.swift` renders stdout, stderr, and non-zero exit status
   separately, applies the Rust-backed first-word suggestions, and provides the
   native focused command bar/history controls.

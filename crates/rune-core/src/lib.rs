@@ -21,6 +21,8 @@ use rune_wasm::WasmRunner;
 
 const MAX_ALIAS_EXPANSIONS: usize = 32;
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
+const MAX_COMPLETION_CANDIDATES: usize = 8;
+const MAX_COMPLETION_INPUT_BYTES: usize = 64 * 1024;
 const OUTPUT_TRUNCATION_MARKER: &str = "\n[rune: output truncated at 1048576 bytes]\n";
 pub(crate) const PACKAGE_INSTALL_ROOT: &str = "~/.rune/packages";
 
@@ -244,6 +246,41 @@ impl Session {
     #[must_use]
     pub fn commands(&self) -> &[CommandDefinition] {
         self.registry.definitions()
+    }
+
+    /// Returns bounded first-word completion candidates owned by Rust.
+    ///
+    /// The initial completion contract intentionally handles only a command
+    /// name at the beginning of a line. Arguments, paths, quoted fragments,
+    /// and shell operators are left untouched until the completion grammar
+    /// can return a structured replacement range instead of replacing the
+    /// entire native text field.
+    #[must_use]
+    pub fn completion_candidates(&self, input: &str) -> Vec<String> {
+        if input.len() > MAX_COMPLETION_INPUT_BYTES {
+            return Vec::new();
+        }
+        let prefix = input.trim_start();
+        if prefix.is_empty()
+            || prefix
+                .chars()
+                .any(|character| character.is_whitespace() || "|;&<>".contains(character))
+        {
+            return Vec::new();
+        }
+
+        let mut candidates = self
+            .registry
+            .definitions()
+            .iter()
+            .map(|definition| definition.name)
+            .filter(|name| *name != prefix && name.starts_with(prefix))
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        candidates.sort_unstable();
+        candidates.dedup();
+        candidates.truncate(MAX_COMPLETION_CANDIDATES);
+        candidates
     }
 
     /// Executes one parsed command line and returns separate output channels.
@@ -787,6 +824,23 @@ mod tests {
             restored.history().last().map(String::as_str),
             Some("cat moved/nested/value.txt")
         );
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn provides_bounded_rust_owned_first_word_completion() {
+        let root = test_root();
+        let session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.completion_candidates("ec"), vec!["echo"]);
+        assert_eq!(
+            session.completion_candidates("  pr"),
+            vec!["printenv", "printf"]
+        );
+        assert!(session.completion_candidates("echo ").is_empty());
+        assert!(session.completion_candidates("ec | ca").is_empty());
+        assert!(session
+            .completion_candidates(&"e".repeat(64 * 1024 + 1))
+            .is_empty());
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

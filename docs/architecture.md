@@ -16,8 +16,9 @@ constraints. It is not a source dependency or an implementation template.
   execution plans rather than executing commands.
 - `rune-fs`: path resolution and filesystem policy. Commands receive this
   abstraction rather than reaching into Apple APIs directly.
-- `rune-core`: command registry, command context, session state, and execution
-  results.
+- `rune-core`: command registry, command context, session state, execution
+  results, and the bounded first-word completion query used by native
+  frontends.
 - `rune-wasm`: bounded WASI preview1 execution with no host-directory
   preopens in the initial slice.
 - `rune-package`: bounded versioned manifest parsing and SHA-256 artifact
