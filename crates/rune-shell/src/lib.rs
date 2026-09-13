@@ -54,6 +54,7 @@ pub enum Token {
     Pipe,
     Sequence,
     And,
+    Or,
     RedirectStdout { append: bool },
     RedirectStderr { append: bool },
     RedirectStdin,
@@ -97,6 +98,8 @@ pub enum Connector {
     Sequence,
     /// Execute the next pipeline only when the previous one succeeded.
     And,
+    /// Execute the next pipeline only when the previous one failed.
+    Or,
 }
 
 /// Complete parsed command line.
@@ -348,6 +351,7 @@ pub fn tokenize(input: &str) -> Result<Vec<(Token, Option<Word>)>, ParseError> {
                     index += 1;
                 } else {
                     let operator = match character {
+                        '|' if characters.get(index + 1) == Some(&'|') => Some((Token::Or, 2)),
                         '|' => Some((Token::Pipe, 1)),
                         ';' => Some((Token::Sequence, 1)),
                         '<' => Some((Token::RedirectStdin, 1)),
@@ -404,6 +408,7 @@ fn token_name(token: Token) -> String {
         Token::Pipe => "|".to_string(),
         Token::Sequence => ";".to_string(),
         Token::And => "&&".to_string(),
+        Token::Or => "||".to_string(),
         Token::RedirectStdout { append: false } => ">".to_string(),
         Token::RedirectStdout { append: true } => ">>".to_string(),
         Token::RedirectStderr { append: false } => "2>".to_string(),
@@ -508,7 +513,7 @@ pub fn parse(input: &str) -> Result<ExecutionPlan, ParseError> {
                         });
                         index += 1;
                     }
-                    Token::Pipe | Token::Sequence | Token::And => break,
+                    Token::Pipe | Token::Sequence | Token::And | Token::Or => break,
                 }
             }
 
@@ -546,6 +551,13 @@ pub fn parse(input: &str) -> Result<ExecutionPlan, ParseError> {
                     return Err(ParseError::UnexpectedToken("&&".to_string()));
                 }
                 connectors.push(Connector::And);
+            }
+            Some(Token::Or) => {
+                index += 1;
+                if tokens.get(index).is_none() {
+                    return Err(ParseError::UnexpectedToken("||".to_string()));
+                }
+                connectors.push(Connector::Or);
             }
             Some(token) => return Err(ParseError::UnexpectedToken(token_name(token))),
             None => break,
@@ -633,6 +645,9 @@ mod tests {
                 append: true
             }]
         );
+
+        let logical = parse("false || echo fallback && echo done").expect("logical plan");
+        assert_eq!(logical.connectors, vec![Connector::Or, Connector::And]);
     }
 
     #[test]
@@ -640,5 +655,6 @@ mod tests {
         assert!(parse("echo 'unfinished").is_err());
         assert!(parse("echo hi |").is_err());
         assert!(parse("echo hi &&").is_err());
+        assert!(parse("echo hi ||").is_err());
     }
 }

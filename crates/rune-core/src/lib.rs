@@ -260,8 +260,15 @@ impl Session {
     fn execute_plan(&mut self, plan: &ExecutionPlan) -> CommandOutput {
         let mut output = CommandOutput::success("");
         for (index, pipeline) in plan.pipelines.iter().enumerate() {
-            if index > 0 && plan.connectors[index - 1] == Connector::And && output.status != 0 {
-                continue;
+            if index > 0 {
+                let should_skip = match plan.connectors[index - 1] {
+                    Connector::And => output.status != 0,
+                    Connector::Or => output.status == 0,
+                    Connector::Sequence => false,
+                };
+                if should_skip {
+                    continue;
+                }
             }
             let pipeline_output = self.execute_pipeline(pipeline);
             output.stdout.push_str(&pipeline_output.stdout);
@@ -596,6 +603,14 @@ mod tests {
             session.execute_line("true && echo success").stdout,
             "success\n"
         );
+        assert_eq!(
+            session.execute_line("false || echo recovered").stdout,
+            "recovered\n"
+        );
+        assert!(session
+            .execute_line("true || echo skipped")
+            .stdout
+            .is_empty());
         assert_eq!(session.execute_line("false && echo skipped").status, 1);
         assert_eq!(session.execute_line("echo $?").stdout, "1\n");
         std::fs::remove_dir_all(root).expect("test root removed");

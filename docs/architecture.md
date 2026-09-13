@@ -34,6 +34,11 @@ status. Later async execution and streaming can be introduced behind the same
 conceptual event boundary once iOS cancellation and rendering requirements are
 specified.
 
+Execution plans preserve `;`, `&&`, and `||` as connectors between pipelines.
+The core evaluates them left-to-right and skips only the next pipeline when
+the connector's status condition is not met; a skipped branch does not invent
+output or change the previous status.
+
 Session persistence is explicit and intentionally narrow: `~/.rune/session.state`
 stores the virtual working directory and command history, while environment
 variables are reconstructed for every session and are never serialized. The
