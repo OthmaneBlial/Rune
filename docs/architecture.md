@@ -126,7 +126,10 @@ The filesystem starts with a host-backed root for local development. The root
 is a policy boundary: paths are resolved relative to it, `~` maps to the root,
 and traversal outside the root is rejected. An Apple adapter will map that
 root to the app's Documents directory and add user-approved external roots
-through security-scoped bookmarks.
+through security-scoped bookmarks. The source-only Apple layer stores at most
+128 named bookmark records and 512 KiB of bookmark data, resolves stale records,
+keeps each security scope alive for its active Rust session, and passes Rust
+only the approved root URL. Entitlements and runtime access remain unverified.
 
 The current registry includes bounded text filters (`cut`, `head`, `tail`,
 `grep`, `sed`, `sort`, `uniq`, and `wc`). They consume the same in-memory pipeline stdin

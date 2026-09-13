@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import UniformTypeIdentifiers
 
 public struct RuneTranscriptEntry: Identifiable, Hashable, Sendable {
     public enum Kind: Hashable, Sendable {
@@ -26,23 +27,46 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var entries: [RuneTranscriptEntry] = []
     @Published public var command = ""
     @Published public private(set) var currentDirectory = "~"
+    @Published public private(set) var workspaceName = "Documents"
     @Published public private(set) var fontSize: CGFloat = 15
     @Published public private(set) var theme = "ink"
     @Published public private(set) var initializationError: String?
 
-    private let session: RuneFFISession?
+    private var session: RuneFFISession?
+    private var scopedFolder: RuneScopedFolder?
     private var history: [String] = []
     private var historyCursor: Int?
 
     public init(rootURL: URL? = nil) {
         let root = rootURL ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        let folderAccess = RuneExternalFolderAccess.shared
+        session = nil
+        scopedFolder = nil
         guard let root else {
-            session = nil
             initializationError = "Rune could not locate the app Documents directory."
             return
         }
+        if rootURL == nil, let name = folderAccess.lastActiveName,
+           let scope = try? folderAccess.open(named: name) {
+            do {
+                let restoredSession = try RuneFFISession(rootURL: scope.url)
+                session = restoredSession
+                scopedFolder = scope
+                workspaceName = scope.url.lastPathComponent.isEmpty ? "Folder" : scope.url.lastPathComponent
+                currentDirectory = restoredSession.currentDirectory
+                history = restoredSession.history()
+                append(restoredSession.takeStartupOutput())
+                refreshConfiguration()
+                return
+            } catch {
+                scope.stopAccessing()
+                initializationError = error.localizedDescription
+            }
+        }
         do {
             session = try RuneFFISession(rootURL: root)
+            initializationError = nil
+            workspaceName = root.lastPathComponent.isEmpty ? "Documents" : root.lastPathComponent
             currentDirectory = session?.currentDirectory ?? "~"
             history = session?.history() ?? []
             if let startup = session?.takeStartupOutput() {
@@ -61,6 +85,39 @@ public final class RuneTerminalModel: ObservableObject {
             session = nil
             initializationError = error.localizedDescription
         }
+    }
+
+    /// Opens a user-selected directory as a new Rust session root and stores
+    /// an Apple security-scoped bookmark for the next launch.
+    public func openFolder(_ url: URL) {
+        do {
+            let access = RuneExternalFolderAccess.shared
+            let name = access.suggestedName(for: url)
+            try access.save(url: url, as: name)
+            let scope = try access.open(url: url)
+            let nextSession = try RuneFFISession(rootURL: scope.url)
+            let previousScope = scopedFolder
+            session = nextSession
+            scopedFolder = scope
+            workspaceName = scope.url.lastPathComponent.isEmpty ? "Folder" : scope.url.lastPathComponent
+            currentDirectory = nextSession.currentDirectory
+            history = nextSession.history()
+            historyCursor = nil
+            command = ""
+            entries.removeAll()
+            initializationError = nil
+            if let startup = nextSession.takeStartupOutput() {
+                append(startup)
+            }
+            refreshConfiguration()
+            previousScope?.stopAccessing()
+        } catch {
+            initializationError = error.localizedDescription
+        }
+    }
+
+    public func reportFolderImportError(_ error: Error) {
+        initializationError = error.localizedDescription
     }
 
     public func submit() {
@@ -149,6 +206,7 @@ public final class RuneTerminalModel: ObservableObject {
 public struct RuneTerminalView: View {
     @StateObject private var model: RuneTerminalModel
     @FocusState private var inputFocused: Bool
+    @State private var isImportingFolder = false
 
     public init(rootURL: URL? = nil) {
         _model = StateObject(wrappedValue: RuneTerminalModel(rootURL: rootURL))
@@ -175,8 +233,20 @@ public struct RuneTerminalView: View {
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
                             .foregroundStyle(palette.muted)
                     }
+                    Button {
+                        isImportingFolder = true
+                    } label: {
+                        Image(systemName: "folder.badge.plus")
+                            .font(.title3)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(palette.cyan)
+                    .accessibilityLabel("Open a folder")
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
+                        Text(model.workspaceName)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(palette.muted)
                         Text(model.currentDirectory)
                             .font(.system(size: 12, design: .monospaced))
                             .foregroundStyle(palette.foreground)
@@ -313,6 +383,14 @@ public struct RuneTerminalView: View {
             }
         }
         .preferredColorScheme(model.theme == "light" ? .light : .dark)
+        .fileImporter(isPresented: $isImportingFolder, allowedContentTypes: [.folder]) { result in
+            switch result {
+            case .success(let url):
+                model.openFolder(url)
+            case .failure(let error):
+                model.reportFolderImportError(error)
+            }
+        }
         .onAppear { inputFocused = true }
     }
 

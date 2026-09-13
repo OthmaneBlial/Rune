@@ -17,6 +17,9 @@ Configuration tests are local-only as well and verify bounded history, font
 size, and theme settings without requiring an Apple runtime.
 Completion tests also use only the confined VFS and do not require an Apple
 runtime.
+The source-only Apple check also parses the external-folder bookmark layer;
+that syntax check does not prove security-scoped access, entitlements, or Files
+picker behavior on a device.
 
 ## Local checks
 

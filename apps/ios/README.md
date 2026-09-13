@@ -24,6 +24,12 @@ files stored in the virtual filesystem. The Swift layer only sends the command;
 file reads, nested execution limits, environment changes, output, status, and
 history remain Rust-owned.
 
+The source-only UI can open a directory with the native Files importer. The
+Apple layer stores a bounded security-scoped bookmark, keeps the access scope
+alive while the matching Rust session is active, and hands Rust only the
+approved folder root. This is source/API evidence; picker behavior and
+entitlements remain unverified without an Apple build/runtime.
+
 `RuneFFISession.cancel()` forwards a cooperative cancellation request to Rust;
 the next command boundary returns status 130. It is a cancellation signal, not
 an unsafe force-stop of a synchronous operation.
@@ -53,6 +59,8 @@ directory is restored after the profile.
 - `Package.swift` is a source/package boundary.
 - `RuneFFI.h` documents the C ABI layout.
 - `RuneCoreBridge.swift` owns and frees Rust session handles/strings.
+- `RuneExternalFolderAccess.swift` owns bounded security-scoped bookmark
+  storage and keeps approved folder access alive for a Rust session.
 - `RuneTerminalView.swift` includes the `@main` SwiftUI application entry point
   and launches the real terminal view.
 - The bridge asks Rust for bounded command/path replacement candidates; it does

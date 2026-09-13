@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 39%**
+**Overall progress: 40%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -25,8 +25,8 @@ working iOS application or a feature-parity claim.
 | Sessions/history | 50% |
 | Configuration | 23% |
 | WASM | 23% |
-| Native iOS UI | 20% |
-| Swift/Rust bridge | 15% |
+| Native iOS UI | 22% |
+| Swift/Rust bridge | 18% |
 | Package manager | 33% |
 | Compatibility evidence | 2% |
 
@@ -111,8 +111,9 @@ transport, registry search, and update remain unsupported at this stage.
 The portable core also supports session-local virtual directory bookmarks with
 `bookmark`, `showmarks`, `jump`, `cd ~NAME`, `renamemark`, and `deletemark`.
 They persist with the session state and remain confined to the configured VFS;
-external folders and security-scoped bookmark resolution are still Apple-side
-work.
+the source-only Apple layer also handles user-selected external folders through
+bounded security-scoped bookmarks. Full entitlement, picker, and device/runtime
+behavior remain unverified without the Apple toolchain.
 Bookmark names are limited to 64 characters, a session holds at most 256
 bookmarks, and serialized bookmark data is limited to 256 KiB.
 
