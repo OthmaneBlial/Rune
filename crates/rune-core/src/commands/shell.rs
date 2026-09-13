@@ -12,7 +12,7 @@ pub(super) fn echo(context: &mut CommandContext<'_>) -> CommandOutput {
 /// the recursive script executor. The registry handler keeps their metadata
 /// available to `help`, completion, and `which`.
 pub(super) fn source(_context: &mut CommandContext<'_>) -> CommandOutput {
-    usage("source", "usage: source FILE")
+    usage("source", "usage: source FILE [ARG ...]")
 }
 
 pub(super) fn printf(context: &mut CommandContext<'_>) -> CommandOutput {

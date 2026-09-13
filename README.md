@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 59%**
+**Overall progress: 60%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -19,8 +19,8 @@ working iOS application or a feature-parity claim.
 | Area | Progress |
 |---|---:|
 | Rust workspace | 70% |
-| Shell tokenizer/parser | 63% |
-| Command runtime | 87% |
+| Shell tokenizer/parser | 65% |
+| Command runtime | 88% |
 | Sandboxed filesystem | 64% |
 | Sessions/history | 62% |
 | Configuration | 27% |
@@ -61,9 +61,10 @@ A synchronous command response is capped at 1 MiB per output channel; a
 truncation marker is emitted rather than allowing unbounded terminal output.
 Individual command lines are capped at 64 KiB before parsing, and automation
 scripts have their separate 256 KiB/1,024-line input boundary.
-`source FILE` and `. FILE` execute bounded UTF-8 script files through the same
-Rust parser, session environment, VFS, status, and history path; nested sourcing
-is capped at 16 levels.
+`source FILE [ARG ...]` and `. FILE [ARG ...]` execute bounded UTF-8 script files
+through the same Rust parser, session environment, VFS, status, and history
+path. Scripts receive bounded positional values as `$0`, `$1...`, `$#`, and
+`$@`; nested sourcing is capped at 16 levels and accepts at most 64 arguments.
 The Rust session and C/Swift bridge also expose cooperative cancellation at
 command, pipeline, and script boundaries, returning status 130; an operation
 already running synchronously is allowed to finish.
@@ -276,7 +277,7 @@ git check-ignore -v base/a-shell
 - [x] Basic bounded pathname expansion
 - [x] Leading environment assignments
 - [x] Bounded session-local command aliases
-- [x] Bounded script-file sourcing with nested execution limits
+- [x] Bounded script-file sourcing with positional arguments and nested execution limits
 - [x] Cooperative command cancellation boundary
 - [x] `&&` and `||` conditional chaining
 - [x] Bounded recursive `find` traversal

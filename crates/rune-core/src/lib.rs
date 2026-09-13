@@ -31,6 +31,7 @@ const MAX_INSTALLED_COMMANDS: usize = 4_096;
 const MAX_SCRIPT_BYTES: usize = 256 * 1024;
 const MAX_SCRIPT_LINES: usize = 1_024;
 const MAX_SOURCE_DEPTH: usize = 16;
+const MAX_SOURCE_ARGUMENTS: usize = 64;
 const CANCELLED_STATUS: i32 = 130;
 const MAX_BOOKMARKS: usize = 256;
 const MAX_BOOKMARK_NAME_CHARS: usize = 64;
@@ -235,6 +236,7 @@ pub struct Session {
     wasm_runner: WasmRunner,
     cancellation_requested: Arc<AtomicBool>,
     state_session_id: Option<String>,
+    script_parameters: Vec<String>,
 }
 
 impl Session {
@@ -262,6 +264,7 @@ impl Session {
             wasm_runner: WasmRunner::default(),
             cancellation_requested: Arc::new(AtomicBool::new(false)),
             state_session_id: None,
+            script_parameters: Vec::new(),
         };
         session.update_pwd();
         session
@@ -868,22 +871,19 @@ impl Session {
         }
 
         for assignment in &command.assignments {
-            let value = expand_word(&assignment.value, &self.environment, self.last_status).value;
+            let value = expand_word(
+                &assignment.value,
+                &self.environment,
+                self.last_status,
+                &self.script_parameters,
+            )
+            .value;
             self.environment.insert(assignment.name.clone(), value);
         }
-        let program = expand_word(&command.program, &self.environment, self.last_status).value;
-        let mut arguments = Vec::new();
-        for word in &command.arguments {
-            let expanded = expand_word(word, &self.environment, self.last_status);
-            if expanded.has_wildcard {
-                match self.filesystem.glob(&expanded.value) {
-                    Ok(matches) => arguments.extend(matches),
-                    Err(error) => return fs_failure(&program, &error),
-                }
-            } else {
-                arguments.push(expanded.value);
-            }
-        }
+        let (program, arguments) = match self.expand_command_words(command) {
+            Ok(expanded) => expanded,
+            Err(output) => return output,
+        };
         let (stdin, stdout_redirect, stderr_redirect) =
             match self.apply_redirections(command, &program, external_stdin) {
                 Ok(redirections) => redirections,
@@ -949,6 +949,37 @@ impl Session {
         output
     }
 
+    fn expand_command_words(
+        &self,
+        command: &CommandPlan,
+    ) -> Result<(String, Vec<String>), CommandOutput> {
+        let program = expand_word(
+            &command.program,
+            &self.environment,
+            self.last_status,
+            &self.script_parameters,
+        )
+        .value;
+        let mut arguments = Vec::new();
+        for word in &command.arguments {
+            let expanded = expand_word(
+                word,
+                &self.environment,
+                self.last_status,
+                &self.script_parameters,
+            );
+            if expanded.has_wildcard {
+                match self.filesystem.glob(&expanded.value) {
+                    Ok(matches) => arguments.extend(matches),
+                    Err(error) => return Err(fs_failure(&program, &error)),
+                }
+            } else {
+                arguments.push(expanded.value);
+            }
+        }
+        Ok((program, arguments))
+    }
+
     fn execute_source(
         &mut self,
         command: &str,
@@ -957,8 +988,13 @@ impl Session {
         source_depth: usize,
         sink: &mut dyn EventSink,
     ) -> CommandOutput {
-        if arguments.len() != 1 {
-            return usage(command, &format!("usage: {command} FILE"));
+        if arguments.is_empty() || arguments.len() > MAX_SOURCE_ARGUMENTS + 1 {
+            return usage(
+                command,
+                &format!(
+                    "usage: {command} FILE [ARG ...] (up to {MAX_SOURCE_ARGUMENTS} arguments)"
+                ),
+            );
         }
         if source_depth >= MAX_SOURCE_DEPTH {
             return CommandOutput::failure(
@@ -980,7 +1016,11 @@ impl Session {
         let Ok(script) = String::from_utf8(bytes) else {
             return CommandOutput::failure(2, format!("{command}: file is not valid UTF-8\n"));
         };
-        self.execute_script_internal(&script, record_history, source_depth + 1, sink)
+        let previous_parameters =
+            std::mem::replace(&mut self.script_parameters, arguments.to_vec());
+        let output = self.execute_script_internal(&script, record_history, source_depth + 1, sink);
+        self.script_parameters = previous_parameters;
+        output
     }
 
     fn apply_redirections(
@@ -995,7 +1035,13 @@ impl Session {
         for redirection in &command.redirections {
             let (path, append) = match redirection {
                 Redirection::Stdin { path } => {
-                    let path = expand_word(path, &self.environment, self.last_status).value;
+                    let path = expand_word(
+                        path,
+                        &self.environment,
+                        self.last_status,
+                        &self.script_parameters,
+                    )
+                    .value;
                     match self.filesystem.read(&path) {
                         Ok(content) => stdin = String::from_utf8_lossy(&content).into_owned(),
                         Err(error) => return Err(fs_failure(program, &error)),
@@ -1006,7 +1052,13 @@ impl Session {
                     (path, *append)
                 }
             };
-            let path = expand_word(path, &self.environment, self.last_status).value;
+            let path = expand_word(
+                path,
+                &self.environment,
+                self.last_status,
+                &self.script_parameters,
+            )
+            .value;
             match redirection {
                 Redirection::Stdout { .. } => stdout_redirect = Some((path, append)),
                 Redirection::Stderr { .. } => stderr_redirect = Some((path, append)),
@@ -1212,6 +1264,7 @@ fn expand_word(
     word: &Word,
     environment: &BTreeMap<String, String>,
     last_status: i32,
+    script_parameters: &[String],
 ) -> ExpandedWord {
     let mut value = String::new();
     let mut has_wildcard = false;
@@ -1219,6 +1272,19 @@ fn expand_word(
         match part {
             WordPart::Literal(text) => value.push_str(text),
             WordPart::Variable(name) if name == "?" => value.push_str(&last_status.to_string()),
+            WordPart::Variable(name) if name == "#" => {
+                value.push_str(&script_parameters.len().saturating_sub(1).to_string());
+            }
+            WordPart::Variable(name) if name == "@" => {
+                if script_parameters.len() > 1 {
+                    value.push_str(&script_parameters[1..].join(" "));
+                }
+            }
+            WordPart::Variable(name) if let Ok(index) = name.parse::<usize>() => {
+                if let Some(parameter) = script_parameters.get(index) {
+                    value.push_str(parameter);
+                }
+            }
             WordPart::Variable(name) => {
                 if let Some(variable_value) = environment.get(name) {
                     value.push_str(variable_value);
@@ -1802,6 +1868,13 @@ mod tests {
         )
         .expect("source file written");
         std::fs::write(root.join("nested.rc"), b"echo nested\n").expect("nested file written");
+        std::fs::write(root.join("args.rc"), b"echo $0 $1 $2 $# $@\n")
+            .expect("argument script written");
+        std::fs::write(
+            root.join("outer.rc"),
+            b"source args.rc inner\necho outer:$1\n",
+        )
+        .expect("nested argument script written");
 
         let sourced = session.execute_line("source env.rc");
         assert_eq!(sourced.status, 0);
@@ -1816,12 +1889,29 @@ mod tests {
             .history()
             .contains(&"[redacted environment assignment]".to_string()));
         assert_eq!(session.execute_line(". nested.rc").stdout, "nested\n");
+        let with_arguments = session.execute_line("source args.rc alpha beta");
+        assert_eq!(with_arguments.status, 0);
+        assert_eq!(with_arguments.stdout, "args.rc alpha beta 2 alpha beta\n");
+        let nested_arguments = session.execute_line("source outer.rc parent");
+        assert_eq!(nested_arguments.status, 0);
+        assert_eq!(
+            nested_arguments.stdout,
+            "args.rc inner  1 inner\nouter:parent\n"
+        );
+        let too_many_arguments = (0..65)
+            .map(|index| format!("arg{index}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let rejected_arguments =
+            session.execute_line(&format!("source nested.rc {too_many_arguments}"));
+        assert_eq!(rejected_arguments.status, 2);
+        assert!(rejected_arguments.stderr.contains("up to 64 arguments"));
 
         let missing = session.execute_line("source missing.rc");
         assert_eq!(missing.status, 1);
         assert!(missing.stderr.contains("source: "));
         assert_eq!(session.execute_line("source").status, 2);
-        assert_eq!(session.execute_line("source one two").status, 2);
+        assert_eq!(session.execute_line("source one two").status, 1);
 
         std::fs::write(root.join("loop.rc"), b"source loop.rc\n").expect("loop file written");
         let recursive = session.execute_line("source loop.rc");

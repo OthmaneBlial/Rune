@@ -179,6 +179,21 @@ fn push_wildcard(parts: &mut Vec<WordPart>, wildcard: char) {
     parts.push(WordPart::Wildcard(wildcard));
 }
 
+fn is_valid_variable_reference(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    if matches!(name, "@" | "#") || name.chars().all(|character| character.is_ascii_digit()) {
+        return true;
+    }
+    name.chars()
+        .next()
+        .is_some_and(|character| character == '_' || character.is_ascii_alphabetic())
+        && name
+            .chars()
+            .all(|character| character == '_' || character.is_ascii_alphanumeric())
+}
+
 fn is_valid_assignment_name(name: &str) -> bool {
     let mut characters = name.chars();
     matches!(
@@ -216,14 +231,7 @@ fn parse_variable(input: &[char], index: &mut usize) -> Result<Option<String>, P
             while let Some(character) = input.get(cursor) {
                 if *character == '}' {
                     let name: String = input[name_start..cursor].iter().collect();
-                    if name.is_empty()
-                        || !name.chars().next().is_some_and(|character| {
-                            character == '_' || character.is_ascii_alphabetic()
-                        })
-                        || !name
-                            .chars()
-                            .all(|character| character == '_' || character.is_ascii_alphanumeric())
-                    {
+                    if !is_valid_variable_reference(&name) {
                         return Err(ParseError::InvalidVariable(name));
                     }
                     *index = cursor;
@@ -238,6 +246,22 @@ fn parse_variable(input: &[char], index: &mut usize) -> Result<Option<String>, P
         Some('?') => {
             *index += 1;
             Ok(Some("?".to_string()))
+        }
+        Some('@' | '#') => {
+            *index += 1;
+            Ok(Some(next.expect("matched special variable").to_string()))
+        }
+        Some(character) if character.is_ascii_digit() => {
+            let name_start = *index + 1;
+            let mut cursor = name_start + 1;
+            while let Some(character) = input.get(cursor) {
+                if !character.is_ascii_digit() {
+                    break;
+                }
+                cursor += 1;
+            }
+            *index = cursor - 1;
+            Ok(Some(input[name_start..cursor].iter().collect()))
         }
         Some(character) if character == '_' || character.is_ascii_alphabetic() => {
             let name_start = *index + 1;
@@ -600,6 +624,20 @@ mod tests {
         assert_eq!(
             tokens[3].1.as_ref().expect("expanded argument").parts(),
             &[WordPart::Variable("HOME".to_string())]
+        );
+        let positional = tokenize("echo $0 $12 $# $@").expect("valid positional variables");
+        assert_eq!(
+            positional[1..]
+                .iter()
+                .filter_map(|(_, word)| word.as_ref())
+                .map(|word| word.parts().to_vec())
+                .collect::<Vec<_>>(),
+            vec![
+                vec![WordPart::Variable("0".to_string())],
+                vec![WordPart::Variable("12".to_string())],
+                vec![WordPart::Variable("#".to_string())],
+                vec![WordPart::Variable("@".to_string())],
+            ]
         );
     }
 

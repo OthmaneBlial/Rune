@@ -24,6 +24,8 @@ Configuration tests are local-only as well and verify bounded history, font
 size, scrollback, and theme settings without requiring an Apple runtime. The
 scrollback setting accepts 128–8,192 rendered entries and remains subject to
 the native UI's separate 8 MiB byte cap.
+Script tests also cover bounded positional arguments (`$0`, `$1...`, `$#`, and
+`$@`) and restoration of outer parameters after nested source calls.
 Completion tests also use only the confined VFS and do not require an Apple
 runtime.
 Named-session tests use separate temporary VFS state namespaces and verify that

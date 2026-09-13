@@ -122,9 +122,11 @@ session's saved `cwd` remains authoritative. Profile lines are not added to
 history, and unsupported commands fail visibly instead of reaching the host.
 
 Automation and script files share one execution path. `Session::execute_script`
-accepts bounded newline-delimited input, while the Rust `source FILE` and
-`. FILE` built-ins read a UTF-8 file through the VFS and send it through the
-same parser, command registry, environment, status, and history handling.
+accepts bounded newline-delimited input, while the Rust `source FILE [ARG ...]`
+and `. FILE [ARG ...]` built-ins read a UTF-8 file through the VFS and send it
+through the same parser, command registry, environment, status, and history
+handling. Sourced files expose the path and arguments as `$0`, `$1...`, `$#`,
+and `$@`, with at most 64 arguments; nested parameters are restored on return.
 Sourced files inherit the current virtual directory and session state; they do
 not invoke a host shell. Each sourced file is limited to 256 KiB and 1,024
 lines, and nested sourcing stops at 16 levels with a status-2 error.
