@@ -52,6 +52,11 @@ alive while the matching Rust session is active, and hands Rust only the
 approved folder root. This is source/API evidence; picker behavior and
 entitlements remain unverified without an Apple build/runtime.
 
+The configuration query crosses the FFI as all nine persisted Rust-owned keys,
+including cursor color, font, background, and foreground overrides; Swift
+validates those values before applying them to the source-only view. This is
+contract evidence, not proof of rendered appearance on Apple hardware.
+
 Rendered transcript entries use a configurable 4,096-event default, bounded
 to a maximum of 8,192 events, plus an 8 MiB byte cap in the SwiftUI model;
 the oldest events are discarded when either bound is reached.

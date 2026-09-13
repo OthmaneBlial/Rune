@@ -373,6 +373,11 @@ bounded synchronous `URLSession` callback that fills a Rust-owned response
 buffer. This keeps network and WASM capabilities separate and leaves ATS,
 TLS, redirects, and Apple runtime validation as explicit gates.
 
+The native configuration query is also Rust-owned: its FFI serialization now
+includes every persisted key consumed by Swift, while Swift applies only values
+from the validated finite sets. This keeps the settings sheet from maintaining
+a second configuration source; visual rendering remains an Apple-runtime gate.
+
 Unquoted `*` and `?` are expanded by `rune-core` through the VFS `glob` method;
 quoted patterns remain literal, hidden entries require a leading `.`, and an
 unmatched pattern remains a literal argument. The VFS validates every matched
