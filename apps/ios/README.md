@@ -152,9 +152,10 @@ integration remain unverified.
   the Rust-owned newest-first search endpoint and does not add search text to
   session history. It consumes Rune's clear-screen
   control sequence as a display action instead of showing escape bytes. The
-  source-only `RuneANSIText.swift` renderer also consumes common SGR color,
-  256-color/RGB foreground, bold, and underline sequences; unsupported control
-  sequences are omitted from display rather than shown as raw escape bytes.
+  source-only `RuneANSIText.swift` renderer also consumes common SGR foreground/
+  background colors, 256-color/RGB colors, bold, underline, and inverse
+  sequences; unsupported control sequences are omitted from display rather than
+  shown as raw escape bytes.
 - `swiftc -parse` and `swift package dump-package` pass with the already
   available Swift toolchain; the full package build is not used as evidence.
 - iOS compilation, simulator behavior, device behavior, and linking are

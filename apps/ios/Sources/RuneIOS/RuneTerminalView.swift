@@ -537,7 +537,8 @@ public struct RuneTerminalView: View {
                             ForEach(model.entries) { entry in
                                 RuneANSIText(
                                     text: entry.text,
-                                    defaultColor: color(for: entry.kind, palette: palette)
+                                    defaultColor: color(for: entry.kind, palette: palette),
+                                    defaultBackground: palette.background
                                 )
                                     .font(terminalFont(size: model.fontSize))
                                     .frame(maxWidth: .infinity, alignment: .leading)

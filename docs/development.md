@@ -76,9 +76,10 @@ Its transcript cache has explicit entry and byte bounds in source, but that
 presentation policy cannot be runtime-tested without SwiftUI. The terminal
 and workspace sources also expose explicit accessibility labels, hints, values,
 and identifiers; VoiceOver traversal and Dynamic Type remain runtime gates.
-The source-only renderer also consumes bounded ANSI SGR foreground colors, bold, and underline
-controls; Apple text-layout and terminal-control fidelity remain unverified
-without the Apple runtime.
+The source-only renderer also consumes bounded ANSI SGR foreground/background
+colors, 256-color/RGB colors, bold, underline, and inverse controls; Apple
+text-layout and terminal-control fidelity remain unverified without the Apple
+runtime.
 The network tests use an injected provider and verify method, URL, headers,
 request data, response output, raw VFS-file output, disabled-provider behavior,
 and the C callback boundary. They do not prove internet reachability, TLS,

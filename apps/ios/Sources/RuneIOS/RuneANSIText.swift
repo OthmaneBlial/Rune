@@ -68,8 +68,10 @@ private enum RuneANSIColor {
 
 private struct RuneANSIStyle {
     var foreground: RuneANSIColor?
+    var background: RuneANSIColor?
     var bold = false
     var underline = false
+    var inverse = false
 }
 
 private struct RuneANSISegment {
@@ -82,6 +84,13 @@ private struct RuneANSISegment {
 struct RuneANSIText: View {
     let text: String
     let defaultColor: Color
+    let defaultBackground: Color
+
+    init(text: String, defaultColor: Color, defaultBackground: Color = .clear) {
+        self.text = text
+        self.defaultColor = defaultColor
+        self.defaultBackground = defaultBackground
+    }
 
     var body: some View {
         styledText
@@ -89,13 +98,24 @@ struct RuneANSIText: View {
 
     private var styledText: Text {
         RuneANSIRenderer.segments(from: text).reduce(Text("")) { result, segment in
+            let regularForeground = segment.style.foreground?.resolve() ?? defaultColor
+            let regularBackground = segment.style.background?.resolve()
+            let foregroundColor = segment.style.inverse
+                ? regularBackground ?? defaultBackground
+                : regularForeground
+            let backgroundColor = segment.style.inverse
+                ? regularForeground
+                : regularBackground
             var fragment = Text(segment.text)
-                .foregroundColor(segment.style.foreground?.resolve() ?? defaultColor)
+                .foregroundColor(foregroundColor)
             if segment.style.bold {
                 fragment = fragment.bold()
             }
             if segment.style.underline {
                 fragment = fragment.underline()
+            }
+            if let backgroundColor {
+                fragment = fragment.background(backgroundColor)
             }
             return result + fragment
         }
@@ -105,7 +125,7 @@ struct RuneANSIText: View {
 private enum RuneANSIRenderer {
     static func segments(from text: String) -> [RuneANSISegment] {
         var segments = [RuneANSISegment]()
-        var style = RuneANSIStyle(foreground: nil)
+        var style = RuneANSIStyle(foreground: nil, background: nil)
         var pending = ""
         let scalars = text.unicodeScalars
         var index = scalars.startIndex
@@ -189,7 +209,7 @@ private enum RuneANSIRenderer {
             let value = values[index]
             switch value {
             case 0:
-                style = RuneANSIStyle(foreground: nil)
+                style = RuneANSIStyle(foreground: nil, background: nil)
             case 1:
                 style.bold = true
             case 22:
@@ -198,15 +218,30 @@ private enum RuneANSIRenderer {
                 style.underline = true
             case 24:
                 style.underline = false
+            case 7:
+                style.inverse = true
+            case 27:
+                style.inverse = false
             case 30...37:
                 style.foreground = .indexed(value - 30)
             case 39:
                 style.foreground = nil
+            case 40...47:
+                style.background = .indexed(value - 40)
+            case 49:
+                style.background = nil
             case 90...97:
                 style.foreground = .indexed(value - 90 + 8)
+            case 100...107:
+                style.background = .indexed(value - 100 + 8)
             case 38:
                 if let next = extendedColor(values, after: index) {
                     style.foreground = next.color
+                    index = next.nextIndex
+                }
+            case 48:
+                if let next = extendedColor(values, after: index) {
+                    style.background = next.color
                     index = next.nextIndex
                 }
             default:

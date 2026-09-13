@@ -182,9 +182,9 @@ The Swift transcript is a separate presentation cache with a configurable
 evicts oldest rendered events at the boundary;
 Rust output limits, command history, and sandbox files remain independent of
 that UI eviction policy. The source-only Apple renderer consumes common ANSI
-SGR foreground colors, bold, and underline controls after the Rust boundary;
-unsupported terminal controls are deliberately bounded and not claimed as a
-complete emulator.
+SGR foreground/background colors, 256-color/RGB colors, bold, underline, and
+inverse controls after the Rust boundary; unsupported terminal controls are
+deliberately bounded and not claimed as a complete emulator.
 
 The terminal view also declares native keyboard shortcuts for folder import,
 cooperative cancellation, history navigation, reverse history search, command

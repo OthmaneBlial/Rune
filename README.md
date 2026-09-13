@@ -91,7 +91,8 @@ replacement tokens.
 It also has a focused command bar, keyboard-aware history controls, an
 ink/cyan/ember console palette, accessible completion controls, native handling
 for the Rust `clear` screen-control sequence, and source-only ANSI rendering
-for common SGR colors, 256-color/RGB foregrounds, bold, and underline output.
+for common SGR foreground/background colors, 256-color/RGB colors, bold,
+underline, and inverse output.
 Interactive `export`, `setenv`, and assignment lines are replaced by a
 redaction marker in history before persistence; this is an initial defense, not
 a complete secret management policy.
