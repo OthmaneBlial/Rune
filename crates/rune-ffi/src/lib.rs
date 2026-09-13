@@ -14,8 +14,9 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use rune_core::{
-    CommandEvent, CommandOutput, DisabledNetworkProvider, EventSink, NetworkError, NetworkProvider,
-    NetworkRequest, NetworkResponse, Session, MAX_FILE_TRANSFER_BYTES, MAX_NETWORK_BODY_BYTES,
+    ClipboardError, ClipboardProvider, CommandEvent, CommandOutput, DisabledClipboardProvider,
+    DisabledNetworkProvider, EventSink, NetworkError, NetworkProvider, NetworkRequest,
+    NetworkResponse, Session, MAX_CLIPBOARD_BYTES, MAX_FILE_TRANSFER_BYTES, MAX_NETWORK_BODY_BYTES,
 };
 use rune_fs::{FsError, SandboxedFileSystem};
 
@@ -80,6 +81,28 @@ pub type RuneNetworkRequestCallback = Option<
     ) -> bool,
 >;
 
+/// Result storage exchanged with a native clipboard read callback.
+#[repr(C)]
+pub struct RuneClipboardResponse {
+    pub text_length: usize,
+    /// Zero is success; non-zero means the host rejected the operation.
+    pub error: i32,
+}
+
+/// Native callback that fills a bounded UTF-8 clipboard buffer.
+pub type RuneClipboardReadCallback = Option<
+    unsafe extern "C" fn(
+        user_data: *mut c_void,
+        buffer: *mut u8,
+        capacity: usize,
+        response: *mut RuneClipboardResponse,
+    ) -> bool,
+>;
+
+/// Native callback that replaces the host clipboard with bounded UTF-8 text.
+pub type RuneClipboardWriteCallback =
+    Option<unsafe extern "C" fn(user_data: *mut c_void, text: *const u8, length: usize) -> bool>;
+
 struct CallbackNetworkProvider {
     callback: unsafe extern "C" fn(
         user_data: *mut c_void,
@@ -93,6 +116,65 @@ struct CallbackNetworkProvider {
         response: *mut RuneNetworkResponse,
     ) -> bool,
     user_data: *mut c_void,
+}
+
+struct CallbackClipboardProvider {
+    read: unsafe extern "C" fn(
+        user_data: *mut c_void,
+        buffer: *mut u8,
+        capacity: usize,
+        response: *mut RuneClipboardResponse,
+    ) -> bool,
+    write: unsafe extern "C" fn(user_data: *mut c_void, text: *const u8, length: usize) -> bool,
+    user_data: *mut c_void,
+}
+
+impl ClipboardProvider for CallbackClipboardProvider {
+    fn read_text(&self) -> Result<String, ClipboardError> {
+        let mut buffer = vec![0_u8; MAX_CLIPBOARD_BYTES];
+        let mut response = RuneClipboardResponse {
+            text_length: 0,
+            error: 0,
+        };
+        let callback_succeeded = catch_unwind(AssertUnwindSafe(|| unsafe {
+            (self.read)(
+                self.user_data,
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                std::ptr::addr_of_mut!(response),
+            )
+        }))
+        .unwrap_or(false);
+        if !callback_succeeded || response.error != 0 {
+            return Err(ClipboardError::HostFailure);
+        }
+        if response.text_length > buffer.len() {
+            return Err(ClipboardError::TooLarge {
+                actual: response.text_length,
+                maximum: buffer.len(),
+            });
+        }
+        String::from_utf8(buffer[..response.text_length].to_vec())
+            .map_err(|_| ClipboardError::InvalidText)
+    }
+
+    fn write_text(&self, text: &str) -> Result<(), ClipboardError> {
+        if text.len() > MAX_CLIPBOARD_BYTES {
+            return Err(ClipboardError::TooLarge {
+                actual: text.len(),
+                maximum: MAX_CLIPBOARD_BYTES,
+            });
+        }
+        let callback_succeeded = catch_unwind(AssertUnwindSafe(|| unsafe {
+            (self.write)(self.user_data, text.as_ptr(), text.len())
+        }))
+        .unwrap_or(false);
+        if callback_succeeded {
+            Ok(())
+        } else {
+            Err(ClipboardError::HostFailure)
+        }
+    }
 }
 
 impl NetworkProvider for CallbackNetworkProvider {
@@ -430,6 +512,38 @@ pub extern "C" fn rune_session_set_network_callback(
         core.set_network_provider(Box::new(DisabledNetworkProvider));
     }
     0
+}
+
+/// Installs or clears the native text clipboard capability for one session.
+/// Both callbacks must be supplied together; passing two null callbacks
+/// removes the capability. Rune never invokes these callbacks for commands
+/// that fail their own argument and size validation.
+#[no_mangle]
+pub extern "C" fn rune_session_set_clipboard_callbacks(
+    handle: *mut c_void,
+    read: RuneClipboardReadCallback,
+    write: RuneClipboardWriteCallback,
+    user_data: *mut c_void,
+) -> i32 {
+    if handle.is_null() {
+        return 1;
+    }
+    let core = unsafe { &mut (*handle.cast::<RuneSession>()).core };
+    match (read, write) {
+        (Some(read), Some(write)) => {
+            core.set_clipboard_provider(Box::new(CallbackClipboardProvider {
+                read,
+                write,
+                user_data,
+            }));
+            0
+        }
+        (None, None) => {
+            core.set_clipboard_provider(Box::new(DisabledClipboardProvider));
+            0
+        }
+        _ => 2,
+    }
 }
 
 /// Updates one validated Rust-owned configuration value without recording a
@@ -836,9 +950,10 @@ mod tests {
         rune_session_execute_with_events, rune_session_get_file, rune_session_history,
         rune_session_history_search, rune_session_new, rune_session_new_named,
         rune_session_new_with_layout, rune_session_put_file, rune_session_reset_configuration,
-        rune_session_set_configuration, rune_session_set_network_callback,
-        rune_session_startup_output, rune_string_free, RuneEvent, RuneNetworkResponse,
-        RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS,
+        rune_session_set_clipboard_callbacks, rune_session_set_configuration,
+        rune_session_set_network_callback, rune_session_startup_output, rune_string_free,
+        RuneClipboardResponse, RuneEvent, RuneNetworkResponse, RUNE_EVENT_OUTPUT,
+        RUNE_EVENT_STATUS,
     };
     use std::ffi::{c_void, CStr, CString};
     use std::os::raw::c_char;
@@ -893,6 +1008,60 @@ mod tests {
             (*response).body_length = 8;
             (*response).error = 0;
         }
+        true
+    }
+
+    struct ClipboardState {
+        value: String,
+        writes: usize,
+    }
+
+    unsafe extern "C" fn test_clipboard_read(
+        user_data: *mut c_void,
+        buffer: *mut u8,
+        capacity: usize,
+        response: *mut RuneClipboardResponse,
+    ) -> bool {
+        if user_data.is_null() || response.is_null() {
+            return false;
+        }
+        let state = unsafe { &mut *user_data.cast::<ClipboardState>() };
+        let bytes = state.value.as_bytes();
+        if bytes.len() > capacity || (!bytes.is_empty() && buffer.is_null()) {
+            unsafe {
+                (*response).error = 1;
+            }
+            return false;
+        }
+        if !bytes.is_empty() {
+            unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, bytes.len()) };
+        }
+        unsafe {
+            (*response).text_length = bytes.len();
+            (*response).error = 0;
+        }
+        true
+    }
+
+    unsafe extern "C" fn test_clipboard_write(
+        user_data: *mut c_void,
+        text: *const u8,
+        length: usize,
+    ) -> bool {
+        if user_data.is_null() || (length > 0 && text.is_null()) {
+            return false;
+        }
+        let state = unsafe { &mut *user_data.cast::<ClipboardState>() };
+        let bytes = if length == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(text, length) }
+        };
+        let Ok(value) = std::str::from_utf8(bytes) else {
+            return false;
+        };
+        state.value = value.to_string();
+        state.writes += 1;
         true
     }
 
@@ -1083,6 +1252,75 @@ mod tests {
         unsafe {
             rune_string_free(reset.stdout);
             rune_string_free(reset.stderr);
+        }
+        rune_session_destroy(handle);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn c_abi_bridges_bounded_text_clipboard_commands() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rune-ffi-clipboard-test-{suffix}"));
+        std::fs::create_dir_all(&root).expect("test root created");
+        let root_string = CString::new(root.to_string_lossy().as_bytes()).expect("valid root");
+        let handle = rune_session_new(root_string.as_ptr());
+        assert!(!handle.is_null());
+        assert_eq!(
+            rune_session_set_clipboard_callbacks(
+                handle,
+                Some(test_clipboard_read),
+                None,
+                std::ptr::null_mut(),
+            ),
+            2
+        );
+        let mut state = ClipboardState {
+            value: String::new(),
+            writes: 0,
+        };
+        assert_eq!(
+            rune_session_set_clipboard_callbacks(
+                handle,
+                Some(test_clipboard_read),
+                Some(test_clipboard_write),
+                std::ptr::addr_of_mut!(state).cast(),
+            ),
+            0
+        );
+
+        let copy = CString::new("printf copied | pbcopy").expect("valid command");
+        let output = rune_session_execute(handle, copy.as_ptr());
+        assert_eq!(output.status, 0);
+        assert_eq!(state.value, "copied");
+        assert_eq!(state.writes, 1);
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+
+        let paste = CString::new("pbpaste").expect("valid command");
+        let output = rune_session_execute(handle, paste.as_ptr());
+        assert_eq!(output.status, 0);
+        assert_eq!(c_string(output.stdout), "copied");
+        assert!(c_string(output.stderr).is_empty());
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+
+        assert_eq!(
+            rune_session_set_clipboard_callbacks(handle, None, None, std::ptr::null_mut(),),
+            0
+        );
+        let unavailable = rune_session_execute(handle, paste.as_ptr());
+        assert_eq!(unavailable.status, 1);
+        assert!(c_string(unavailable.stderr).contains("clipboard provider is unavailable"));
+        unsafe {
+            rune_string_free(unavailable.stdout);
+            rune_string_free(unavailable.stderr);
         }
         rune_session_destroy(handle);
         std::fs::remove_dir_all(root).expect("test root removed");

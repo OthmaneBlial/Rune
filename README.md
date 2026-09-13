@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 79%**
+**Overall progress: 80%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -20,13 +20,13 @@ working iOS application or a feature-parity claim.
 |---|---:|
 | Rust workspace | 80% |
 | Shell tokenizer/parser | 65% |
-| Command runtime | 94% |
+| Command runtime | 95% |
 | Sandboxed filesystem | 70% |
 | Sessions/history | 66% |
 | Configuration | 66% |
 | WASM | 52% |
 | Native iOS UI | 72% |
-| Swift/Rust bridge | 60% |
+| Swift/Rust bridge | 62% |
 | Package manager | 66% |
 | Compatibility evidence | 3% |
 
@@ -39,7 +39,8 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `curl`, `echo`, `mkdir
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
 `true`, `false`, `cut`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `pkg`, `tar`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
-`help`, `history`, `sleep`, `uname`, `which`, `whoami`, `source`, and `.` against a
+`help`, `history`, `sleep`, `uname`, `which`, `whoami`, `pbcopy`, `pbpaste`,
+`source`, and `.` against a
 bounded filesystem,
 including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
@@ -222,6 +223,12 @@ source-only Shortcuts layer provides UTF-8 text Put/Get actions on top of that
 real API; arbitrary binary automation remains an FFI capability until an
 Apple-native file parameter contract is validated.
 
+The portable core also exposes `pbcopy` and `pbpaste` through an explicit
+bounded text clipboard capability. The CLI keeps this capability disabled by
+default, while the source-only Apple bridge maps it to `UIPasteboard`; payloads
+are limited to 1 MiB and clipboard access occurs only when one of those
+commands is invoked.
+
 The source-only terminal now dispatches command execution away from the SwiftUI
 main actor behind a lock-protected FFI session, keeps the UI responsive, and
 offers a stop control that sends Rust's cooperative cancellation request. Its
@@ -348,6 +355,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded long-format and human-readable `ls` metadata
 - [x] Bounded virtual filesystem metadata and usage commands
 - [x] Confined canonical-path and SHA-256 utility commands
+- [x] Bounded `pbcopy`/`pbpaste` through an explicit host clipboard capability
 
 ### Phase 3 — Developer environment
 

@@ -26,6 +26,24 @@ private struct RuneFFIFile {
     let message: UnsafeMutablePointer<CChar>?
 }
 
+private struct RuneClipboardResponse {
+    var textLength: Int
+    var error: Int32
+}
+
+private typealias RuneClipboardReadCallback = @convention(c) (
+    UnsafeMutableRawPointer?,
+    UnsafeMutablePointer<UInt8>?,
+    Int,
+    UnsafeMutablePointer<RuneClipboardResponse>?
+) -> Bool
+
+private typealias RuneClipboardWriteCallback = @convention(c) (
+    UnsafeMutableRawPointer?,
+    UnsafePointer<UInt8>?,
+    Int
+) -> Bool
+
 public enum RuneExecutionEventKind: Int32, Sendable {
     case output = 1
     case status = 2
@@ -109,6 +127,14 @@ private func rune_session_cancel(_ handle: OpaquePointer?)
 private func rune_session_set_network_callback(
     _ handle: OpaquePointer?,
     _ callback: RuneNetworkRequestCallback?,
+    _ userData: UnsafeMutableRawPointer?
+) -> Int32
+
+@_silgen_name("rune_session_set_clipboard_callbacks")
+private func rune_session_set_clipboard_callbacks(
+    _ handle: OpaquePointer?,
+    _ read: RuneClipboardReadCallback?,
+    _ write: RuneClipboardWriteCallback?,
     _ userData: UnsafeMutableRawPointer?
 ) -> Int32
 
@@ -266,6 +292,12 @@ public final class RuneFFISession: @unchecked Sendable {
         }
         handle = created
         _ = rune_session_set_network_callback(created, runeNetworkRequestCallback, nil)
+        _ = rune_session_set_clipboard_callbacks(
+            created,
+            runeClipboardReadCallback,
+            runeClipboardWriteCallback,
+            nil
+        )
     }
 
     deinit {

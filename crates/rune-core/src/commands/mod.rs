@@ -173,6 +173,16 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: package::pkg,
     },
     CommandDefinition {
+        name: "pbcopy",
+        summary: "copy bounded stdin text through the host clipboard capability",
+        handler: shell::pbcopy,
+    },
+    CommandDefinition {
+        name: "pbpaste",
+        summary: "paste bounded text from the host clipboard capability",
+        handler: shell::pbpaste,
+    },
+    CommandDefinition {
         name: "rm",
         summary: "remove files or directories",
         handler: filesystem::rm,

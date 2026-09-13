@@ -36,6 +36,9 @@ runtime. The scrollback setting accepts 128–8,192 rendered entries and remains
 subject to the native UI's separate 8 MiB byte cap. The `sleep` command test
 also triggers cancellation during an in-flight bounded wait, not only before a
 command begins.
+Clipboard tests also cover the disabled default provider, a real pipe through
+`pbcopy`/`pbpaste`, callback installation/removal at the FFI boundary, and the
+1 MiB UTF-8 payload limit.
 Script tests also cover bounded positional arguments (`$0`, `$1...`, `$#`, and
 `$@`), preservation of pipeline stdin, and restoration of outer parameters
 after nested source calls.

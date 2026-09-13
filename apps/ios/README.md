@@ -144,6 +144,9 @@ integration remain unverified.
   command execution, plus
   a settings sheet backed by Rust configuration calls and an optional bounded
   input toolbar for Tab/completion, Escape, Ctrl-C, clear, and paste.
+- `RuneClipboardBridge.swift` provides the source-only UIKit adapter for the
+  Rust `pbcopy`/`pbpaste` capability. The callback is bounded to 1 MiB and the
+  portable CLI remains clipboard-disabled by default.
 - `RuneTerminalView.swift` includes the `@main` SwiftUI application entry point
   and launches the source-only workspace view.
 - The bridge asks Rust for bounded command/path replacement candidates; it does

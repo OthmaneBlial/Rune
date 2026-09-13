@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
-use crate::{usage, CommandContext, CommandOutput};
+use crate::{usage, ClipboardError, CommandContext, CommandOutput, MAX_CLIPBOARD_BYTES};
 
 pub(super) fn echo(context: &mut CommandContext<'_>) -> CommandOutput {
     let (newline, arguments) = context
@@ -137,6 +137,46 @@ pub(super) fn env(context: &mut CommandContext<'_>) -> CommandOutput {
         return usage("env", "usage: env");
     }
     environment_output(context)
+}
+
+pub(super) fn pbcopy(context: &mut CommandContext<'_>) -> CommandOutput {
+    if !context.args.is_empty() {
+        return usage("pbcopy", "usage: pbcopy");
+    }
+    if context.stdin.len() > MAX_CLIPBOARD_BYTES {
+        return clipboard_failure(
+            "pbcopy",
+            &ClipboardError::TooLarge {
+                actual: context.stdin.len(),
+                maximum: MAX_CLIPBOARD_BYTES,
+            },
+        );
+    }
+    context.clipboard.write_text(context.stdin).map_or_else(
+        |error| clipboard_failure("pbcopy", &error),
+        |()| CommandOutput::success(""),
+    )
+}
+
+pub(super) fn pbpaste(context: &mut CommandContext<'_>) -> CommandOutput {
+    if !context.args.is_empty() {
+        return usage("pbpaste", "usage: pbpaste");
+    }
+    match context.clipboard.read_text() {
+        Ok(text) if text.len() <= MAX_CLIPBOARD_BYTES => CommandOutput::success(text),
+        Ok(text) => clipboard_failure(
+            "pbpaste",
+            &ClipboardError::TooLarge {
+                actual: text.len(),
+                maximum: MAX_CLIPBOARD_BYTES,
+            },
+        ),
+        Err(error) => clipboard_failure("pbpaste", &error),
+    }
+}
+
+fn clipboard_failure(command: &str, error: &ClipboardError) -> CommandOutput {
+    CommandOutput::failure(1, format!("{command}: {error}\n"))
 }
 
 pub(super) fn alias(context: &mut CommandContext<'_>) -> CommandOutput {

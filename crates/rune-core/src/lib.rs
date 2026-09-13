@@ -4,11 +4,15 @@
 //! FFI consumers can expose its command/event model without moving shell
 //! semantics into Swift.
 
+mod clipboard;
 mod commands;
 mod config;
 mod network;
 mod persistence;
 
+pub use clipboard::{
+    ClipboardError, ClipboardProvider, DisabledClipboardProvider, MAX_CLIPBOARD_BYTES,
+};
 pub use config::{
     TerminalBackground, TerminalConfig, TerminalCursorColor, TerminalCursorShape, TerminalFont,
     TerminalForeground, TerminalTheme,
@@ -255,6 +259,7 @@ pub struct CommandContext<'a> {
     pub(crate) command_definitions: &'a [CommandDefinition],
     pub(crate) runtime: &'a dyn Runtime,
     pub(crate) network: &'a dyn NetworkProvider,
+    pub(crate) clipboard: &'a dyn ClipboardProvider,
     pub(crate) cancellation: &'a AtomicBool,
 }
 
@@ -280,6 +285,7 @@ pub struct Session {
     startup_output: CommandOutput,
     wasm_runner: WasmRunner,
     network_provider: Box<dyn NetworkProvider>,
+    clipboard_provider: Box<dyn ClipboardProvider>,
     cancellation_requested: Arc<AtomicBool>,
     state_session_id: Option<String>,
     script_parameters: Vec<String>,
@@ -309,6 +315,7 @@ impl Session {
             startup_output: CommandOutput::success(""),
             wasm_runner: WasmRunner::default(),
             network_provider: Box::new(DisabledNetworkProvider),
+            clipboard_provider: Box::new(DisabledClipboardProvider),
             cancellation_requested: Arc::new(AtomicBool::new(false)),
             state_session_id: None,
             script_parameters: Vec::new(),
@@ -396,6 +403,12 @@ impl Session {
     /// platform APIs into the Rust command engine.
     pub fn set_network_provider(&mut self, provider: Box<dyn NetworkProvider>) {
         self.network_provider = provider;
+    }
+
+    /// Installs the host-owned text clipboard capability used by `pbcopy` and
+    /// `pbpaste`. The default session has no clipboard provider.
+    pub fn set_clipboard_provider(&mut self, provider: Box<dyn ClipboardProvider>) {
+        self.clipboard_provider = provider;
     }
 
     /// Returns the bridge handle used to request cancellation safely while
@@ -882,6 +895,7 @@ impl Session {
             command_definitions: self.registry.definitions(),
             runtime: &self.wasm_runner,
             network: self.network_provider.as_ref(),
+            clipboard: self.clipboard_provider.as_ref(),
             cancellation: &self.cancellation_requested,
         };
         handler(&mut context)
@@ -1619,11 +1633,11 @@ fn package_runtime_failure(command: &str, error: &rune_package::PackageError) ->
 #[cfg(test)]
 mod tests {
     use super::{
-        persistence::MAX_HISTORY_BYTES, CommandEvent, EventSink, NetworkError, NetworkMethod,
-        NetworkProvider, NetworkRequest, NetworkResponse, Session, TerminalConfig,
-        CANCELLED_STATUS, MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS, MAX_COMMAND_INPUT_BYTES,
-        MAX_FILE_TRANSFER_BYTES, MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES,
-        MAX_SOURCE_DEPTH, OUTPUT_TRUNCATION_MARKER,
+        persistence::MAX_HISTORY_BYTES, ClipboardError, ClipboardProvider, CommandEvent, EventSink,
+        NetworkError, NetworkMethod, NetworkProvider, NetworkRequest, NetworkResponse, Session,
+        TerminalConfig, CANCELLED_STATUS, MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS,
+        MAX_CLIPBOARD_BYTES, MAX_COMMAND_INPUT_BYTES, MAX_FILE_TRANSFER_BYTES, MAX_OUTPUT_BYTES,
+        MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES, MAX_SOURCE_DEPTH, OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -1692,6 +1706,21 @@ mod tests {
                 .find(|(url, _)| url == &request.url)
                 .map(|(_, response)| response.clone())
                 .ok_or_else(|| NetworkError::Transport("test route not found".to_string()))
+        }
+    }
+
+    struct RecordingClipboardProvider {
+        value: Arc<Mutex<String>>,
+    }
+
+    impl ClipboardProvider for RecordingClipboardProvider {
+        fn read_text(&self) -> Result<String, ClipboardError> {
+            Ok(self.value.lock().expect("clipboard lock").clone())
+        }
+
+        fn write_text(&self, text: &str) -> Result<(), ClipboardError> {
+            *self.value.lock().expect("clipboard lock") = text.to_string();
+            Ok(())
         }
     }
 
@@ -2777,6 +2806,7 @@ mod tests {
         let registry = super::CommandRegistry::default();
         let runtime = rune_wasm::WasmRunner::default();
         let network = super::DisabledNetworkProvider;
+        let clipboard = super::DisabledClipboardProvider;
         let args = Vec::new();
         let cancellation = std::sync::atomic::AtomicBool::new(true);
         let cancelled = {
@@ -2792,6 +2822,7 @@ mod tests {
                 command_definitions: registry.definitions(),
                 runtime: &runtime,
                 network: &network,
+                clipboard: &clipboard,
                 cancellation: &cancellation,
             };
             context
@@ -2816,6 +2847,7 @@ mod tests {
         let registry = super::CommandRegistry::default();
         let runtime = rune_wasm::WasmRunner::default();
         let network = super::DisabledNetworkProvider;
+        let clipboard = super::DisabledClipboardProvider;
         let args = vec!["1".to_string()];
         let cancellation = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let trigger = std::sync::Arc::clone(&cancellation);
@@ -2835,6 +2867,7 @@ mod tests {
             command_definitions: registry.definitions(),
             runtime: &runtime,
             network: &network,
+            clipboard: &clipboard,
             cancellation: cancellation.as_ref(),
         };
         let cancelled = super::commands::shell::sleep(&mut context);
@@ -3580,6 +3613,28 @@ mod tests {
             .is_empty());
         assert_eq!(session.execute_line("false && echo skipped").status, 1);
         assert_eq!(session.execute_line("echo $?").stdout, "1\n");
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn transfers_text_through_an_explicit_clipboard_provider() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("pbpaste").status, 1);
+
+        let value = Arc::new(Mutex::new(String::new()));
+        session.set_clipboard_provider(Box::new(RecordingClipboardProvider {
+            value: Arc::clone(&value),
+        }));
+        assert_eq!(session.execute_line("echo copied | pbcopy").status, 0);
+        assert_eq!(value.lock().expect("clipboard lock").as_str(), "copied\n");
+        assert_eq!(session.execute_line("pbpaste").stdout, "copied\n");
+        assert_eq!(session.execute_line("pbcopy unexpected").status, 2);
+
+        *value.lock().expect("clipboard lock") = "x".repeat(MAX_CLIPBOARD_BYTES + 1);
+        let oversized = session.execute_line("pbpaste");
+        assert_eq!(oversized.status, 1);
+        assert!(oversized.stderr.contains("clipboard text is"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

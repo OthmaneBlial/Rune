@@ -197,6 +197,13 @@ maintaining a second command, configuration, or history implementation; the
 toolbar visibility preference is persisted by Rust and surfaced through the
 same FFI. Their behavior still needs Apple keyboard/runtime validation.
 
+Clipboard access is another explicit host capability. Rust owns the bounded
+`pbcopy`/`pbpaste` command semantics and accepts at most 1 MiB of UTF-8 text;
+the CLI has no provider by default. The source-only Apple bridge installs a
+UIKit `UIPasteboard` adapter through the C ABI, so clipboard access is not an
+ambient capability of the portable core. UIKit privacy prompts and runtime
+behavior remain unverified without an Apple build.
+
 The filesystem starts with a host-backed root for local development. The root
 is a policy boundary: paths are resolved relative to it, `~` maps to the root,
 and traversal outside the root is rejected. An Apple adapter will map that

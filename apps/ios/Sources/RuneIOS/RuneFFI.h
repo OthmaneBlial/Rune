@@ -49,6 +49,24 @@ typedef bool (*RuneNetworkRequestCallback)(
     RuneNetworkResponse *response
 );
 
+typedef struct {
+    size_t text_length;
+    int32_t error;
+} RuneClipboardResponse;
+
+typedef bool (*RuneClipboardReadCallback)(
+    void *user_data,
+    uint8_t *buffer,
+    size_t capacity,
+    RuneClipboardResponse *response
+);
+
+typedef bool (*RuneClipboardWriteCallback)(
+    void *user_data,
+    const uint8_t *text,
+    size_t length
+);
+
 void *rune_session_new(const char *root);
 // Create a session with an independent bounded persistence namespace.
 void *rune_session_new_named(const char *root, const char *session_id);
@@ -59,6 +77,13 @@ void rune_session_cancel(const void *handle);
 int32_t rune_session_set_network_callback(
     void *handle,
     RuneNetworkRequestCallback callback,
+    void *user_data
+);
+// Install or clear the bounded native text clipboard capability.
+int32_t rune_session_set_clipboard_callbacks(
+    void *handle,
+    RuneClipboardReadCallback read,
+    RuneClipboardWriteCallback write,
     void *user_data
 );
 // Update one validated Rust-owned configuration value without history entry.
