@@ -2654,6 +2654,11 @@ mod tests {
             "alpha\n"
         );
         assert_eq!(
+            session.execute_line("grep -n alpha lines.txt").stdout,
+            "2:alpha\n"
+        );
+        assert_eq!(session.execute_line("grep -c beta lines.txt").stdout, "2\n");
+        assert_eq!(
             session.execute_line("sed 's/beta/Rune/g' lines.txt").stdout,
             "Rune\nalpha\nRune\n"
         );

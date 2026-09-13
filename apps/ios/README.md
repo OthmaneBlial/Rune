@@ -30,10 +30,10 @@ does not claim arbitrary binary file parameters.
 Individual command lines crossing the bridge are also rejected above the
 64-KiB Rust input limit before parsing or history recording.
 
-The same Rust core also provides `source FILE` and `. FILE` for bounded script
-files stored in the virtual filesystem. The Swift layer only sends the command;
-file reads, nested execution limits, environment changes, output, status, and
-history remain Rust-owned.
+The same Rust core also provides `source FILE [ARG ...]` and `. FILE [ARG ...]`
+for bounded script files stored in the virtual filesystem. The Swift layer only
+sends the command; file reads, nested execution limits, positional expansion,
+environment changes, output, status, and history remain Rust-owned.
 
 The source-only UI can open a directory with the native Files importer. The
 Apple layer stores a bounded security-scoped bookmark, keeps the access scope
@@ -41,8 +41,9 @@ alive while the matching Rust session is active, and hands Rust only the
 approved folder root. This is source/API evidence; picker behavior and
 entitlements remain unverified without an Apple build/runtime.
 
-Rendered transcript entries are bounded to 4,096 events and 8 MiB in the
-SwiftUI model; the oldest events are discarded when either bound is reached.
+Rendered transcript entries use a configurable 4,096-event default, bounded
+to a maximum of 8,192 events, plus an 8 MiB byte cap in the SwiftUI model;
+the oldest events are discarded when either bound is reached.
 This is a display-memory policy and does not alter Rust command history or
 files stored in the sandbox.
 

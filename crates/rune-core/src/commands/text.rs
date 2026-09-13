@@ -23,6 +23,33 @@ enum CutMode {
     },
 }
 
+#[derive(Clone, Copy)]
+enum GrepCase {
+    Sensitive,
+    Insensitive,
+}
+
+#[derive(Clone, Copy)]
+enum GrepMatch {
+    Contains,
+    Excludes,
+}
+
+#[derive(Clone, Copy)]
+enum GrepOutput {
+    Lines,
+    NumberedLines,
+    Count,
+}
+
+struct GrepOptions {
+    case: GrepCase,
+    matching: GrepMatch,
+    output: GrepOutput,
+    pattern: String,
+    paths: Vec<String>,
+}
+
 pub(super) fn cut(context: &mut CommandContext<'_>) -> CommandOutput {
     let (mode, paths) = match parse_cut_args(context.args) {
         Ok(parsed) => parsed,
@@ -298,33 +325,47 @@ pub(super) fn tail(context: &mut CommandContext<'_>) -> CommandOutput {
 }
 
 pub(super) fn grep(context: &mut CommandContext<'_>) -> CommandOutput {
-    let (ignore_case, invert, pattern, paths) = match parse_grep_args(context.args) {
+    let options = match parse_grep_args(context.args) {
         Ok(parsed) => parsed,
         Err(output) => return output,
     };
-    let text = match read_inputs(context, "grep", &paths) {
+    let text = match read_inputs(context, "grep", &options.paths) {
         Ok(text) => text,
         Err(output) => return output,
     };
-    let needle = if ignore_case {
-        pattern.to_lowercase()
+    let needle = if matches!(options.case, GrepCase::Insensitive) {
+        options.pattern.to_lowercase()
     } else {
-        pattern.clone()
+        options.pattern.clone()
     };
     let mut stdout = String::new();
     let mut matched = false;
-    for line in lines_with_endings(&text) {
+    let mut matching_lines = 0;
+    for (index, line) in lines_with_endings(&text).into_iter().enumerate() {
         let original = line_content(line);
-        let haystack = if ignore_case {
+        let haystack = if matches!(options.case, GrepCase::Insensitive) {
             original.to_lowercase()
         } else {
             original.to_string()
         };
         let contains = haystack.contains(&needle);
-        if contains != invert {
+        let selected = match options.matching {
+            GrepMatch::Contains => contains,
+            GrepMatch::Excludes => !contains,
+        };
+        if selected {
             matched = true;
-            stdout.push_str(line);
+            matching_lines += 1;
+            if !matches!(options.output, GrepOutput::Count) {
+                if matches!(options.output, GrepOutput::NumberedLines) {
+                    let _ = write!(stdout, "{}:", index + 1);
+                }
+                stdout.push_str(line);
+            }
         }
+    }
+    if matches!(options.output, GrepOutput::Count) {
+        let _ = writeln!(stdout, "{matching_lines}");
     }
     CommandOutput {
         stdout,
@@ -630,14 +671,17 @@ fn parse_nonnegative_count(command: &str, value: &str) -> Result<usize, CommandO
         .map_err(|_| usage(command, "-n requires a non-negative number"))
 }
 
-fn parse_grep_args(args: &[String]) -> Result<(bool, bool, String, Vec<String>), CommandOutput> {
-    let mut ignore_case = false;
-    let mut invert = false;
+fn parse_grep_args(args: &[String]) -> Result<GrepOptions, CommandOutput> {
+    let mut case = GrepCase::Sensitive;
+    let mut matching = GrepMatch::Contains;
+    let mut output = GrepOutput::Lines;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
-            "-i" => ignore_case = true,
-            "-v" => invert = true,
+            "-i" => case = GrepCase::Insensitive,
+            "-v" => matching = GrepMatch::Excludes,
+            "-n" => output = GrepOutput::NumberedLines,
+            "-c" => output = GrepOutput::Count,
             "--" => {
                 index += 1;
                 break;
@@ -647,10 +691,19 @@ fn parse_grep_args(args: &[String]) -> Result<(bool, bool, String, Vec<String>),
         index += 1;
     }
     let Some(pattern) = args.get(index) else {
-        return Err(usage("grep", "usage: grep [-i] [-v] pattern [file ...]"));
+        return Err(usage(
+            "grep",
+            "usage: grep [-i] [-v] [-n] [-c] pattern [file ...]",
+        ));
     };
     let paths = args[index + 1..].to_vec();
-    Ok((ignore_case, invert, pattern.clone(), paths))
+    Ok(GrepOptions {
+        case,
+        matching,
+        output,
+        pattern: pattern.clone(),
+        paths,
+    })
 }
 
 fn parse_flag(command: &str, args: &[String], flag: &str) -> Result<bool, CommandOutput> {

@@ -162,8 +162,9 @@ or script boundary returns status 130. This keeps the UI callback responsive
 without pretending that a synchronous filesystem or runtime operation can be
 forcefully interrupted.
 
-The Swift transcript is a separate presentation cache capped at 4,096 entries
-and 8 MiB of UTF-8 text. It evicts oldest rendered events at the boundary;
+The Swift transcript is a separate presentation cache with a configurable
+4,096-entry default, an 8,192-entry maximum, and an 8 MiB UTF-8 text cap. It
+evicts oldest rendered events at the boundary;
 Rust output limits, command history, and sandbox files remain independent of
 that UI eviction policy. The source-only Apple renderer consumes common ANSI
 SGR foreground colors, bold, and underline controls after the Rust boundary;
@@ -197,6 +198,8 @@ literal `s///` substitutions with `g` and `p` flags plus `-n`; it does not claim
 regular-expression or address compatibility. These option surfaces are
 deliberately smaller than POSIX utilities until compatibility tests justify
 expanding them.
+`grep` performs bounded literal matching and supports `-i`, `-v`, `-n`, and
+`-c`, retaining status 0/1 match semantics and status 2 for usage errors.
 
 The `find` built-in walks the same virtual filesystem through `metadata` and
 `list`; it never traverses the host root directly. Its initial surface supports

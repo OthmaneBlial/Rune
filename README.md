@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 60%**
+**Overall progress: 61%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -20,7 +20,7 @@ working iOS application or a feature-parity claim.
 |---|---:|
 | Rust workspace | 70% |
 | Shell tokenizer/parser | 65% |
-| Command runtime | 88% |
+| Command runtime | 89% |
 | Sandboxed filesystem | 64% |
 | Sessions/history | 62% |
 | Configuration | 27% |
@@ -60,6 +60,8 @@ The text pipeline also includes bounded `cut` field/character selection
 The text pipeline also includes bounded `cut` field/character selection
 (`-f`, `-c`, `-d`, and `-s`) over stdin or sandbox files. Its text filters
 accept `-` as an explicit stdin path when file operands are present.
+`grep` additionally supports literal matching with `-i`, `-v`, `-n`, and `-c`;
+its status remains 0 for a match, 1 for no match, and 2 for invalid usage.
 A synchronous command response is capped at 1 MiB per output channel; a
 truncation marker is emitted rather than allowing unbounded terminal output.
 Individual command lines are capped at 64 KiB before parsing, and automation
@@ -95,9 +97,9 @@ The iOS app is represented by
 source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
 and runtime gates remain unverified. Bounded directory enumeration and
 current-directory/history persistence now exist in Rust; bounded
-`history-limit`, `font-size`, and
-`theme` configuration is available, and the native source UI consumes the
-font size and three named palettes. Configurable redaction, cursor styling,
+`history-limit`, `font-size`, `scrollback-limit`, and `theme` configuration
+is available, and the native source UI consumes the font size, bounded
+scrollback window, and three named palettes. Configurable redaction, cursor styling,
 and broader session recovery remain planned. Non-WASM language runtimes remain
 planned work.
 
