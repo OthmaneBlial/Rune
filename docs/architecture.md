@@ -20,6 +20,9 @@ constraints. It is not a source dependency or an implementation template.
   results.
 - `rune-wasm`: bounded WASI preview1 execution with no host-directory
   preopens in the initial slice.
+- `rune-package`: bounded versioned manifest parsing and SHA-256 artifact
+  verification; transport and installation are intentionally outside this
+  first boundary.
 - `rune-ffi`: a deliberately narrow C ABI for opaque session handles and owned
   stdout/stderr buffers. Its unsafe code is isolated at the boundary.
 - `apps/rune-cli`: a small host executable used for local development and
@@ -103,6 +106,13 @@ WASI filesystem access is unavailable until it can be mapped to explicit Rune
 capabilities. Each invocation bounds module bytes, interpreter fuel, linear
 memory, tables, and captured output. Guest traps become a failed command while
 preserving captured output; explicit WASI exits preserve their exit status.
+
+Package metadata is parsed independently of network or filesystem installation
+through `rune-package`. Schema version 1 rejects unknown fields, path traversal,
+duplicate entries, undeclared command targets, and malformed digests. Declared
+file bytes are checked with SHA-256 before a future installer can trust them.
+This is integrity evidence, not a signature or publisher-trust system; signed
+repositories and installation policy remain future work.
 
 Unquoted `*` and `?` are expanded by `rune-core` through the VFS `glob` method;
 quoted patterns remain literal, hidden entries require a leading `.`, and an

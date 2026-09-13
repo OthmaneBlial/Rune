@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 21%**
+**Overall progress: 23%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -26,7 +26,7 @@ working iOS application or a feature-parity claim.
 | WASM | 22% |
 | Native iOS UI | 9% |
 | Swift/Rust bridge | 6% |
-| Package manager | 0% |
+| Package manager | 4% |
 | Compatibility evidence | 2% |
 
 ## Current status
@@ -67,6 +67,10 @@ persistence now exists in Rust; configuration/redaction and broader session
 recovery remain planned. Package management and language runtimes remain
 planned work.
 
+The Rust package boundary now validates a bounded, versioned JSON manifest and
+checks declared file bytes with SHA-256. There is deliberately no network
+transport or install command yet, so package-manager progress remains early.
+
 The `wasm MODULE [arg ...]` built-in loads a module through the bounded virtual
 filesystem and executes WASI preview1 `_start` in Rust. It exposes only
 stdin/stdout/stderr, arguments, and the session environment; it does not
@@ -87,6 +91,7 @@ Swift / SwiftUI app (source-only; Apple link unverified)
         │   │
         │   └──── rune-fs   bounded filesystem abstraction
         ├──────── rune-wasm WASI preview1 interpreter boundary
+        ├──────── rune-package manifest and integrity boundary
         ├──────── rune-shell tokenizer, parser, execution plan
         └──────── rune-ffi   owned C ABI handles and output buffers
 ```
