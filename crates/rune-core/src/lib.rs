@@ -200,7 +200,7 @@ impl Session {
             return CommandOutput::success("");
         }
         if record_history {
-            self.history.push(line.to_string());
+            self.history.push(history_entry(line));
             if self.history.len() > self.history_limit {
                 let excess = self.history.len() - self.history_limit;
                 self.history.drain(0..excess);
@@ -369,6 +369,25 @@ fn expand_word(word: &Word, environment: &BTreeMap<String, String>, last_status:
     expanded
 }
 
+fn history_entry(line: &str) -> String {
+    let Ok(plan) = parse(line) else {
+        return line.to_string();
+    };
+    let contains_environment_setter = plan.pipelines.iter().any(|pipeline| {
+        pipeline.commands.iter().any(|command| {
+            matches!(
+                command.program.literal_value().as_deref(),
+                Some("export" | "setenv")
+            )
+        })
+    });
+    if contains_environment_setter {
+        "[redacted environment assignment]".to_string()
+    } else {
+        line.to_string()
+    }
+}
+
 pub(crate) fn usage(command: &str, message: &str) -> CommandOutput {
     CommandOutput::failure(2, format!("{command}: {message}\n"))
 }
@@ -506,6 +525,33 @@ mod tests {
             "      1 beta\n      1 alpha\n      1 beta\n"
         );
         assert_eq!(session.execute_line("wc -l lines.txt").stdout, "3\n");
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn redacts_environment_assignment_values_before_persisting_history() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let output = session.execute_line("export API_TOKEN=super-secret-value");
+        assert_eq!(output.status, 0);
+        assert_eq!(
+            session.environment().get("API_TOKEN").map(String::as_str),
+            Some("super-secret-value")
+        );
+        assert_eq!(
+            session.history().last().map(String::as_str),
+            Some("[redacted environment assignment]")
+        );
+        session.persist().expect("history persisted");
+        let state = std::fs::read_to_string(root.join(".rune/session.state")).expect("state read");
+        assert!(!state.contains("super-secret-value"));
+
+        let output = session.execute_line("setenv SECOND_SECRET another-secret-value");
+        assert_eq!(output.status, 0);
+        assert_eq!(
+            session.history().last().map(String::as_str),
+            Some("[redacted environment assignment]")
+        );
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 }
