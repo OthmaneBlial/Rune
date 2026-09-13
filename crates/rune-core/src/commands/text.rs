@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
@@ -51,6 +52,13 @@ struct GrepOptions {
     output: GrepOutput,
     pattern: String,
     paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SortOptions {
+    reverse: bool,
+    numeric: bool,
+    unique: bool,
 }
 
 pub(super) fn cut(context: &mut CommandContext<'_>) -> CommandOutput {
@@ -548,31 +556,81 @@ pub(super) fn sed(context: &mut CommandContext<'_>) -> CommandOutput {
 }
 
 pub(super) fn sort(context: &mut CommandContext<'_>) -> CommandOutput {
-    let reverse = match parse_flag("sort", context.args, "r") {
-        Ok(reverse) => reverse,
+    let (options, paths) = match parse_sort_args(context.args) {
+        Ok(parsed) => parsed,
         Err(output) => return output,
     };
-    let flag = "-r";
-    let paths = context
-        .args
-        .iter()
-        .filter(|argument| argument.as_str() != flag)
-        .cloned()
-        .collect::<Vec<_>>();
     let text = match read_inputs(context, "sort", &paths) {
         Ok(text) => text,
         Err(output) => return output,
     };
     let mut lines = lines_with_endings(&text);
     lines.sort_unstable_by(|left, right| {
-        let ordering = line_content(left).cmp(line_content(right));
-        if reverse {
+        let ordering = if options.numeric {
+            numeric_line_order(line_content(left), line_content(right))
+        } else {
+            line_content(left).cmp(line_content(right))
+        };
+        if options.reverse {
             ordering.reverse()
         } else {
             ordering
         }
     });
+    if options.unique {
+        lines.dedup_by(|left, right| line_content(left) == line_content(right));
+    }
     CommandOutput::success(lines.concat())
+}
+
+fn parse_sort_args(args: &[String]) -> Result<(SortOptions, Vec<String>), CommandOutput> {
+    let mut options = SortOptions {
+        reverse: false,
+        numeric: false,
+        unique: false,
+    };
+    let mut paths = Vec::new();
+    let mut parse_options = true;
+    for argument in args {
+        if parse_options && argument == "--" {
+            parse_options = false;
+        } else if parse_options && argument.starts_with('-') {
+            let flags = argument.strip_prefix('-').unwrap_or_default();
+            if flags.is_empty() || !flags.chars().all(|flag| matches!(flag, 'r' | 'n' | 'u')) {
+                return Err(usage("sort", "usage: sort [-nru] [--] [file ...]"));
+            }
+            options.reverse |= flags.contains('r');
+            options.numeric |= flags.contains('n');
+            options.unique |= flags.contains('u');
+        } else {
+            paths.push(argument.clone());
+        }
+    }
+    Ok((options, paths))
+}
+
+fn numeric_line_order(left: &str, right: &str) -> Ordering {
+    match (parse_numeric_prefix(left), parse_numeric_prefix(right)) {
+        (Some(left), Some(right)) => left.cmp(&right),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => left.cmp(right),
+    }
+}
+
+fn parse_numeric_prefix(line: &str) -> Option<i128> {
+    let line = line.trim_start();
+    let end = line
+        .char_indices()
+        .find(|(_, character)| {
+            !character.is_ascii_digit() && *character != '+' && *character != '-'
+        })
+        .map_or(line.len(), |(index, _)| index);
+    let value = &line[..end];
+    if value.is_empty() || matches!(value, "+" | "-") {
+        return None;
+    }
+    value.parse().ok()
 }
 
 pub(super) fn uniq(context: &mut CommandContext<'_>) -> CommandOutput {

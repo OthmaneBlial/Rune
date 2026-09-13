@@ -4821,6 +4821,18 @@ mod tests {
             session.execute_line("tail -1 lines.txt | sort").stdout,
             "beta\n"
         );
+        assert_eq!(session.execute_line("echo 10 > numbers.data").status, 0);
+        assert_eq!(session.execute_line("echo 2 >> numbers.data").status, 0);
+        assert_eq!(session.execute_line("echo 2 >> numbers.data").status, 0);
+        assert_eq!(session.execute_line("echo 1 >> numbers.data").status, 0);
+        assert_eq!(
+            session.execute_line("sort -n numbers.data").stdout,
+            "1\n2\n2\n10\n"
+        );
+        assert_eq!(
+            session.execute_line("sort -nru numbers.data").stdout,
+            "10\n2\n1\n"
+        );
         assert_eq!(
             session.execute_line("grep -i ALPHA lines.txt").stdout,
             "alpha\n"

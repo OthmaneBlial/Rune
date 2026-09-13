@@ -64,6 +64,8 @@ its status remains 0 for a match, 1 for no match, and 2 for invalid usage.
 `diff [-u|--unified] FILE1 FILE2` compares two bounded UTF-8 VFS files with a
 whole-file unified view, returning status 0 when equal, 1 when different, and
 2 when input, comparison size, or usage bounds are rejected.
+`sort` supports bounded lexical or integer-prefix ordering with `-n`, reverse
+ordering with `-r`, and adjacent-result deduplication with `-u`.
 `awk` provides a Rust-owned bounded text-processing subset: `-F` field
 separators, `$0`/`$1...`, `NF`/`NR`/`FNR`, `print`, `FS`/`OFS` assignments,
 `BEGIN`/`END`, literal `/text/` filters, simple equality, and literal
@@ -413,6 +415,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded Rust-owned `awk` field processing subset
 - [x] Bounded Rust-owned `xargs` batching over stdin
 - [x] Bounded `$(...)` command substitution with isolated shell state
+- [x] Bounded numeric, reverse, and unique `sort` options
 
 ### Phase 3 — Developer environment
 

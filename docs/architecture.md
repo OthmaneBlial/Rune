@@ -243,6 +243,9 @@ deliberately smaller than POSIX utilities until compatibility tests justify
 expanding them.
 `grep` performs bounded literal matching and supports `-i`, `-v`, `-n`, and
 `-c`, retaining status 0/1 match semantics and status 2 for usage errors.
+`sort` supports lexical ordering plus integer-prefix ordering with `-n`,
+reverse ordering with `-r`, and adjacent duplicate removal with `-u`; malformed
+numeric prefixes are ordered after valid numeric lines.
 `diff` reads two confined UTF-8 files, uses a bounded longest-common-subsequence
 comparison, emits a whole-file unified view, and returns status 0/1 for equal or
 different inputs. Its input, line, and dynamic-programming-cell limits reject
