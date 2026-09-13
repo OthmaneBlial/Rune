@@ -15,7 +15,9 @@ in-flight WASM cancellation remains cooperative because the current Wasmi call
 does not expose a safe mid-stack interrupt API.
 Package metadata and local WASM installation tests are also local-only; no
 registry or download is needed to validate the manifest, digest, and bounded
-package-tree boundaries.
+package-tree boundaries. Manifest capabilities are explicit: installed WASM
+has no filesystem preopen unless `permissions.filesystem: true` is declared;
+tests cover both the denied-by-default and granted paths.
 The package search test is local-only as well and searches installed
 manifests without network access.
 Configuration tests are local-only as well and verify bounded history, font
