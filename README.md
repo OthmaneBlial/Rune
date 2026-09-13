@@ -10,31 +10,32 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 4%**
+**Overall progress: 9%**
 
 This is an intentionally conservative engineering estimate. The repository
-foundation and the first Rust shell slice are in progress; there is not yet a
+foundation and first Rust shell slice are locally verified; there is not yet a
 working iOS application or a feature-parity claim.
 
 | Area | Progress |
 |---|---:|
-| Rust workspace | 35% |
-| Shell tokenizer/parser | 0% |
-| Command runtime | 0% |
-| Sandboxed filesystem | 0% |
-| Sessions/history | 0% |
+| Rust workspace | 70% |
+| Shell tokenizer/parser | 45% |
+| Command runtime | 35% |
+| Sandboxed filesystem | 35% |
+| Sessions/history | 8% |
 | WASM | 0% |
 | Native iOS UI | 0% |
 | Swift/Rust bridge | 0% |
 | Package manager | 0% |
-| Compatibility evidence | 1% |
+| Compatibility evidence | 2% |
 
 ## Current status
 
-The current milestone is the Rust foundation and a real, host-runnable shell
-vertical slice. It will execute supported built-in commands against a bounded
-filesystem, return separate stdout/stderr and an exit status, and provide a
-small CLI for local verification. The iOS app, FFI surface, persistence,
+The first Rust vertical slice is implemented and locally verified. It executes
+the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
+`touch`, `rm`, `cp`, `mv`, `env`, `clear`, `help`, and `history` against a
+bounded filesystem, with quotes, variables, pipes, redirections, sequencing,
+separate stdout/stderr, and exit status. The iOS app, FFI surface, persistence,
 WASM, and package management remain planned work.
 
 No a-Shell compatibility area is marked `supported` without behavior and test
@@ -77,18 +78,18 @@ git check-ignore -v base/a-shell
 
 - [x] Repository and Rust workspace
 - [x] Local-only quality workflow
-- [ ] First command execution slice
+- [x] First command execution slice
 - [ ] SwiftUI iOS application shell
 - [ ] Stable Rust/Swift bridge
 
 ### Phase 2 — Core shell
 
-- [ ] Tokenizer and parser
-- [ ] Environment and path expansion
-- [ ] Bounded virtual filesystem
-- [ ] Built-in file commands
+- [x] Tokenizer and parser
+- [x] Environment and path expansion
+- [x] Bounded virtual filesystem
+- [x] Built-in file commands
 - [ ] Sessions and persisted history
-- [ ] Pipes and redirections
+- [x] Pipes and redirections
 
 ### Phase 3 — Developer environment
 

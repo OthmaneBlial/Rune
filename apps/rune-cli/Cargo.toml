@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 rune-core = { path = "../../crates/rune-core" }
+rune-fs = { path = "../../crates/rune-fs" }
 
 [lints]
 workspace = true

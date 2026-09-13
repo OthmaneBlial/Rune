@@ -37,3 +37,8 @@ is a policy boundary: paths are resolved relative to it, `~` maps to the root,
 and traversal outside the root is rejected. An Apple adapter will map that
 root to the app's Documents directory and add user-approved external roots
 through security-scoped bookmarks.
+
+Apple source integration will be added without installing a new Xcode or
+simulator footprint. Until an existing Apple toolchain is explicitly used,
+Swift compilation and runtime behavior remain unverified gates rather than
+assumed capabilities.

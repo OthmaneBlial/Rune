@@ -3,7 +3,8 @@
 ## Prerequisites
 
 - Rust toolchain with `cargo`, `rustfmt`, and Clippy
-- Xcode for future iOS validation
+- Existing Apple/Swift tooling is optional for source inspection; do not install
+  Xcode, simulators, SDKs, or additional dependencies just for this phase.
 
 ## Local checks
 
@@ -24,6 +25,11 @@ Keep commits small enough to describe one coherent behavior. Before a push:
 
 The reference implementation is never staged. `git check-ignore -v
 base/a-shell` should report the repository's `/base/` rule.
+
+Apple work is developed as source and narrow interfaces until an already
+available Apple toolchain can validate it. A local Rust green check does not
+prove Swift compilation, simulator behavior, device behavior, or App Store
+readiness.
 
 ## Evidence discipline
 

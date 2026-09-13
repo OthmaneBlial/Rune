@@ -1,5 +1,480 @@
 //! Filesystem policy and path resolution for Rune.
 //!
-//! The first concrete filesystem implementation is introduced with the first
-//! command-execution slice. Keeping this crate separate ensures command logic
-//! does not depend directly on `UIKit` or platform-specific filesystem APIs.
+//! The core talks to [`VirtualFileSystem`] rather than to platform APIs. The
+//! initial implementation is host-backed and confines every operation to a
+//! canonical root, which models the app's Documents directory during local
+//! development.
+
+#![allow(clippy::missing_errors_doc)]
+
+use std::fmt::{Display, Formatter};
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
+use std::path::{Component, Path, PathBuf};
+
+/// A file or directory entry exposed to shell commands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileEntry {
+    pub name: String,
+    pub is_directory: bool,
+    pub is_symlink: bool,
+    pub size: u64,
+}
+
+/// Metadata for one resolved path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileInfo {
+    pub name: String,
+    pub is_directory: bool,
+    pub is_symlink: bool,
+    pub size: u64,
+}
+
+/// Errors exposed by the filesystem boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FsError {
+    InvalidPath(String),
+    OutsideSandbox(String),
+    NotFound(String),
+    NotDirectory(String),
+    NotFile(String),
+    AlreadyExists(String),
+    RootOperation(String),
+    Io {
+        operation: String,
+        path: String,
+        message: String,
+    },
+}
+
+impl Display for FsError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidPath(path) => write!(formatter, "invalid path: {path}"),
+            Self::OutsideSandbox(path) => {
+                write!(formatter, "path escapes the Rune sandbox: {path}")
+            }
+            Self::NotFound(path) => write!(formatter, "no such file or directory: {path}"),
+            Self::NotDirectory(path) => write!(formatter, "not a directory: {path}"),
+            Self::NotFile(path) => write!(formatter, "not a regular file: {path}"),
+            Self::AlreadyExists(path) => write!(formatter, "file already exists: {path}"),
+            Self::RootOperation(operation) => {
+                write!(formatter, "cannot {operation} the sandbox root")
+            }
+            Self::Io {
+                operation,
+                path,
+                message,
+            } => write!(formatter, "{operation} {path}: {message}"),
+        }
+    }
+}
+
+impl std::error::Error for FsError {}
+
+/// Filesystem operations required by the portable command engine.
+pub trait VirtualFileSystem {
+    fn current_dir_display(&self) -> String;
+    fn change_dir(&mut self, input: &str) -> Result<(), FsError>;
+    fn metadata(&self, input: &str) -> Result<FileInfo, FsError>;
+    fn list(&self, input: Option<&str>) -> Result<Vec<FileEntry>, FsError>;
+    fn read(&self, input: &str) -> Result<Vec<u8>, FsError>;
+    fn write(&self, input: &str, content: &[u8], append: bool) -> Result<(), FsError>;
+    fn make_directory(&self, input: &str, parents: bool) -> Result<(), FsError>;
+    fn touch(&self, input: &str) -> Result<(), FsError>;
+    fn remove(&self, input: &str, recursive: bool, force: bool) -> Result<(), FsError>;
+    fn copy(&self, source: &str, destination: &str) -> Result<(), FsError>;
+    fn move_path(&self, source: &str, destination: &str) -> Result<(), FsError>;
+}
+
+/// A host-backed filesystem with a strict virtual root.
+#[derive(Debug, Clone)]
+pub struct SandboxedFileSystem {
+    root: PathBuf,
+    current_dir: PathBuf,
+    previous_dir: Option<PathBuf>,
+}
+
+impl SandboxedFileSystem {
+    /// Creates the root directory if needed and canonicalizes it.
+    pub fn new(root: impl AsRef<Path>) -> Result<Self, FsError> {
+        let root = root.as_ref();
+        fs::create_dir_all(root).map_err(|error| Self::io_error("create", root, &error))?;
+        let root = root
+            .canonicalize()
+            .map_err(|error| Self::io_error("canonicalize", root, &error))?;
+        Ok(Self {
+            root: root.clone(),
+            current_dir: root,
+            previous_dir: None,
+        })
+    }
+
+    /// Returns the physical root used by this instance.
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Resolves a virtual path without exposing paths outside the root.
+    pub fn resolve_path(&self, input: &str) -> Result<PathBuf, FsError> {
+        if input.is_empty() {
+            return Err(FsError::InvalidPath("empty path".to_string()));
+        }
+        let (base, relative_input) = if input == "~" {
+            (&self.root, "")
+        } else if let Some(path) = input.strip_prefix("~/") {
+            (&self.root, path)
+        } else if input.starts_with('~') {
+            return Err(FsError::InvalidPath(
+                "only the current user's ~ home is supported".to_string(),
+            ));
+        } else if let Some(path) = input.strip_prefix('/') {
+            (&self.root, path)
+        } else {
+            (&self.current_dir, input)
+        };
+
+        let mut candidate = base.clone();
+        for component in Path::new(relative_input).components() {
+            match component {
+                Component::CurDir => {}
+                Component::Normal(part) => candidate.push(part),
+                Component::ParentDir => {
+                    if candidate == self.root {
+                        return Err(FsError::OutsideSandbox(input.to_string()));
+                    }
+                    if !candidate.pop() {
+                        return Err(FsError::OutsideSandbox(input.to_string()));
+                    }
+                }
+                Component::RootDir | Component::Prefix(_) => {
+                    return Err(FsError::InvalidPath(input.to_string()));
+                }
+            }
+        }
+
+        self.ensure_inside(&candidate, input)?;
+        Ok(candidate)
+    }
+
+    fn display_path(&self, path: &Path) -> String {
+        match path.strip_prefix(&self.root) {
+            Ok(relative) if relative.as_os_str().is_empty() => "~".to_string(),
+            Ok(relative) => format!("~/{}", relative.display()),
+            Err(_) => "~".to_string(),
+        }
+    }
+
+    fn ensure_inside(&self, candidate: &Path, input: &str) -> Result<(), FsError> {
+        let mut existing = candidate;
+        while !existing.exists() {
+            existing = existing
+                .parent()
+                .ok_or_else(|| FsError::OutsideSandbox(input.to_string()))?;
+        }
+        let canonical = existing
+            .canonicalize()
+            .map_err(|error| Self::io_error("canonicalize", existing, &error))?;
+        if canonical.starts_with(&self.root) {
+            Ok(())
+        } else {
+            Err(FsError::OutsideSandbox(input.to_string()))
+        }
+    }
+
+    fn info_for_path(path: &Path) -> Result<FileInfo, FsError> {
+        let metadata =
+            fs::symlink_metadata(path).map_err(|error| Self::map_metadata_error(path, &error))?;
+        Ok(FileInfo {
+            name: path.file_name().map_or_else(
+                || "~".to_string(),
+                |name| name.to_string_lossy().into_owned(),
+            ),
+            is_directory: metadata.is_dir(),
+            is_symlink: metadata.file_type().is_symlink(),
+            size: metadata.len(),
+        })
+    }
+
+    fn map_metadata_error(path: &Path, error: &std::io::Error) -> FsError {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            FsError::NotFound(path.display().to_string())
+        } else {
+            Self::io_error("inspect", path, error)
+        }
+    }
+
+    fn reframe(error: FsError, input: &str) -> FsError {
+        match error {
+            FsError::InvalidPath(_) => FsError::InvalidPath(input.to_string()),
+            FsError::OutsideSandbox(_) => FsError::OutsideSandbox(input.to_string()),
+            FsError::NotFound(_) => FsError::NotFound(input.to_string()),
+            FsError::NotDirectory(_) => FsError::NotDirectory(input.to_string()),
+            FsError::NotFile(_) => FsError::NotFile(input.to_string()),
+            FsError::AlreadyExists(_) => FsError::AlreadyExists(input.to_string()),
+            FsError::RootOperation(operation) => FsError::RootOperation(operation),
+            FsError::Io {
+                operation, message, ..
+            } => FsError::Io {
+                operation,
+                path: input.to_string(),
+                message,
+            },
+        }
+    }
+
+    fn io_error(operation: &str, path: &Path, error: &std::io::Error) -> FsError {
+        FsError::Io {
+            operation: operation.to_string(),
+            path: path.display().to_string(),
+            message: error.to_string(),
+        }
+    }
+
+    fn parent_is_directory(path: &Path, input: &str) -> Result<(), FsError> {
+        let parent = path
+            .parent()
+            .ok_or_else(|| FsError::InvalidPath(input.to_string()))?;
+        let metadata =
+            fs::metadata(parent).map_err(|error| Self::map_metadata_error(parent, &error))?;
+        if metadata.is_dir() {
+            Ok(())
+        } else {
+            Err(FsError::NotDirectory(input.to_string()))
+        }
+    }
+
+    fn no_root_operation(&self, path: &Path, operation: &str) -> Result<(), FsError> {
+        if path == self.root {
+            Err(FsError::RootOperation(operation.to_string()))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl VirtualFileSystem for SandboxedFileSystem {
+    fn current_dir_display(&self) -> String {
+        self.display_path(&self.current_dir)
+    }
+
+    fn change_dir(&mut self, input: &str) -> Result<(), FsError> {
+        let target = if input == "-" {
+            self.previous_dir
+                .clone()
+                .ok_or_else(|| FsError::InvalidPath("no previous directory".to_string()))?
+        } else {
+            self.resolve_path(input)?
+        };
+        let metadata = fs::metadata(&target)
+            .map_err(|error| Self::reframe(Self::map_metadata_error(&target, &error), input))?;
+        if !metadata.is_dir() {
+            return Err(FsError::NotDirectory(input.to_string()));
+        }
+        let previous = std::mem::replace(&mut self.current_dir, target);
+        self.previous_dir = Some(previous);
+        Ok(())
+    }
+
+    fn metadata(&self, input: &str) -> Result<FileInfo, FsError> {
+        let path = self.resolve_path(input)?;
+        Self::info_for_path(&path).map_err(|error| Self::reframe(error, input))
+    }
+
+    fn list(&self, input: Option<&str>) -> Result<Vec<FileEntry>, FsError> {
+        let path = match input {
+            Some(input) => self.resolve_path(input)?,
+            None => self.current_dir.clone(),
+        };
+        let display_input = input.unwrap_or("~");
+        let metadata = fs::metadata(&path).map_err(|error| {
+            Self::reframe(Self::map_metadata_error(&path, &error), display_input)
+        })?;
+        if !metadata.is_dir() {
+            return Err(FsError::NotDirectory(display_input.to_string()));
+        }
+        let mut entries = Vec::new();
+        for entry in fs::read_dir(&path)
+            .map_err(|error| Self::io_error("list", Path::new(display_input), &error))?
+        {
+            let entry =
+                entry.map_err(|error| Self::io_error("list", Path::new(display_input), &error))?;
+            let entry_path = entry.path();
+            let info = Self::info_for_path(&entry_path)
+                .map_err(|error| Self::reframe(error, display_input))?;
+            entries.push(FileEntry {
+                name: info.name,
+                is_directory: info.is_directory,
+                is_symlink: info.is_symlink,
+                size: info.size,
+            });
+        }
+        entries.sort_by(|left, right| left.name.cmp(&right.name));
+        Ok(entries)
+    }
+
+    fn read(&self, input: &str) -> Result<Vec<u8>, FsError> {
+        let path = self.resolve_path(input)?;
+        let metadata = fs::metadata(&path)
+            .map_err(|error| Self::reframe(Self::map_metadata_error(&path, &error), input))?;
+        if !metadata.is_file() {
+            return Err(FsError::NotFile(input.to_string()));
+        }
+        fs::read(&path).map_err(|error| Self::io_error("read", Path::new(input), &error))
+    }
+
+    fn write(&self, input: &str, content: &[u8], append: bool) -> Result<(), FsError> {
+        let path = self.resolve_path(input)?;
+        Self::parent_is_directory(&path, input)?;
+        let mut options = OpenOptions::new();
+        options.create(true).write(true);
+        if append {
+            options.append(true);
+        } else {
+            options.truncate(true);
+        }
+        let mut file = options
+            .open(&path)
+            .map_err(|error| Self::io_error("write", Path::new(input), &error))?;
+        file.write_all(content)
+            .map_err(|error| Self::io_error("write", Path::new(input), &error))
+    }
+
+    fn make_directory(&self, input: &str, parents: bool) -> Result<(), FsError> {
+        let path = self.resolve_path(input)?;
+        if path.exists() {
+            return Err(FsError::AlreadyExists(input.to_string()));
+        }
+        Self::parent_is_directory(&path, input)?;
+        let result = if parents {
+            fs::create_dir_all(&path)
+        } else {
+            fs::create_dir(&path)
+        };
+        result.map_err(|error| Self::io_error("create directory", Path::new(input), &error))
+    }
+
+    fn touch(&self, input: &str) -> Result<(), FsError> {
+        let path = self.resolve_path(input)?;
+        Self::parent_is_directory(&path, input)?;
+        if path.exists() {
+            let metadata = fs::metadata(&path)
+                .map_err(|error| Self::reframe(Self::map_metadata_error(&path, &error), input))?;
+            if !metadata.is_file() {
+                return Err(FsError::NotFile(input.to_string()));
+            }
+            return OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .map(|_| ())
+                .map_err(|error| Self::io_error("touch", Path::new(input), &error));
+        }
+        File::create(&path)
+            .map(|_| ())
+            .map_err(|error| Self::io_error("touch", Path::new(input), &error))
+    }
+
+    fn remove(&self, input: &str, recursive: bool, force: bool) -> Result<(), FsError> {
+        let path = match self.resolve_path(input) {
+            Ok(path) => path,
+            Err(FsError::NotFound(_)) if force => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        self.no_root_operation(&path, "remove")?;
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if force && error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                return Err(Self::reframe(
+                    Self::map_metadata_error(&path, &error),
+                    input,
+                ));
+            }
+        };
+        if metadata.is_dir() {
+            if recursive {
+                fs::remove_dir_all(&path)
+            } else {
+                fs::remove_dir(&path)
+            }
+        } else {
+            fs::remove_file(&path)
+        }
+        .map_err(|error| Self::io_error("remove", Path::new(input), &error))
+    }
+
+    fn copy(&self, source: &str, destination: &str) -> Result<(), FsError> {
+        let source_path = self.resolve_path(source)?;
+        let destination_path = self.resolve_path(destination)?;
+        let source_metadata = fs::metadata(&source_path).map_err(|error| {
+            Self::reframe(Self::map_metadata_error(&source_path, &error), source)
+        })?;
+        if !source_metadata.is_file() {
+            return Err(FsError::NotFile(source.to_string()));
+        }
+        Self::parent_is_directory(&destination_path, destination)?;
+        fs::copy(&source_path, &destination_path)
+            .map(|_| ())
+            .map_err(|error| Self::io_error("copy", Path::new(destination), &error))
+    }
+
+    fn move_path(&self, source: &str, destination: &str) -> Result<(), FsError> {
+        let source_path = self.resolve_path(source)?;
+        let destination_path = self.resolve_path(destination)?;
+        let source_metadata = fs::metadata(&source_path).map_err(|error| {
+            Self::reframe(Self::map_metadata_error(&source_path, &error), source)
+        })?;
+        if !source_metadata.is_file() {
+            return Err(FsError::NotFile(source.to_string()));
+        }
+        Self::parent_is_directory(&destination_path, destination)?;
+        fs::rename(&source_path, &destination_path)
+            .map_err(|error| Self::io_error("move", Path::new(destination), &error))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FsError, SandboxedFileSystem, VirtualFileSystem};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn test_root() -> std::path::PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("rune-fs-test-{suffix}"))
+    }
+
+    #[test]
+    fn resolves_virtual_paths_and_rejects_escape() {
+        let root = test_root();
+        let fs = SandboxedFileSystem::new(&root).expect("root created");
+        assert_eq!(fs.current_dir_display(), "~");
+        assert_eq!(
+            fs.resolve_path("~/notes").expect("inside root"),
+            fs.root().join("notes")
+        );
+        assert!(matches!(
+            fs.resolve_path("../../outside"),
+            Err(FsError::OutsideSandbox(_))
+        ));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn supports_file_lifecycle_and_previous_directory() {
+        let root = test_root();
+        let mut fs = SandboxedFileSystem::new(&root).expect("root created");
+        fs.make_directory("work", false).expect("directory created");
+        fs.change_dir("work").expect("directory entered");
+        fs.touch("note.txt").expect("file created");
+        fs.write("note.txt", b"hello", false).expect("file written");
+        assert_eq!(fs.read("note.txt").expect("file read"), b"hello");
+        fs.change_dir("-").expect("previous directory restored");
+        assert_eq!(fs.current_dir_display(), "~");
+        fs.remove("work", true, false).expect("directory removed");
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+}

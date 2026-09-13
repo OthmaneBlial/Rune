@@ -1,6 +1,7 @@
 # The local a-Shell checkout is behavioral reference material only. It must
 # never enter Rune's history.
 /base/
+/base/a-shell/
 
 # Rust build output
 /target/
