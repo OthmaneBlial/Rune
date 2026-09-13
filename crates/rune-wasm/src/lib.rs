@@ -380,6 +380,71 @@ mod tests {
     }
 
     #[test]
+    fn wasi_arguments_and_environment_are_copied_into_the_guest() {
+        let wasm = wat::parse_str(
+            r#"
+                (module
+                  (import "wasi_snapshot_preview1" "args_sizes_get"
+                    (func $args_sizes_get (param i32 i32) (result i32)))
+                  (import "wasi_snapshot_preview1" "args_get"
+                    (func $args_get (param i32 i32) (result i32)))
+                  (import "wasi_snapshot_preview1" "environ_sizes_get"
+                    (func $environ_sizes_get (param i32 i32) (result i32)))
+                  (import "wasi_snapshot_preview1" "environ_get"
+                    (func $environ_get (param i32 i32) (result i32)))
+                  (import "wasi_snapshot_preview1" "fd_write"
+                    (func $fd_write (param i32 i32 i32 i32) (result i32)))
+                  (memory (export "memory") 1)
+                  (data (i32.const 32) "\40\00\00\00\09\00\00\00")
+                  (data (i32.const 40) "\40\00\00\00\0c\00\00\00")
+                  (func (export "_start")
+                    (i32.const 0)
+                    (i32.const 4)
+                    (call $args_sizes_get)
+                    (drop)
+                    (i32.const 0)
+                    (i32.const 64)
+                    (call $args_get)
+                    (drop)
+                    (i32.const 1)
+                    (i32.const 32)
+                    (i32.const 1)
+                    (i32.const 24)
+                    (call $fd_write)
+                    (drop)
+                    (i32.const 0)
+                    (i32.const 4)
+                    (call $environ_sizes_get)
+                    (drop)
+                    (i32.const 0)
+                    (i32.const 64)
+                    (call $environ_get)
+                    (drop)
+                    (i32.const 1)
+                    (i32.const 40)
+                    (i32.const 1)
+                    (i32.const 24)
+                    (call $fd_write)
+                    (drop)))
+            "#,
+        )
+        .expect("valid WAT");
+        let mut environment = BTreeMap::new();
+        environment.insert("RUNE_TEST".to_string(), "ok".to_string());
+        let execution = WasmRunner::default()
+            .execute(
+                &wasm,
+                "args.wasm",
+                &["ignored".to_string()],
+                &environment,
+                "",
+            )
+            .expect("module should execute");
+        assert_eq!(execution.stdout, "args.wasmRUNE_TEST=ok");
+        assert_eq!(execution.status, 0);
+    }
+
+    #[test]
     fn wasi_guest_has_no_preopened_directory() {
         let wasm = wat::parse_str(
             r#"
