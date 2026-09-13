@@ -191,7 +191,8 @@ the terminal and native-transfer limits.
 
 The current registry includes bounded text filters (`cut`, `head`, `tail`,
 `grep`, `sed`, `sort`, `uniq`, and `wc`). They consume the same in-memory pipeline stdin
-as file commands and never delegate to a host shell. `sed` currently supports
+as file commands, accept `-` as an explicit stdin operand, and never delegate
+to a host shell. `sed` currently supports
 literal `s///` substitutions with `g` and `p` flags plus `-n`; it does not claim
 regular-expression or address compatibility. These option surfaces are
 deliberately smaller than POSIX utilities until compatibility tests justify

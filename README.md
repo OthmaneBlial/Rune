@@ -57,6 +57,9 @@ The text pipeline also supports a bounded literal `sed` substitution surface:
 are not implemented yet.
 The text pipeline also includes bounded `cut` field/character selection
 (`-f`, `-c`, `-d`, and `-s`) over stdin or sandbox files.
+The text pipeline also includes bounded `cut` field/character selection
+(`-f`, `-c`, `-d`, and `-s`) over stdin or sandbox files. Its text filters
+accept `-` as an explicit stdin path when file operands are present.
 A synchronous command response is capped at 1 MiB per output channel; a
 truncation marker is emitted rather than allowing unbounded terminal output.
 Individual command lines are capped at 64 KiB before parsing, and automation

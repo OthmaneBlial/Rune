@@ -460,6 +460,10 @@ fn read_inputs(
     }
     let mut text = String::new();
     for path in paths {
+        if path == "-" {
+            text.push_str(context.stdin);
+            continue;
+        }
         let bytes = context
             .fs
             .read(path)
