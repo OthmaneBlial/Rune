@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 46%**
+**Overall progress: 48%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -25,8 +25,8 @@ working iOS application or a feature-parity claim.
 | Sessions/history | 60% |
 | Configuration | 23% |
 | WASM | 23% |
-| Native iOS UI | 30% |
-| Swift/Rust bridge | 27% |
+| Native iOS UI | 36% |
+| Swift/Rust bridge | 34% |
 | Package manager | 33% |
 | Compatibility evidence | 2% |
 
@@ -143,6 +143,13 @@ a 16 MiB payload limit and no implicit parent-directory creation. The
 source-only Shortcuts layer provides UTF-8 text Put/Get actions on top of that
 real API; arbitrary binary automation remains an FFI capability until an
 Apple-native file parameter contract is validated.
+
+The source-only terminal now dispatches command execution away from the SwiftUI
+main actor behind a lock-protected FFI session, keeps the UI responsive, and
+offers a stop control that sends Rust's cooperative cancellation request. A
+currently running synchronous Rust operation may still finish before its next
+boundary; background execution, cancellation, and Apple runtime behavior are
+not device-validated here.
 
 The portable configuration boundary currently supports bounded `history-limit`,
 `font-size`, and `theme` settings through `config get`, `config set`, and

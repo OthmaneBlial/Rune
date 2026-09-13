@@ -31,12 +31,14 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var fontSize: CGFloat = 15
     @Published public private(set) var theme = "ink"
     @Published public private(set) var initializationError: String?
+    @Published public private(set) var isExecuting = false
 
     private var session: RuneFFISession?
     private var scopedFolder: RuneScopedFolder?
     private let sessionID: String?
     private var history: [String] = []
     private var historyCursor: Int?
+    private var executionTask: Task<Void, Never>?
 
     public init(rootURL: URL? = nil, sessionID: String? = nil) {
         self.sessionID = sessionID
@@ -92,6 +94,10 @@ public final class RuneTerminalModel: ObservableObject {
     /// Opens a user-selected directory as a new Rust session root and stores
     /// an Apple security-scoped bookmark for the next launch.
     public func openFolder(_ url: URL) {
+        guard !isExecuting else {
+            initializationError = "Rune is still executing a command. Cancel it before opening a folder."
+            return
+        }
         do {
             let access = RuneExternalFolderAccess.shared
             let name = access.suggestedName(for: url)
@@ -123,6 +129,7 @@ public final class RuneTerminalModel: ObservableObject {
     }
 
     public func submit() {
+        guard !isExecuting else { return }
         let line = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty else { return }
         entries.append(.init(kind: .command, text: "\(currentDirectory) $ \(line)"))
@@ -132,11 +139,27 @@ public final class RuneTerminalModel: ObservableObject {
             entries.append(.init(kind: .stderr, text: initializationError ?? "Rune session unavailable."))
             return
         }
-        let result = session.execute(line)
+        isExecuting = true
+        executionTask = Task { [weak self, session] in
+            let result = await Task.detached(priority: .userInitiated) {
+                session.execute(line)
+            }.value
+            self?.finishExecution(result, session: session)
+        }
+    }
+
+    public func cancel() {
+        guard isExecuting else { return }
+        session?.cancel()
+    }
+
+    private func finishExecution(_ result: RuneCommandResult, session: RuneFFISession) {
         append(result)
         currentDirectory = session.currentDirectory
         history = session.history()
         refreshConfiguration()
+        isExecuting = false
+        executionTask = nil
     }
 
     private func append(_ result: RuneCommandResult) {
@@ -244,6 +267,17 @@ public struct RuneTerminalView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(palette.cyan)
                     .accessibilityLabel("Open a folder")
+                    if model.isExecuting {
+                        Button {
+                            model.cancel()
+                        } label: {
+                            Image(systemName: "stop.circle.fill")
+                                .font(.title3)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(palette.ember)
+                        .accessibilityLabel("Cancel command")
+                    }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(model.workspaceName)
@@ -340,6 +374,7 @@ public struct RuneTerminalView: View {
                         .focused($inputFocused)
                         .autocorrectionDisabled(true)
                         .textInputAutocapitalization(.never)
+                        .disabled(model.isExecuting)
                         .onSubmit {
                             model.submit()
                             inputFocused = true
@@ -354,6 +389,7 @@ public struct RuneTerminalView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(palette.muted)
                     .accessibilityLabel("Previous command")
+                    .disabled(model.isExecuting)
                     Button {
                         model.nextHistory()
                         inputFocused = true
@@ -363,6 +399,7 @@ public struct RuneTerminalView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(palette.muted)
                     .accessibilityLabel("Next command")
+                    .disabled(model.isExecuting)
                     Button {
                         model.submit()
                         inputFocused = true
@@ -373,6 +410,7 @@ public struct RuneTerminalView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(palette.cyan)
                     .accessibilityLabel("Execute command")
+                    .disabled(model.isExecuting)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)

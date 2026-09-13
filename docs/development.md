@@ -29,6 +29,8 @@ registration, entitlements, and Shortcuts runtime remain unverified here.
 The same parse check covers the source-only workspace tab container; it does
 not prove SwiftUI rendering, tab lifecycle, iPad multi-window behavior, or
 Apple runtime integration.
+The source-only UI also contains background-task and cancellation code, but
+there is no Apple concurrency, device, or runtime validation in this workspace.
 
 ## Local checks
 

@@ -107,8 +107,9 @@ public enum RuneBridgeError: LocalizedError {
     }
 }
 
-public final class RuneFFISession {
+public final class RuneFFISession: @unchecked Sendable {
     private var handle: OpaquePointer?
+    private let lock = NSLock()
 
     public init(rootURL: URL, sessionID: String? = nil) throws {
         let created: OpaquePointer?
@@ -138,36 +139,44 @@ public final class RuneFFISession {
     }
 
     public var currentDirectory: String {
-        guard let pointer = rune_session_current_directory(handle) else {
-            return "~"
+        withLock {
+            guard let pointer = rune_session_current_directory(handle) else {
+                return "~"
+            }
+            defer { rune_string_free(pointer) }
+            return String(cString: pointer)
         }
-        defer { rune_string_free(pointer) }
-        return String(cString: pointer)
     }
 
     public func execute(_ command: String) -> RuneCommandResult {
-        let raw = command.withCString { rune_session_execute(handle, $0) }
-        return consume(raw)
+        withLock {
+            let raw = command.withCString { rune_session_execute(handle, $0) }
+            return consume(raw)
+        }
     }
 
     public func executeScript(_ script: String) -> RuneCommandResult {
-        let raw = script.withCString { rune_session_execute_script(handle, $0) }
-        return consume(raw)
+        withLock {
+            let raw = script.withCString { rune_session_execute_script(handle, $0) }
+            return consume(raw)
+        }
     }
 
     /// Stores bounded bytes in the session's confined virtual filesystem.
     public func putFile(path: String, data: Data) throws {
-        let raw = path.withCString { pathPointer in
-            data.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) in
-                rune_session_put_file(
-                    handle,
-                    pathPointer,
-                    buffer.bindMemory(to: UInt8.self).baseAddress,
-                    buffer.count
-                )
+        let result: RuneCommandResult = withLock {
+            let raw = path.withCString { pathPointer in
+                data.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) in
+                    rune_session_put_file(
+                        handle,
+                        pathPointer,
+                        buffer.bindMemory(to: UInt8.self).baseAddress,
+                        buffer.count
+                    )
+                }
             }
+            return consume(raw)
         }
-        let result = consume(raw)
         guard result.status == 0 else {
             throw RuneBridgeError.fileOperationFailed(
                 result.stderr.isEmpty ? "Rune could not write the file." : result.stderr
@@ -177,63 +186,75 @@ public final class RuneFFISession {
 
     /// Reads bounded bytes from the session's confined virtual filesystem.
     public func getFile(path: String) throws -> Data {
-        let raw = path.withCString { rune_session_get_file(handle, $0) }
-        defer {
-            rune_file_bytes_free(raw.data, raw.length)
-            rune_string_free(raw.message)
+        try withLock {
+            let raw = path.withCString { rune_session_get_file(handle, $0) }
+            defer {
+                rune_file_bytes_free(raw.data, raw.length)
+                rune_string_free(raw.message)
+            }
+            guard raw.status == 0 else {
+                let message = raw.message.map { String(cString: $0) }
+                    ?? "Rune could not read the file."
+                throw RuneBridgeError.fileOperationFailed(message)
+            }
+            guard let data = raw.data else {
+                return Data()
+            }
+            return Data(bytes: data, count: raw.length)
         }
-        guard raw.status == 0 else {
-            let message = raw.message.map { String(cString: $0) }
-                ?? "Rune could not read the file."
-            throw RuneBridgeError.fileOperationFailed(message)
-        }
-        guard let data = raw.data else {
-            return Data()
-        }
-        return Data(bytes: data, count: raw.length)
     }
 
     public func takeStartupOutput() -> RuneCommandResult {
-        consume(rune_session_startup_output(handle))
+        withLock {
+            consume(rune_session_startup_output(handle))
+        }
     }
 
     public func history() -> [String] {
-        guard let pointer = rune_session_history(handle) else {
-            return []
+        withLock {
+            guard let pointer = rune_session_history(handle) else {
+                return []
+            }
+            defer { rune_string_free(pointer) }
+            let value = String(cString: pointer)
+            guard !value.isEmpty else { return [] }
+            return value.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         }
-        defer { rune_string_free(pointer) }
-        let value = String(cString: pointer)
-        guard !value.isEmpty else { return [] }
-        return value.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
     }
 
     public var configuration: String {
-        guard let pointer = rune_session_configuration(handle) else {
-            return ""
+        withLock {
+            guard let pointer = rune_session_configuration(handle) else {
+                return ""
+            }
+            defer { rune_string_free(pointer) }
+            return String(cString: pointer)
         }
-        defer { rune_string_free(pointer) }
-        return String(cString: pointer)
     }
 
     public func commands() -> [String] {
-        guard let pointer = rune_session_commands(handle) else {
-            return []
+        withLock {
+            guard let pointer = rune_session_commands(handle) else {
+                return []
+            }
+            defer { rune_string_free(pointer) }
+            let value = String(cString: pointer)
+            guard !value.isEmpty else { return [] }
+            return value.split(separator: "\n").map(String.init)
         }
-        defer { rune_string_free(pointer) }
-        let value = String(cString: pointer)
-        guard !value.isEmpty else { return [] }
-        return value.split(separator: "\n").map(String.init)
     }
 
     public func completionCandidates(for input: String) -> [String] {
-        let pointer = input.withCString { rune_session_complete(handle, $0) }
-        guard let pointer else {
-            return []
+        withLock {
+            let pointer = input.withCString { rune_session_complete(handle, $0) }
+            guard let pointer else {
+                return []
+            }
+            defer { rune_string_free(pointer) }
+            let value = String(cString: pointer)
+            guard !value.isEmpty else { return [] }
+            return value.split(separator: "\n").map(String.init)
         }
-        defer { rune_string_free(pointer) }
-        let value = String(cString: pointer)
-        guard !value.isEmpty else { return [] }
-        return value.split(separator: "\n").map(String.init)
     }
 
     private func consume(_ raw: RuneFFIOutput) -> RuneCommandResult {
@@ -244,5 +265,11 @@ public final class RuneFFISession {
         let stdout = raw.stdout.map { String(cString: $0) } ?? ""
         let stderr = raw.stderr.map { String(cString: $0) } ?? ""
         return RuneCommandResult(stdout: stdout, stderr: stderr, status: raw.status)
+    }
+
+    private func withLock<T>(_ operation: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try operation()
     }
 }

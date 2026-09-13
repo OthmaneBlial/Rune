@@ -45,6 +45,13 @@ entitlements remain unverified without an Apple build/runtime.
 the next command boundary returns status 130. It is a cancellation signal, not
 an unsafe force-stop of a synchronous operation.
 
+The FFI session serializes mutable calls with a lock while allowing the atomic
+cancellation signal to arrive from the UI thread. `RuneTerminalModel` runs
+command execution in a detached task and reconnects the result to SwiftUI on
+the main actor, so the source-only stop control can remain responsive. Swift
+concurrency diagnostics and Apple runtime behavior remain unverified without
+the Apple toolchain.
+
 The Rust handle restores and persists only the virtual working directory and
 typed command history in `~/.rune/session.state` inside the configured sandbox.
 FFI command and script calls flush that state before returning, while handle

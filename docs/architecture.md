@@ -146,6 +146,13 @@ presentation; Rust owns each tab's shell state and persistence. This does not
 yet prove SwiftUI lifecycle behavior, iPad multi-window support, or device
 runtime behavior.
 
+Interactive command calls use a lock-protected Swift FFI handle and run away
+from the SwiftUI main actor. The cancellation method intentionally bypasses
+that lock and signals Rust's atomic request flag; the next command, pipeline,
+or script boundary returns status 130. This keeps the UI callback responsive
+without pretending that a synchronous filesystem or runtime operation can be
+forcefully interrupted.
+
 The filesystem starts with a host-backed root for local development. The root
 is a policy boundary: paths are resolved relative to it, `~` maps to the root,
 and traversal outside the root is rejected. An Apple adapter will map that
