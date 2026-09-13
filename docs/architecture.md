@@ -181,7 +181,9 @@ its declared files into the bounded `~/.rune/packages` tree; `pkg list` reads
 those installed manifests and `pkg remove` deletes an explicitly named package
 or version. Only declared `.wasm` command entries are executable today, and
 installed module bytes are verified again before execution. There is no
-network client or registry yet.
+network client, remote registry, or update flow yet. `pkg search QUERY` performs
+a bounded, case-insensitive search over installed package names, versions,
+descriptions, and command names.
 
 The runtime contract is owned by Rust and carries only explicit program bytes,
 arguments, environment, and stdin into a provider. `rune-wasm` implements the

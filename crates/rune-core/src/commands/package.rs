@@ -5,12 +5,14 @@ use rune_fs::FsError;
 use rune_package::{PackageError, PackageManifest};
 
 const MAX_PACKAGE_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_SEARCH_QUERY_CHARS: usize = 64;
+const MAX_SEARCH_MANIFESTS: usize = 4_096;
 
 pub(super) fn pkg(context: &mut CommandContext<'_>) -> CommandOutput {
     let Some(operation) = context.args.first().map(String::as_str) else {
         return usage(
             "pkg",
-            "usage: pkg info|verify|install MANIFEST; pkg list; pkg remove NAME [VERSION]",
+            "usage: pkg info|verify|install MANIFEST; pkg list|search QUERY; pkg remove NAME [VERSION]",
         );
     };
     match operation {
@@ -19,6 +21,12 @@ pub(super) fn pkg(context: &mut CommandContext<'_>) -> CommandOutput {
                 return usage("pkg", "usage: pkg list");
             }
             list(context)
+        }
+        "search" => {
+            if context.args.len() != 2 {
+                return usage("pkg", "usage: pkg search QUERY");
+            }
+            search(context, &context.args[1])
         }
         "remove" => remove(context),
         "info" | "verify" | "install" => {
@@ -209,6 +217,85 @@ fn list(context: &mut CommandContext<'_>) -> CommandOutput {
                 }
             }
         }
+    }
+    output
+}
+
+fn search(context: &mut CommandContext<'_>, query: &str) -> CommandOutput {
+    if query.is_empty() || query.chars().count() > MAX_SEARCH_QUERY_CHARS {
+        return usage("pkg", "search query must contain 1-64 characters");
+    }
+    let needle = query.to_lowercase();
+    let entries = match context.fs.list(Some(PACKAGE_INSTALL_ROOT)) {
+        Ok(entries) => entries,
+        Err(FsError::NotFound(_)) => return CommandOutput::success(""),
+        Err(error) => return fs_failure("pkg search", &error),
+    };
+    let mut output = CommandOutput::success("");
+    let mut results = Vec::new();
+    let mut inspected = 0;
+    'packages: for package in entries.into_iter().filter(|entry| entry.is_directory) {
+        let package_path = format!("{PACKAGE_INSTALL_ROOT}/{}", package.name);
+        let versions = match context.fs.list(Some(&package_path)) {
+            Ok(versions) => versions,
+            Err(error) => {
+                output.status = 1;
+                let _ = writeln!(output.stderr, "pkg search: {package_path}: {error}");
+                continue;
+            }
+        };
+        for version in versions.into_iter().filter(|entry| entry.is_directory) {
+            inspected += 1;
+            if inspected > MAX_SEARCH_MANIFESTS {
+                output.status = 1;
+                let _ = writeln!(
+                    output.stderr,
+                    "pkg search: stopped after {MAX_SEARCH_MANIFESTS} installed manifests"
+                );
+                break 'packages;
+            }
+            let manifest_path = format!(
+                "{PACKAGE_INSTALL_ROOT}/{}/{}/manifest.json",
+                package.name, version.name
+            );
+            let bytes = match context.fs.read(&manifest_path) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    output.status = 1;
+                    let _ = writeln!(output.stderr, "pkg search: {manifest_path}: {error}");
+                    continue;
+                }
+            };
+            let manifest = match PackageManifest::parse(&bytes) {
+                Ok(manifest) => manifest,
+                Err(error) => {
+                    output.status = 1;
+                    let _ = writeln!(output.stderr, "pkg search: {manifest_path}: {error}");
+                    continue;
+                }
+            };
+            let is_match = [
+                manifest.name.to_lowercase(),
+                manifest.version.to_lowercase(),
+                manifest.description.to_lowercase(),
+            ]
+            .into_iter()
+            .any(|field| field.contains(&needle))
+                || manifest
+                    .commands
+                    .iter()
+                    .any(|command| command.name.to_lowercase().contains(&needle));
+            if is_match {
+                results.push(format!(
+                    "{}@{}\t{}",
+                    manifest.name, manifest.version, manifest.description
+                ));
+            }
+        }
+    }
+    results.sort();
+    for result in results {
+        let _ = writeln!(output.stdout, "{result}");
     }
     output
 }

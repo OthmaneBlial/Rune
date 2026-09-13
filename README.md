@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 31%**
+**Overall progress: 32%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -27,7 +27,7 @@ working iOS application or a feature-parity claim.
 | WASM | 23% |
 | Native iOS UI | 20% |
 | Swift/Rust bridge | 15% |
-| Package manager | 30% |
+| Package manager | 33% |
 | Compatibility evidence | 2% |
 
 ## Current status
@@ -77,8 +77,8 @@ planned work.
 
 The Rust package boundary now validates a bounded, versioned JSON manifest and
 checks declared file bytes with SHA-256. There is deliberately no network
-transport, registry, search, or update flow yet, so package-manager progress
-remains early.
+transport, remote registry, or update flow yet; `pkg search` is an offline
+search over manifests already installed in the sandbox.
 
 The `wasm MODULE [arg ...]` built-in loads a module through the bounded virtual
 filesystem and executes WASI preview1 `_start` in Rust. It exposes only
@@ -88,7 +88,8 @@ tables, and captured output are bounded. This is an initial WASM execution
 slice, not a language runtime or package manager.
 
 The local package flow supports `pkg info MANIFEST`, `pkg verify MANIFEST`,
-`pkg install MANIFEST`, `pkg list`, and `pkg remove NAME [VERSION]`. Install
+`pkg install MANIFEST`, `pkg list`, `pkg search QUERY`, and `pkg remove NAME
+[VERSION]`. Install
 copies only SHA-256-verified files into `~/.rune/packages`; declared `.wasm`
 commands can then run through the bounded WASI runtime, and `which` discovers
 their installed command names from the local package manifests. Network

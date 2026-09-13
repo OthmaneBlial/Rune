@@ -1230,7 +1230,11 @@ mod tests {
         let mismatch = session.execute_line("pkg verify bundle/manifest.json");
         assert_eq!(mismatch.status, 1);
         assert!(mismatch.stderr.contains("integrity mismatch"));
-        assert_eq!(session.execute_line("pkg search hello").status, 2);
+        let empty_search = session.execute_line("pkg search hello");
+        assert_eq!(empty_search.status, 0);
+        assert!(empty_search.stdout.is_empty());
+        let oversized_query = format!("pkg search {}", "x".repeat(65));
+        assert_eq!(session.execute_line(&oversized_query).status, 2);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
@@ -1274,6 +1278,16 @@ mod tests {
             session.execute_line("pkg list").stdout,
             "local-wasm@0.1.0\n"
         );
+        assert_eq!(
+            session.execute_line("pkg search wasm").stdout,
+            "local-wasm@0.1.0\tA local WASM package\n"
+        );
+        assert_eq!(
+            session.execute_line("pkg search LOCAL-HELLO").stdout,
+            "local-wasm@0.1.0\tA local WASM package\n"
+        );
+        assert!(session.execute_line("pkg search missing").stdout.is_empty());
+        assert_eq!(session.execute_line("pkg search").status, 2);
         assert_eq!(
             session.execute_line("which local-hello").stdout,
             "local-hello: package local-wasm@0.1.0\n"
