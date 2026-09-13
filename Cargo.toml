@@ -5,6 +5,7 @@ members = [
     "crates/rune-shell",
     "crates/rune-core",
     "crates/rune-package",
+    "crates/rune-runtime",
     "crates/rune-wasm",
     "crates/rune-ffi",
     "apps/rune-cli",

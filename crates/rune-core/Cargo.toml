@@ -9,6 +9,7 @@ rust-version.workspace = true
 [dependencies]
 rune-fs = { path = "../rune-fs" }
 rune-package = { path = "../rune-package" }
+rune-runtime = { path = "../rune-runtime" }
 rune-shell = { path = "../rune-shell" }
 rune-wasm = { path = "../rune-wasm" }
 

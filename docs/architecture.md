@@ -23,6 +23,8 @@ constraints. It is not a source dependency or an implementation template.
 - `rune-package`: bounded versioned manifest parsing and SHA-256 artifact
   verification; transport and installation are intentionally outside this
   first boundary.
+- `rune-runtime`: runtime-neutral request/output/error contracts. It does not
+  ship language interpreters; providers are added behind this boundary.
 - `rune-ffi`: a deliberately narrow C ABI for opaque session handles and owned
   stdout/stderr buffers. Its unsafe code is isolated at the boundary.
 - `apps/rune-cli`: a small host executable used for local development and
@@ -117,6 +119,12 @@ The `pkg info` and `pkg verify` built-ins expose only local manifest inspection
 and verification through the VFS. `install`, `search`, `remove`, and `update`
 return an explicit unsupported-operation error; no network client or installer
 exists yet.
+
+The runtime contract is owned by Rust and carries only explicit program bytes,
+arguments, environment, and stdin into a provider. `rune-wasm` implements the
+first provider by adapting its bounded WASI result to that contract. Python,
+JavaScript, and Lua remain unimplemented rather than being represented by
+placeholder execution.
 
 Unquoted `*` and `?` are expanded by `rune-core` through the VFS `glob` method;
 quoted patterns remain literal, hidden entries require a leading `.`, and an

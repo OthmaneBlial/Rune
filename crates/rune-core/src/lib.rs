@@ -11,7 +11,9 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use rune_fs::{FsError, VirtualFileSystem};
+use rune_runtime::Runtime;
 use rune_shell::{parse, CommandPlan, Connector, ExecutionPlan, Redirection, Word, WordPart};
+use rune_wasm::WasmRunner;
 
 const MAX_ALIAS_EXPANSIONS: usize = 32;
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
@@ -93,6 +95,7 @@ pub struct CommandContext<'a> {
     pub(crate) aliases: &'a mut BTreeMap<String, String>,
     pub(crate) history: &'a [String],
     pub(crate) command_definitions: &'a [CommandDefinition],
+    pub(crate) runtime: &'a dyn Runtime,
 }
 
 /// One independent terminal session.
@@ -105,6 +108,7 @@ pub struct Session {
     registry: CommandRegistry,
     last_status: i32,
     startup_output: CommandOutput,
+    wasm_runner: WasmRunner,
 }
 
 impl Session {
@@ -127,6 +131,7 @@ impl Session {
             registry: CommandRegistry::default(),
             last_status: 0,
             startup_output: CommandOutput::success(""),
+            wasm_runner: WasmRunner::default(),
         };
         session.update_pwd();
         session
@@ -377,6 +382,7 @@ impl Session {
                 aliases: &mut self.aliases,
                 history: &self.history,
                 command_definitions: self.registry.definitions(),
+                runtime: &self.wasm_runner,
             };
             handler(&mut context)
         };

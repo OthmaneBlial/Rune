@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use std::io::{self, Write};
 
+use rune_runtime::{Runtime, RuntimeError, RuntimeKind, RuntimeOutput, RuntimeRequest};
 use wasi_common::pipe::{ReadPipe, WritePipe};
 use wasi_common::WasiCtx;
 use wasmi::{
@@ -222,6 +223,35 @@ impl WasmRunner {
             stdout: output_to_string(&mut stdout),
             stderr: output_to_string(&mut stderr),
             status,
+        })
+    }
+}
+
+impl Runtime for WasmRunner {
+    fn kind(&self) -> RuntimeKind {
+        RuntimeKind::Wasm
+    }
+
+    fn execute(&self, request: &RuntimeRequest<'_>) -> Result<RuntimeOutput, RuntimeError> {
+        if request.kind() != self.kind() {
+            return Err(RuntimeError::UnsupportedKind {
+                requested: request.kind(),
+                provider: self.kind(),
+            });
+        }
+        let execution = WasmRunner::execute(
+            self,
+            request.source,
+            request.program_name,
+            request.args,
+            request.environment,
+            request.stdin,
+        )
+        .map_err(|error| RuntimeError::Execution(error.to_string()))?;
+        Ok(RuntimeOutput {
+            stdout: execution.stdout,
+            stderr: execution.stderr,
+            status: execution.status,
         })
     }
 }

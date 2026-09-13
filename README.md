@@ -23,7 +23,7 @@ working iOS application or a feature-parity claim.
 | Command runtime | 71% |
 | Sandboxed filesystem | 48% |
 | Sessions/history | 32% |
-| WASM | 22% |
+| WASM | 23% |
 | Native iOS UI | 9% |
 | Swift/Rust bridge | 6% |
 | Package manager | 10% |
@@ -83,6 +83,11 @@ The `pkg info MANIFEST` and `pkg verify MANIFEST` commands inspect local
 versioned package metadata through the same VFS and verify declared SHA-256
 file digests. Network transport and installation commands are intentionally
 unsupported at this stage.
+
+Runtime providers use a small Rust-owned request/output contract. WASM is the
+first provider; Python, JavaScript, and Lua are named extension points only and
+remain unavailable until their execution and App Store boundaries are designed
+and tested.
 
 No a-Shell compatibility area is marked `supported` without behavior and test
 evidence. See [`compat/a-shell-compatibility.json`](compat/a-shell-compatibility.json).
@@ -155,6 +160,7 @@ git check-ignore -v base/a-shell
 
 - [x] Bounded WASI preview1 runtime boundary and resource limits
 - [x] Bounded package metadata and integrity verification
+- [x] Portable runtime request/output contract
 - [ ] Python, JavaScript, and Lua runtime evaluation
 - [ ] Completion and help system (initial first-word suggestions exist)
 

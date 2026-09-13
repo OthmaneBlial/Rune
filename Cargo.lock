@@ -570,6 +570,7 @@ version = "0.1.0"
 dependencies = [
  "rune-fs",
  "rune-package",
+ "rune-runtime",
  "rune-shell",
  "rune-wasm",
  "wat",
@@ -597,6 +598,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rune-runtime"
+version = "0.1.0"
+
+[[package]]
 name = "rune-shell"
 version = "0.1.0"
 
@@ -604,6 +609,7 @@ version = "0.1.0"
 name = "rune-wasm"
 version = "0.1.0"
 dependencies = [
+ "rune-runtime",
  "wasi-common",
  "wasmi",
  "wasmi_wasi",
