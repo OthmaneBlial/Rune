@@ -9,12 +9,42 @@ const MAX_HISTORY_LIMIT: usize = 10_000;
 const DEFAULT_FONT_SIZE: u8 = 15;
 const MIN_FONT_SIZE: u8 = 8;
 const MAX_FONT_SIZE: u8 = 32;
+const DEFAULT_THEME: TerminalTheme = TerminalTheme::Ink;
+
+/// Themes understood by the portable configuration contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalTheme {
+    Ink,
+    Light,
+    Ember,
+}
+
+impl TerminalTheme {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ink => "ink",
+            Self::Light => "light",
+            Self::Ember => "ember",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "ink" => Some(Self::Ink),
+            "light" => Some(Self::Light),
+            "ember" => Some(Self::Ember),
+            _ => None,
+        }
+    }
+}
 
 /// Portable session settings currently owned by the Rust core.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalConfig {
     history_limit: usize,
     font_size: u8,
+    theme: TerminalTheme,
 }
 
 impl Default for TerminalConfig {
@@ -22,6 +52,7 @@ impl Default for TerminalConfig {
         Self {
             history_limit: DEFAULT_HISTORY_LIMIT,
             font_size: DEFAULT_FONT_SIZE,
+            theme: DEFAULT_THEME,
         }
     }
 }
@@ -39,12 +70,22 @@ impl TerminalConfig {
         self.font_size
     }
 
+    /// Returns the configured terminal color theme.
+    #[must_use]
+    pub const fn theme(&self) -> TerminalTheme {
+        self.theme
+    }
+
     pub(super) fn set_history_limit(&mut self, value: usize) {
         self.history_limit = value;
     }
 
     pub(super) fn set_font_size(&mut self, value: u8) {
         self.font_size = value;
+    }
+
+    pub(super) fn set_theme(&mut self, value: TerminalTheme) {
+        self.theme = value;
     }
 
     pub(super) fn load(filesystem: &dyn VirtualFileSystem) -> Self {
@@ -63,8 +104,10 @@ impl TerminalConfig {
             Err(error) => return Err(error),
         }
         let content = format!(
-            "{CONFIG_HEADER}\nhistory_limit={}\nfont_size={}\n",
-            self.history_limit, self.font_size
+            "{CONFIG_HEADER}\nhistory_limit={}\nfont_size={}\ntheme={}\n",
+            self.history_limit,
+            self.font_size,
+            self.theme.as_str()
         );
         filesystem.write(CONFIG_PATH, content.as_bytes(), false)
     }
@@ -114,6 +157,22 @@ pub(super) fn update_font_size(
     Ok(())
 }
 
+pub(super) fn update_theme(
+    filesystem: &mut dyn VirtualFileSystem,
+    config: &mut TerminalConfig,
+    value: &str,
+) -> Result<(), String> {
+    let theme = TerminalTheme::parse(value)
+        .ok_or_else(|| "theme must be one of: ink, light, ember".to_string())?;
+    let previous = config.clone();
+    config.set_theme(theme);
+    if let Err(error) = config.save(filesystem) {
+        *config = previous;
+        return Err(format!("could not persist configuration: {error}"));
+    }
+    Ok(())
+}
+
 fn parse(content: &str) -> Option<TerminalConfig> {
     let mut lines = content.lines();
     if lines.next()? != CONFIG_HEADER {
@@ -122,6 +181,7 @@ fn parse(content: &str) -> Option<TerminalConfig> {
     let mut config = TerminalConfig::default();
     let mut seen_history_limit = false;
     let mut seen_font_size = false;
+    let mut seen_theme = false;
     for line in lines {
         let (key, value) = line.split_once('=')?;
         match key {
@@ -141,6 +201,10 @@ fn parse(content: &str) -> Option<TerminalConfig> {
                 config.font_size = font_size;
                 seen_font_size = true;
             }
+            "theme" if !seen_theme => {
+                config.theme = TerminalTheme::parse(value)?;
+                seen_theme = true;
+            }
             _ => return None,
         }
     }
@@ -149,7 +213,9 @@ fn parse(content: &str) -> Option<TerminalConfig> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse, TerminalConfig, CONFIG_HEADER, DEFAULT_FONT_SIZE};
+    use super::{
+        parse, TerminalConfig, TerminalTheme, CONFIG_HEADER, DEFAULT_FONT_SIZE, DEFAULT_THEME,
+    };
 
     #[test]
     fn parses_bounded_history_configuration() {
@@ -157,6 +223,7 @@ mod tests {
         let config = parse(&content).expect("configuration should parse");
         assert_eq!(config.history_limit(), 25);
         assert_eq!(config.font_size(), DEFAULT_FONT_SIZE);
+        assert_eq!(config.theme(), DEFAULT_THEME);
     }
 
     #[test]
@@ -165,8 +232,14 @@ mod tests {
         let config = parse(&content).expect("configuration should parse");
         assert_eq!(config.font_size(), 20);
         assert_eq!(config.history_limit(), 25);
+        let themed = format!("{content}theme=ember\n");
+        assert_eq!(
+            parse(&themed).expect("theme should parse").theme(),
+            TerminalTheme::Ember
+        );
         assert!(parse("RUNE_CONFIG_V1\nfont_size=7\n").is_none());
         assert!(parse("RUNE_CONFIG_V1\nfont_size=33\n").is_none());
+        assert!(parse("RUNE_CONFIG_V1\ntheme=unknown\n").is_none());
     }
 
     #[test]
@@ -180,6 +253,7 @@ mod tests {
     fn defaults_when_configuration_is_missing_or_malformed() {
         assert_eq!(TerminalConfig::default().history_limit(), 1_000);
         assert_eq!(TerminalConfig::default().font_size(), DEFAULT_FONT_SIZE);
+        assert_eq!(TerminalConfig::default().theme(), DEFAULT_THEME);
         assert!(parse("not-rune-config\n").is_none());
     }
 }

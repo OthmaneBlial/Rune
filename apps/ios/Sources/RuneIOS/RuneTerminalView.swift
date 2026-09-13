@@ -27,6 +27,7 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public var command = ""
     @Published public private(set) var currentDirectory = "~"
     @Published public private(set) var fontSize: CGFloat = 15
+    @Published public private(set) var theme = "ink"
     @Published public private(set) var initializationError: String?
 
     private let session: RuneFFISession?
@@ -101,6 +102,9 @@ public final class RuneTerminalModel: ObservableObject {
         for line in session.configuration.split(separator: "\n") {
             let pair = line.split(separator: "=", maxSplits: 1).map(String.init)
             guard pair.count == 2, pair[0] == "font-size", let value = Double(pair[1]) else {
+                if pair.count == 2, pair[0] == "theme", ["ink", "light", "ember"].contains(pair[1]) {
+                    theme = pair[1]
+                }
                 continue
             }
             fontSize = CGFloat(min(max(value, 8), 32))
@@ -145,41 +149,43 @@ public struct RuneTerminalView: View {
     }
 
     public var body: some View {
+        let palette = RunePalette.forName(model.theme)
+
         ZStack {
-            RuneBackground()
+            RuneBackground(palette: palette)
 
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
                     Circle()
-                        .fill(RunePalette.cyan)
+                        .fill(palette.cyan)
                         .frame(width: 8, height: 8)
-                        .shadow(color: RunePalette.cyan.opacity(0.8), radius: 8)
+                        .shadow(color: palette.cyan.opacity(0.8), radius: 8)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("RUNE")
                             .font(.system(size: 12, weight: .bold, design: .rounded))
                             .tracking(2)
-                            .foregroundStyle(RunePalette.cyan)
+                            .foregroundStyle(palette.cyan)
                         Text("RUST CORE / LOCAL SESSION")
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .foregroundStyle(RunePalette.muted)
+                            .foregroundStyle(palette.muted)
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(model.currentDirectory)
                             .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(RunePalette.foreground)
+                            .foregroundStyle(palette.foreground)
                             .lineLimit(1)
                         Text("\(model.entries.count) events")
                             .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(RunePalette.muted)
+                            .foregroundStyle(palette.muted)
                     }
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 14)
-                .background(RunePalette.panel.opacity(0.94))
+                .background(palette.panel.opacity(0.94))
                 .overlay(alignment: .bottom) {
                     Rectangle()
-                        .fill(RunePalette.cyan.opacity(0.22))
+                        .fill(palette.cyan.opacity(0.22))
                         .frame(height: 1)
                 }
 
@@ -188,13 +194,13 @@ public struct RuneTerminalView: View {
                         LazyVStack(alignment: .leading, spacing: 9) {
                             if let initializationError = model.initializationError {
                                 Text(initializationError)
-                                    .foregroundStyle(RunePalette.error)
+                                    .foregroundStyle(palette.error)
                                     .textSelection(.enabled)
                             }
                             ForEach(model.entries) { entry in
                                 Text(entry.text)
                                     .font(.system(size: model.fontSize, design: .monospaced))
-                                    .foregroundStyle(color(for: entry.kind))
+                                    .foregroundStyle(color(for: entry.kind, palette: palette))
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .textSelection(.enabled)
                                     .id(entry.id)
@@ -226,13 +232,13 @@ public struct RuneTerminalView: View {
                                     weight: .medium,
                                     design: .monospaced
                                 ))
-                                .foregroundStyle(RunePalette.foreground)
+                                .foregroundStyle(palette.foreground)
                                 .padding(.horizontal, 11)
                                 .padding(.vertical, 8)
-                                .background(RunePalette.cyan.opacity(0.12))
+                                .background(palette.cyan.opacity(0.12))
                                 .overlay {
                                     Capsule()
-                                        .stroke(RunePalette.cyan.opacity(0.45), lineWidth: 1)
+                                        .stroke(palette.cyan.opacity(0.45), lineWidth: 1)
                                 }
                                 .clipShape(Capsule())
                                 .accessibilityLabel("Complete with \(candidate)")
@@ -246,11 +252,11 @@ public struct RuneTerminalView: View {
                 HStack(alignment: .bottom, spacing: 10) {
                     Text("\(model.currentDirectory) ›")
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundStyle(RunePalette.cyan)
+                        .foregroundStyle(palette.cyan)
                         .lineLimit(1)
                     TextField("Enter a Rune command", text: $model.command, axis: .vertical)
                         .font(.system(size: model.fontSize, design: .monospaced))
-                        .foregroundStyle(RunePalette.foreground)
+                        .foregroundStyle(palette.foreground)
                         .textFieldStyle(.plain)
                         .lineLimit(1...4)
                         .focused($inputFocused)
@@ -268,7 +274,7 @@ public struct RuneTerminalView: View {
                         Image(systemName: "chevron.up")
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(RunePalette.muted)
+                    .foregroundStyle(palette.muted)
                     .accessibilityLabel("Previous command")
                     Button {
                         model.nextHistory()
@@ -277,7 +283,7 @@ public struct RuneTerminalView: View {
                         Image(systemName: "chevron.down")
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(RunePalette.muted)
+                    .foregroundStyle(palette.muted)
                     .accessibilityLabel("Next command")
                     Button {
                         model.submit()
@@ -287,55 +293,92 @@ public struct RuneTerminalView: View {
                             .font(.title2)
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(RunePalette.cyan)
+                    .foregroundStyle(palette.cyan)
                     .accessibilityLabel("Execute command")
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .background(RunePalette.panel.opacity(0.97))
+                .background(palette.panel.opacity(0.97))
                 .overlay(alignment: .top) {
                     Rectangle()
-                        .fill(RunePalette.ember.opacity(0.5))
+                        .fill(palette.ember.opacity(0.5))
                         .frame(height: 1)
                 }
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(model.theme == "light" ? .light : .dark)
         .onAppear { inputFocused = true }
     }
 
-    private func color(for kind: RuneTranscriptEntry.Kind) -> Color {
+    private func color(for kind: RuneTranscriptEntry.Kind, palette: RunePalette) -> Color {
         switch kind {
-        case .command: return RunePalette.cyan
-        case .stdout: return RunePalette.foreground
-        case .stderr: return RunePalette.ember
-        case .status: return RunePalette.muted
+        case .command: return palette.cyan
+        case .stdout: return palette.foreground
+        case .stderr: return palette.ember
+        case .status: return palette.muted
         }
     }
 }
 
-private enum RunePalette {
-    static let background = Color(red: 0.018, green: 0.024, blue: 0.035)
-    static let panel = Color(red: 0.045, green: 0.058, blue: 0.078)
-    static let foreground = Color(red: 0.88, green: 0.93, blue: 0.95)
-    static let muted = Color(red: 0.43, green: 0.52, blue: 0.58)
-    static let cyan = Color(red: 0.18, green: 0.88, blue: 0.93)
-    static let ember = Color(red: 1.0, green: 0.54, blue: 0.25)
-    static let error = Color(red: 1.0, green: 0.34, blue: 0.4)
+private struct RunePalette {
+    let background: Color
+    let panel: Color
+    let foreground: Color
+    let muted: Color
+    let cyan: Color
+    let ember: Color
+    let error: Color
+
+    static func forName(_ name: String) -> RunePalette {
+        switch name {
+        case "light":
+            return RunePalette(
+                background: Color(red: 0.94, green: 0.96, blue: 0.98),
+                panel: Color.white.opacity(0.94),
+                foreground: Color(red: 0.10, green: 0.14, blue: 0.19),
+                muted: Color(red: 0.31, green: 0.39, blue: 0.47),
+                cyan: Color(red: 0.02, green: 0.42, blue: 0.58),
+                ember: Color(red: 0.78, green: 0.26, blue: 0.06),
+                error: Color(red: 0.72, green: 0.08, blue: 0.16)
+            )
+        case "ember":
+            return RunePalette(
+                background: Color(red: 0.08, green: 0.035, blue: 0.018),
+                panel: Color(red: 0.15, green: 0.065, blue: 0.03),
+                foreground: Color(red: 1.0, green: 0.89, blue: 0.72),
+                muted: Color(red: 0.66, green: 0.44, blue: 0.28),
+                cyan: Color(red: 1.0, green: 0.68, blue: 0.24),
+                ember: Color(red: 1.0, green: 0.32, blue: 0.12),
+                error: Color(red: 1.0, green: 0.26, blue: 0.2)
+            )
+        default:
+            return RunePalette(
+                background: Color(red: 0.018, green: 0.024, blue: 0.035),
+                panel: Color(red: 0.045, green: 0.058, blue: 0.078),
+                foreground: Color(red: 0.88, green: 0.93, blue: 0.95),
+                muted: Color(red: 0.43, green: 0.52, blue: 0.58),
+                cyan: Color(red: 0.18, green: 0.88, blue: 0.93),
+                ember: Color(red: 1.0, green: 0.54, blue: 0.25),
+                error: Color(red: 1.0, green: 0.34, blue: 0.4)
+            )
+        }
+    }
 }
 
 private struct RuneBackground: View {
+    let palette: RunePalette
+
     var body: some View {
         ZStack {
-            RunePalette.background
+            palette.background
             RadialGradient(
-                colors: [RunePalette.cyan.opacity(0.13), .clear],
+                colors: [palette.cyan.opacity(0.13), .clear],
                 center: .topLeading,
                 startRadius: 0,
                 endRadius: 500
             )
             RadialGradient(
-                colors: [RunePalette.ember.opacity(0.08), .clear],
+                colors: [palette.ember.opacity(0.08), .clear],
                 center: .bottomTrailing,
                 startRadius: 0,
                 endRadius: 420

@@ -8,7 +8,7 @@ mod commands;
 mod config;
 mod persistence;
 
-pub use config::TerminalConfig;
+pub use config::{TerminalConfig, TerminalTheme};
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -869,6 +869,11 @@ mod tests {
             session.execute_line("config get font-size").stdout,
             "font-size=20\n"
         );
+        assert_eq!(session.execute_line("config set theme ember").status, 0);
+        assert_eq!(
+            session.execute_line("config get theme").stdout,
+            "theme=ember\n"
+        );
         assert_eq!(session.execute_line("echo one").status, 0);
         assert_eq!(session.execute_line("echo two").status, 0);
         assert!(session.history().len() <= 3);
@@ -876,11 +881,14 @@ mod tests {
         assert_eq!(session.configuration().history_limit(), 3);
         assert_eq!(session.execute_line("config set font-size 33").status, 2);
         assert_eq!(session.configuration().font_size(), 20);
+        assert_eq!(session.execute_line("config set theme paper").status, 2);
+        assert_eq!(session.configuration().theme().as_str(), "ember");
         session.persist().expect("configuration persisted");
         let mut restored =
             Session::restore(SandboxedFileSystem::new(&root).expect("root reopened"));
         assert_eq!(restored.configuration().history_limit(), 3);
         assert_eq!(restored.configuration().font_size(), 20);
+        assert_eq!(restored.configuration().theme().as_str(), "ember");
         assert!(restored.history().len() <= 3);
         assert_eq!(restored.execute_line("config reset").status, 0);
         assert_eq!(restored.configuration().history_limit(), 1_000);

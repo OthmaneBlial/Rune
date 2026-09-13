@@ -72,10 +72,11 @@ credentials into arbitrary commands.
 
 Configuration is a separate, versioned Rust-owned file at
 `~/.rune/config.state`. The current schema contains a validated `history_limit`
-between 1 and 10,000 and a `font_size` between 8 and 32 points. `config get`,
-`config set`, and `config reset` update these values, and the session applies
-them immediately. SwiftUI consumes `font_size`; themes, cursor styling, and
-toolbar preferences remain outside the current contract.
+between 1 and 10,000, a `font_size` between 8 and 32 points, and a theme in
+`ink`, `light`, or `ember`. `config get`, `config set`, and `config reset`
+update these values, and the session applies them immediately. SwiftUI
+consumes all three settings; cursor styling and toolbar preferences remain
+outside the current contract.
 
 The `history` built-in can render the full session, a bounded recent count, or
 clear the mutable history with `history -c`. The command is still subject to
