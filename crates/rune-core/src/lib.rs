@@ -8,7 +8,10 @@ mod commands;
 mod config;
 mod persistence;
 
-pub use config::{TerminalConfig, TerminalCursorColor, TerminalFont, TerminalTheme};
+pub use config::{
+    TerminalBackground, TerminalConfig, TerminalCursorColor, TerminalFont, TerminalForeground,
+    TerminalTheme,
+};
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -1858,8 +1861,6 @@ mod tests {
         assert_eq!(session.configuration().history_limit(), 1_000);
         assert_eq!(session.configuration().scrollback_limit(), 4_096);
         assert!(session.configuration().toolbar_visible());
-        assert_eq!(session.configuration().cursor_color().as_str(), "cyan");
-        assert_eq!(session.configuration().font().as_str(), "monospaced");
         assert_eq!(session.execute_line("config set history-limit 3").status, 0);
         assert_eq!(
             session.execute_line("config get history-limit").stdout,
@@ -1874,19 +1875,6 @@ mod tests {
         assert_eq!(
             session.execute_line("config get theme").stdout,
             "theme=ember\n"
-        );
-        assert_eq!(
-            session.execute_line("config set cursor-color ember").status,
-            0
-        );
-        assert_eq!(
-            session.execute_line("config get cursor-color").stdout,
-            "cursor-color=ember\n"
-        );
-        assert_eq!(session.execute_line("config set font rounded").status, 0);
-        assert_eq!(
-            session.execute_line("config get font").stdout,
-            "font=rounded\n"
         );
         assert_eq!(
             session
@@ -1939,15 +1927,45 @@ mod tests {
         assert_eq!(restored.configuration().scrollback_limit(), 2_048);
         assert!(!restored.configuration().toolbar_visible());
         assert_eq!(restored.configuration().theme().as_str(), "ember");
-        assert_eq!(restored.configuration().cursor_color().as_str(), "ember");
-        assert_eq!(restored.configuration().font().as_str(), "rounded");
         assert!(restored.history().len() <= 3);
         assert_eq!(restored.execute_line("config reset").status, 0);
         assert_eq!(restored.configuration().history_limit(), 1_000);
         assert_eq!(restored.configuration().scrollback_limit(), 4_096);
         assert!(restored.configuration().toolbar_visible());
-        assert_eq!(restored.configuration().cursor_color().as_str(), "cyan");
-        assert_eq!(restored.configuration().font().as_str(), "monospaced");
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn persists_and_applies_terminal_appearance_configuration() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let settings = [
+            ("font", "rounded", "font=rounded\n"),
+            ("cursor-color", "ember", "cursor-color=ember\n"),
+            ("background", "slate", "background=slate\n"),
+            ("foreground", "ember", "foreground=ember\n"),
+        ];
+        for (key, value, expected) in settings {
+            assert_eq!(
+                session
+                    .execute_line(&format!("config set {key} {value}"))
+                    .status,
+                0
+            );
+            assert_eq!(
+                session.execute_line(&format!("config get {key}")).stdout,
+                expected
+            );
+        }
+        session.persist().expect("appearance persisted");
+        let mut restored =
+            Session::restore(SandboxedFileSystem::new(&root).expect("root reopened"));
+        assert_eq!(restored.configuration().font().as_str(), "rounded");
+        assert_eq!(restored.configuration().cursor_color().as_str(), "ember");
+        assert_eq!(restored.configuration().background().as_str(), "slate");
+        assert_eq!(restored.configuration().foreground().as_str(), "ember");
+        assert_eq!(restored.execute_line("config reset").status, 0);
+        assert_eq!(restored.configuration(), &TerminalConfig::default());
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
@@ -1976,6 +1994,10 @@ mod tests {
         );
         assert_eq!(session.set_configuration("font", "system").status, 0);
         assert_eq!(session.configuration().font().as_str(), "system");
+        assert_eq!(session.set_configuration("background", "white").status, 0);
+        assert_eq!(session.configuration().background().as_str(), "white");
+        assert_eq!(session.set_configuration("foreground", "black").status, 0);
+        assert_eq!(session.configuration().foreground().as_str(), "black");
         assert_eq!(session.history(), ["echo keep"]);
 
         let invalid = session.set_configuration("theme", "paper");
@@ -1995,6 +2017,18 @@ mod tests {
         assert_eq!(invalid_font.status, 2);
         assert!(invalid_font.stderr.contains("font must be one of"));
         assert_eq!(session.configuration().font().as_str(), "system");
+        let invalid_background = session.set_configuration("background", "purple");
+        assert_eq!(invalid_background.status, 2);
+        assert!(invalid_background
+            .stderr
+            .contains("background must be one of"));
+        assert_eq!(session.configuration().background().as_str(), "white");
+        let invalid_foreground = session.set_configuration("foreground", "purple");
+        assert_eq!(invalid_foreground.status, 2);
+        assert!(invalid_foreground
+            .stderr
+            .contains("foreground must be one of"));
+        assert_eq!(session.configuration().foreground().as_str(), "black");
 
         assert_eq!(session.set_configuration("history-limit", "1").status, 0);
         assert_eq!(session.history(), ["echo keep"]);

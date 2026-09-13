@@ -40,6 +40,8 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var toolbarVisible = true
     @Published public private(set) var theme = "ink"
     @Published public private(set) var cursorColor = "cyan"
+    @Published public private(set) var background = "auto"
+    @Published public private(set) var foreground = "auto"
     @Published public private(set) var initializationError: String?
     @Published public private(set) var isExecuting = false
 
@@ -334,6 +336,14 @@ public final class RuneTerminalModel: ObservableObject {
                 if ["cyan", "ember", "foreground"].contains(pair[1]) {
                     cursorColor = pair[1]
                 }
+            case "background":
+                if ["auto", "black", "white", "slate"].contains(pair[1]) {
+                    background = pair[1]
+                }
+            case "foreground":
+                if ["auto", "black", "white", "cyan", "ember"].contains(pair[1]) {
+                    foreground = pair[1]
+                }
             default:
                 continue
             }
@@ -387,7 +397,11 @@ public struct RuneTerminalView: View {
     }
 
     public var body: some View {
-        let palette = RunePalette.forName(model.theme)
+        let palette = RunePalette.forName(
+            model.theme,
+            background: model.background,
+            foreground: model.foreground
+        )
 
         ZStack {
             RuneBackground(palette: palette)
@@ -625,6 +639,8 @@ private struct RuneSettingsView: View {
     private let themes = ["ink", "light", "ember"]
     private let cursorColors = ["cyan", "ember", "foreground"]
     private let fonts = ["monospaced", "system", "rounded"]
+    private let backgrounds = ["auto", "black", "white", "slate"]
+    private let foregrounds = ["auto", "black", "white", "cyan", "ember"]
 
     var body: some View {
         NavigationStack {
@@ -695,6 +711,30 @@ private struct RuneSettingsView: View {
                         )
                     ) {
                         ForEach(cursorColors, id: \.self) { color in
+                            Text(color.capitalized).tag(color)
+                        }
+                    }
+
+                    Picker(
+                        "Background",
+                        selection: Binding(
+                            get: { model.background },
+                            set: { model.setConfiguration(key: "background", value: $0) }
+                        )
+                    ) {
+                        ForEach(backgrounds, id: \.self) { color in
+                            Text(color.capitalized).tag(color)
+                        }
+                    }
+
+                    Picker(
+                        "Foreground",
+                        selection: Binding(
+                            get: { model.foreground },
+                            set: { model.setConfiguration(key: "foreground", value: $0) }
+                        )
+                    ) {
+                        ForEach(foregrounds, id: \.self) { color in
                             Text(color.capitalized).tag(color)
                         }
                     }
@@ -849,6 +889,50 @@ private struct RunePalette {
         case "foreground": return foreground
         default: return cyan
         }
+    }
+
+    func overriding(background name: String, foreground foregroundName: String) -> RunePalette {
+        let backgroundColor: Color
+        let panelColor: Color
+        switch name {
+        case "black":
+            backgroundColor = .black
+            panelColor = Color.black.opacity(0.94)
+        case "white":
+            backgroundColor = .white
+            panelColor = Color.white.opacity(0.94)
+        case "slate":
+            backgroundColor = Color(red: 0.08, green: 0.11, blue: 0.15)
+            panelColor = Color(red: 0.12, green: 0.16, blue: 0.21).opacity(0.96)
+        default:
+            backgroundColor = background
+            panelColor = panel
+        }
+        let foregroundColor: Color
+        switch foregroundName {
+        case "black": foregroundColor = .black
+        case "white": foregroundColor = .white
+        case "cyan": foregroundColor = cyan
+        case "ember": foregroundColor = ember
+        default: foregroundColor = foreground
+        }
+        return RunePalette(
+            background: backgroundColor,
+            panel: panelColor,
+            foreground: foregroundColor,
+            muted: muted,
+            cyan: cyan,
+            ember: ember,
+            error: error
+        )
+    }
+
+    static func forName(
+        _ name: String,
+        background: String,
+        foreground: String
+    ) -> RunePalette {
+        forName(name).overriding(background: background, foreground: foreground)
     }
 
     static func forName(_ name: String) -> RunePalette {

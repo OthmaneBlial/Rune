@@ -16,6 +16,8 @@ const DEFAULT_TOOLBAR_VISIBLE: bool = true;
 const DEFAULT_THEME: TerminalTheme = TerminalTheme::Ink;
 const DEFAULT_CURSOR_COLOR: TerminalCursorColor = TerminalCursorColor::Cyan;
 const DEFAULT_FONT: TerminalFont = TerminalFont::Monospaced;
+const DEFAULT_BACKGROUND: TerminalBackground = TerminalBackground::Auto;
+const DEFAULT_FOREGROUND: TerminalForeground = TerminalForeground::Auto;
 
 /// Themes understood by the portable configuration contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +103,71 @@ impl TerminalFont {
     }
 }
 
+/// Background color overrides understood by the portable configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalBackground {
+    Auto,
+    Black,
+    White,
+    Slate,
+}
+
+impl TerminalBackground {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Black => "black",
+            Self::White => "white",
+            Self::Slate => "slate",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "auto" => Some(Self::Auto),
+            "black" => Some(Self::Black),
+            "white" => Some(Self::White),
+            "slate" => Some(Self::Slate),
+            _ => None,
+        }
+    }
+}
+
+/// Foreground color overrides understood by the portable configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalForeground {
+    Auto,
+    Black,
+    White,
+    Cyan,
+    Ember,
+}
+
+impl TerminalForeground {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Black => "black",
+            Self::White => "white",
+            Self::Cyan => "cyan",
+            Self::Ember => "ember",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "auto" => Some(Self::Auto),
+            "black" => Some(Self::Black),
+            "white" => Some(Self::White),
+            "cyan" => Some(Self::Cyan),
+            "ember" => Some(Self::Ember),
+            _ => None,
+        }
+    }
+}
+
 /// Portable session settings currently owned by the Rust core.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalConfig {
@@ -111,6 +178,8 @@ pub struct TerminalConfig {
     theme: TerminalTheme,
     cursor_color: TerminalCursorColor,
     font: TerminalFont,
+    background: TerminalBackground,
+    foreground: TerminalForeground,
 }
 
 impl Default for TerminalConfig {
@@ -123,6 +192,8 @@ impl Default for TerminalConfig {
             theme: DEFAULT_THEME,
             cursor_color: DEFAULT_CURSOR_COLOR,
             font: DEFAULT_FONT,
+            background: DEFAULT_BACKGROUND,
+            foreground: DEFAULT_FOREGROUND,
         }
     }
 }
@@ -173,6 +244,18 @@ impl TerminalConfig {
         self.font
     }
 
+    /// Returns the configured background override.
+    #[must_use]
+    pub const fn background(&self) -> TerminalBackground {
+        self.background
+    }
+
+    /// Returns the configured foreground override.
+    #[must_use]
+    pub const fn foreground(&self) -> TerminalForeground {
+        self.foreground
+    }
+
     pub(super) fn set_history_limit(&mut self, value: usize) {
         self.history_limit = value;
     }
@@ -201,6 +284,14 @@ impl TerminalConfig {
         self.font = value;
     }
 
+    pub(super) fn set_background(&mut self, value: TerminalBackground) {
+        self.background = value;
+    }
+
+    pub(super) fn set_foreground(&mut self, value: TerminalForeground) {
+        self.foreground = value;
+    }
+
     pub(super) fn load(filesystem: &dyn VirtualFileSystem) -> Self {
         let Ok(bytes) = filesystem.read(CONFIG_PATH) else {
             return Self::default();
@@ -217,14 +308,16 @@ impl TerminalConfig {
             Err(error) => return Err(error),
         }
         let content = format!(
-            "{CONFIG_HEADER}\nhistory_limit={}\nfont_size={}\nscrollback_limit={}\ntoolbar_visible={}\ntheme={}\ncursor_color={}\nfont={}\n",
+            "{CONFIG_HEADER}\nhistory_limit={}\nfont_size={}\nscrollback_limit={}\ntoolbar_visible={}\ntheme={}\ncursor_color={}\nfont={}\nbackground={}\nforeground={}\n",
             self.history_limit,
             self.font_size,
             self.scrollback_limit,
             self.toolbar_visible,
             self.theme.as_str(),
             self.cursor_color.as_str(),
-            self.font.as_str()
+            self.font.as_str(),
+            self.background.as_str(),
+            self.foreground.as_str()
         );
         filesystem.write(CONFIG_PATH, content.as_bytes(), false)
     }
@@ -363,6 +456,38 @@ pub(super) fn update_font(
     Ok(())
 }
 
+pub(super) fn update_background(
+    filesystem: &mut dyn VirtualFileSystem,
+    config: &mut TerminalConfig,
+    value: &str,
+) -> Result<(), String> {
+    let background = TerminalBackground::parse(value)
+        .ok_or_else(|| "background must be one of: auto, black, white, slate".to_string())?;
+    let previous = config.clone();
+    config.set_background(background);
+    if let Err(error) = config.save(filesystem) {
+        *config = previous;
+        return Err(format!("could not persist configuration: {error}"));
+    }
+    Ok(())
+}
+
+pub(super) fn update_foreground(
+    filesystem: &mut dyn VirtualFileSystem,
+    config: &mut TerminalConfig,
+    value: &str,
+) -> Result<(), String> {
+    let foreground = TerminalForeground::parse(value)
+        .ok_or_else(|| "foreground must be one of: auto, black, white, cyan, ember".to_string())?;
+    let previous = config.clone();
+    config.set_foreground(foreground);
+    if let Err(error) = config.save(filesystem) {
+        *config = previous;
+        return Err(format!("could not persist configuration: {error}"));
+    }
+    Ok(())
+}
+
 pub(super) fn update(
     filesystem: &mut dyn VirtualFileSystem,
     config: &mut TerminalConfig,
@@ -377,8 +502,10 @@ pub(super) fn update(
         "theme" => update_theme(filesystem, config, value),
         "cursor-color" => update_cursor_color(filesystem, config, value),
         "font" => update_font(filesystem, config, value),
+        "background" => update_background(filesystem, config, value),
+        "foreground" => update_foreground(filesystem, config, value),
         _ => Err(
-            "unknown key; available keys: history-limit, font-size, scrollback-limit, toolbar-visible, theme, cursor-color, font"
+            "unknown key; available keys: history-limit, font-size, scrollback-limit, toolbar-visible, theme, cursor-color, font, background, foreground"
                 .to_string(),
         ),
     }
@@ -410,6 +537,8 @@ fn parse(content: &str) -> Option<TerminalConfig> {
     let mut seen_theme = false;
     let mut seen_cursor_color = false;
     let mut seen_font = false;
+    let mut seen_background = false;
+    let mut seen_foreground = false;
     for line in lines {
         let (key, value) = line.split_once('=')?;
         match key {
@@ -457,6 +586,14 @@ fn parse(content: &str) -> Option<TerminalConfig> {
                 config.font = TerminalFont::parse(value)?;
                 seen_font = true;
             }
+            "background" if !seen_background => {
+                config.background = TerminalBackground::parse(value)?;
+                seen_background = true;
+            }
+            "foreground" if !seen_foreground => {
+                config.foreground = TerminalForeground::parse(value)?;
+                seen_foreground = true;
+            }
             _ => return None,
         }
     }
@@ -466,8 +603,9 @@ fn parse(content: &str) -> Option<TerminalConfig> {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse, TerminalConfig, TerminalCursorColor, TerminalFont, TerminalTheme, CONFIG_HEADER,
-        DEFAULT_CURSOR_COLOR, DEFAULT_FONT, DEFAULT_FONT_SIZE, DEFAULT_SCROLLBACK_LIMIT,
+        parse, TerminalBackground, TerminalConfig, TerminalCursorColor, TerminalFont,
+        TerminalForeground, TerminalTheme, CONFIG_HEADER, DEFAULT_BACKGROUND, DEFAULT_CURSOR_COLOR,
+        DEFAULT_FONT, DEFAULT_FONT_SIZE, DEFAULT_FOREGROUND, DEFAULT_SCROLLBACK_LIMIT,
         DEFAULT_THEME, DEFAULT_TOOLBAR_VISIBLE,
     };
 
@@ -482,6 +620,8 @@ mod tests {
         assert_eq!(config.theme(), DEFAULT_THEME);
         assert_eq!(config.cursor_color(), DEFAULT_CURSOR_COLOR);
         assert_eq!(config.font(), DEFAULT_FONT);
+        assert_eq!(config.background(), DEFAULT_BACKGROUND);
+        assert_eq!(config.foreground(), DEFAULT_FOREGROUND);
     }
 
     #[test]
@@ -526,6 +666,22 @@ mod tests {
             TerminalFont::Rounded
         );
         assert!(parse("RUNE_CONFIG_V1\nfont=serif\n").is_none());
+        let background = format!("{content}background=slate\n");
+        assert_eq!(
+            parse(&background)
+                .expect("background should parse")
+                .background(),
+            TerminalBackground::Slate
+        );
+        let foreground = format!("{content}foreground=ember\n");
+        assert_eq!(
+            parse(&foreground)
+                .expect("foreground should parse")
+                .foreground(),
+            TerminalForeground::Ember
+        );
+        assert!(parse("RUNE_CONFIG_V1\nbackground=purple\n").is_none());
+        assert!(parse("RUNE_CONFIG_V1\nforeground=purple\n").is_none());
     }
 
     #[test]
@@ -553,6 +709,8 @@ mod tests {
             DEFAULT_CURSOR_COLOR
         );
         assert_eq!(TerminalConfig::default().font(), DEFAULT_FONT);
+        assert_eq!(TerminalConfig::default().background(), DEFAULT_BACKGROUND);
+        assert_eq!(TerminalConfig::default().foreground(), DEFAULT_FOREGROUND);
         assert!(parse("not-rune-config\n").is_none());
     }
 }

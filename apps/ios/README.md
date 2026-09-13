@@ -73,11 +73,12 @@ intentionally visible in the local state boundary. Interactive `export`,
 `setenv`, and assignment command lines are currently replaced by a redaction
 marker before history is stored; arbitrary credential-bearing commands still
 require a configurable policy. The Rust core also persists bounded
-`history-limit`, `font`, `font-size`, `scrollback-limit`, `theme`, and `cursor-color` configuration in
+`history-limit`, `font`, `font-size`, `scrollback-limit`, `theme`, `cursor-color`,
+`background`, and `foreground` configuration in
 `~/.rune/config.state`. The bridge exposes both key/value inspection and
 validated set/reset calls without creating history entries; the source-only
 Swift view provides a settings sheet for font, font size, scrollback, theme,
-cursor color, reset, and Rust-persisted toolbar visibility. Cursor shape remains
+cursor color, background, foreground, reset, and Rust-persisted toolbar visibility. Cursor shape remains
 outside the current source-only contract.
 
 On restore, the Rust core reads a maximum of 64 KiB from `~/.rune_profile`,

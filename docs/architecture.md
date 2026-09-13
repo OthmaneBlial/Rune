@@ -96,12 +96,16 @@ between 1 and 10,000, a `font_size` between 8 and 32 points, a
 `scrollback_limit` between 128 and 8,192 rendered entries, a font design in
 `monospaced`, `system`, or `rounded`, a theme in `ink`, `light`, or `ember`, and
 a cursor color in `cyan`, `ember`, or `foreground`.
+It also supports independent background overrides in `auto`, `black`, `white`,
+or `slate`, and foreground overrides in `auto`, `black`, `white`, `cyan`, or
+`ember`.
 `config get`, `config set`, and `config reset` update these
-values, and the session applies them immediately. SwiftUI consumes all six
+values, and the session applies them immediately. SwiftUI consumes all eight
 settings; the public session and C ABI also expose validated set/reset
 operations that do not add shell text to history, allowing native settings
 surfaces to use the same Rust policy. The source-only SwiftUI sheet uses that
-boundary for font, font size, scrollback, theme, cursor color, reset, and toolbar
+boundary for font, font size, scrollback, theme, cursor color, background,
+foreground, reset, and toolbar
 visibility; its scrollback window also remains subject to an 8 MiB byte cap.
 Cursor shape remains outside the current contract.
 
