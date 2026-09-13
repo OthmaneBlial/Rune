@@ -23,9 +23,9 @@ working iOS application or a feature-parity claim.
 | Command runtime | 90% |
 | Sandboxed filesystem | 64% |
 | Sessions/history | 62% |
-| Configuration | 48% |
+| Configuration | 55% |
 | WASM | 45% |
-| Native iOS UI | 56% |
+| Native iOS UI | 60% |
 | Swift/Rust bridge | 48% |
 | Package manager | 52% |
 | Compatibility evidence | 2% |
@@ -99,9 +99,9 @@ The iOS app is represented by
 source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
 and runtime gates remain unverified. Bounded directory enumeration and
 current-directory/history persistence now exist in Rust; bounded
-`history-limit`, `font-size`, `scrollback-limit`, `theme`, and `cursor-color` configuration
+`history-limit`, `font`, `font-size`, `scrollback-limit`, `theme`, and `cursor-color` configuration
 is available, and the native source UI consumes the font size, bounded
-scrollback window, three named palettes, and the Rust-owned cursor color. Cursor shape,
+scrollback window, three named palettes, the Rust-owned font design, and cursor color. Cursor shape,
 configurable redaction, and broader session recovery remain planned. Non-WASM language runtimes remain
 planned work.
 
@@ -207,12 +207,12 @@ This protects the UI from unbounded replay growth while Rust retains its own
 bounded per-command output and persisted history policies.
 
 The portable configuration boundary currently supports bounded `history-limit`,
-`font-size`, `scrollback-limit`, `theme`, and `cursor-color` settings through `config get`,
+`font`, `font-size`, `scrollback-limit`, `theme`, and `cursor-color` settings through `config get`,
 `config set`, and `config reset`. The scrollback setting accepts 128–8,192
 rendered entries and remains subject to the UI's 8 MiB byte cap. It persists in
 `~/.rune/config.state`. The FFI also exposes validated Rust-native set/reset
 calls that do not create history entries; the source-only SwiftUI settings
-sheet uses those calls for font size, scrollback, theme, reset, and toolbar
+sheet uses those calls for font, font size, scrollback, theme, reset, and toolbar
 visibility. A separate source-only input toolbar provides bounded
 Tab/completion, Escape, Ctrl-C, display-clear, and paste controls; its
 visibility and cursor color are persisted by the Rust configuration boundary. Cursor
@@ -310,7 +310,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded WASI preview1 runtime boundary and resource limits
 - [x] Bounded package metadata, integrity, local WASM installation, and local update
 - [x] Portable runtime request/output contract
-- [x] Bounded Rust-owned history, font-size, scrollback, theme, and cursor-color configuration
+- [x] Bounded Rust-owned history, font, font-size, scrollback, theme, and cursor-color configuration
 - [x] Bounded stored ZIP creation/extraction with path validation
 - [ ] Network registry, remote search, and remote update policy
 - [ ] Python, JavaScript, and Lua runtime evaluation

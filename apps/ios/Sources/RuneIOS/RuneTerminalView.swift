@@ -35,6 +35,7 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var currentDirectory = "~"
     @Published public private(set) var workspaceName = "Documents"
     @Published public private(set) var fontSize: CGFloat = 15
+    @Published public private(set) var font = "monospaced"
     @Published public private(set) var scrollbackLimit = Self.defaultScrollbackLimit
     @Published public private(set) var toolbarVisible = true
     @Published public private(set) var theme = "ink"
@@ -308,6 +309,10 @@ public final class RuneTerminalModel: ObservableObject {
                 if let value = Double(pair[1]) {
                     fontSize = CGFloat(Swift.min(Swift.max(value, 8), 32))
                 }
+            case "font":
+                if ["monospaced", "system", "rounded"].contains(pair[1]) {
+                    font = pair[1]
+                }
             case "scrollback-limit":
                 if let value = Int(pair[1]) {
                     scrollbackLimit = Swift.min(
@@ -469,7 +474,7 @@ public struct RuneTerminalView: View {
                                     text: entry.text,
                                     defaultColor: color(for: entry.kind, palette: palette)
                                 )
-                                    .font(.system(size: model.fontSize, design: .monospaced))
+                                    .font(terminalFont(size: model.fontSize))
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .textSelection(.enabled)
                                     .id(entry.id)
@@ -519,7 +524,7 @@ public struct RuneTerminalView: View {
                         .foregroundStyle(palette.cyan)
                         .lineLimit(1)
                     TextField("Enter a Rune command", text: $model.command, axis: .vertical)
-                        .font(.system(size: model.fontSize, design: .monospaced))
+                        .font(terminalFont(size: model.fontSize))
                         .foregroundStyle(palette.foreground)
                         .tint(palette.cursorColor(named: model.cursorColor))
                         .textFieldStyle(.plain)
@@ -601,6 +606,16 @@ public struct RuneTerminalView: View {
         case .status: return palette.muted
         }
     }
+
+    private func terminalFont(size: CGFloat) -> Font {
+        let design: Font.Design
+        switch model.font {
+        case "system": design = .default
+        case "rounded": design = .rounded
+        default: design = .monospaced
+        }
+        return .system(size: size, design: design)
+    }
 }
 
 private struct RuneSettingsView: View {
@@ -609,6 +624,7 @@ private struct RuneSettingsView: View {
 
     private let themes = ["ink", "light", "ember"]
     private let cursorColors = ["cyan", "ember", "foreground"]
+    private let fonts = ["monospaced", "system", "rounded"]
 
     var body: some View {
         NavigationStack {
@@ -656,6 +672,18 @@ private struct RuneSettingsView: View {
                     ) {
                         ForEach(themes, id: \.self) { theme in
                             Text(theme.capitalized).tag(theme)
+                        }
+                    }
+
+                    Picker(
+                        "Font",
+                        selection: Binding(
+                            get: { model.font },
+                            set: { model.setConfiguration(key: "font", value: $0) }
+                        )
+                    ) {
+                        ForEach(fonts, id: \.self) { font in
+                            Text(font.capitalized).tag(font)
                         }
                     }
 

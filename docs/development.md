@@ -25,8 +25,8 @@ invalid replacement leaves the old version runnable, while a verified local
 replacement is materialized before the old version is retired.
 Package command tests also cover a SHA-256-verified `.rune` script, bounded
 positional arguments, and rejection after installed content is tampered with.
-Configuration tests are local-only as well and verify bounded history, font
-size, scrollback, theme, and cursor-color settings without requiring an Apple
+Configuration tests are local-only as well and verify bounded history, font,
+font size, scrollback, theme, and cursor-color settings without requiring an Apple
 runtime. The scrollback setting accepts 128–8,192 rendered entries and remains
 subject to the native UI's separate 8 MiB byte cap. The `sleep` command test
 also triggers cancellation during an in-flight bounded wait, not only before a

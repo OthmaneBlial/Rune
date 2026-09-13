@@ -15,6 +15,7 @@ const MAX_SCROLLBACK_LIMIT: usize = 8_192;
 const DEFAULT_TOOLBAR_VISIBLE: bool = true;
 const DEFAULT_THEME: TerminalTheme = TerminalTheme::Ink;
 const DEFAULT_CURSOR_COLOR: TerminalCursorColor = TerminalCursorColor::Cyan;
+const DEFAULT_FONT: TerminalFont = TerminalFont::Monospaced;
 
 /// Themes understood by the portable configuration contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +73,34 @@ impl TerminalCursorColor {
     }
 }
 
+/// Font designs exposed by the portable terminal configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalFont {
+    Monospaced,
+    System,
+    Rounded,
+}
+
+impl TerminalFont {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Monospaced => "monospaced",
+            Self::System => "system",
+            Self::Rounded => "rounded",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "monospaced" => Some(Self::Monospaced),
+            "system" => Some(Self::System),
+            "rounded" => Some(Self::Rounded),
+            _ => None,
+        }
+    }
+}
+
 /// Portable session settings currently owned by the Rust core.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalConfig {
@@ -81,6 +110,7 @@ pub struct TerminalConfig {
     toolbar_visible: bool,
     theme: TerminalTheme,
     cursor_color: TerminalCursorColor,
+    font: TerminalFont,
 }
 
 impl Default for TerminalConfig {
@@ -92,6 +122,7 @@ impl Default for TerminalConfig {
             toolbar_visible: DEFAULT_TOOLBAR_VISIBLE,
             theme: DEFAULT_THEME,
             cursor_color: DEFAULT_CURSOR_COLOR,
+            font: DEFAULT_FONT,
         }
     }
 }
@@ -136,6 +167,12 @@ impl TerminalConfig {
         self.cursor_color
     }
 
+    /// Returns the configured native terminal font design.
+    #[must_use]
+    pub const fn font(&self) -> TerminalFont {
+        self.font
+    }
+
     pub(super) fn set_history_limit(&mut self, value: usize) {
         self.history_limit = value;
     }
@@ -160,6 +197,10 @@ impl TerminalConfig {
         self.cursor_color = value;
     }
 
+    pub(super) fn set_font(&mut self, value: TerminalFont) {
+        self.font = value;
+    }
+
     pub(super) fn load(filesystem: &dyn VirtualFileSystem) -> Self {
         let Ok(bytes) = filesystem.read(CONFIG_PATH) else {
             return Self::default();
@@ -176,13 +217,14 @@ impl TerminalConfig {
             Err(error) => return Err(error),
         }
         let content = format!(
-            "{CONFIG_HEADER}\nhistory_limit={}\nfont_size={}\nscrollback_limit={}\ntoolbar_visible={}\ntheme={}\ncursor_color={}\n",
+            "{CONFIG_HEADER}\nhistory_limit={}\nfont_size={}\nscrollback_limit={}\ntoolbar_visible={}\ntheme={}\ncursor_color={}\nfont={}\n",
             self.history_limit,
             self.font_size,
             self.scrollback_limit,
             self.toolbar_visible,
             self.theme.as_str(),
-            self.cursor_color.as_str()
+            self.cursor_color.as_str(),
+            self.font.as_str()
         );
         filesystem.write(CONFIG_PATH, content.as_bytes(), false)
     }
@@ -305,6 +347,22 @@ pub(super) fn update_cursor_color(
     Ok(())
 }
 
+pub(super) fn update_font(
+    filesystem: &mut dyn VirtualFileSystem,
+    config: &mut TerminalConfig,
+    value: &str,
+) -> Result<(), String> {
+    let font = TerminalFont::parse(value)
+        .ok_or_else(|| "font must be one of: monospaced, system, rounded".to_string())?;
+    let previous = config.clone();
+    config.set_font(font);
+    if let Err(error) = config.save(filesystem) {
+        *config = previous;
+        return Err(format!("could not persist configuration: {error}"));
+    }
+    Ok(())
+}
+
 pub(super) fn update(
     filesystem: &mut dyn VirtualFileSystem,
     config: &mut TerminalConfig,
@@ -318,8 +376,9 @@ pub(super) fn update(
         "toolbar-visible" => update_toolbar_visible(filesystem, config, value),
         "theme" => update_theme(filesystem, config, value),
         "cursor-color" => update_cursor_color(filesystem, config, value),
+        "font" => update_font(filesystem, config, value),
         _ => Err(
-            "unknown key; available keys: history-limit, font-size, scrollback-limit, toolbar-visible, theme, cursor-color"
+            "unknown key; available keys: history-limit, font-size, scrollback-limit, toolbar-visible, theme, cursor-color, font"
                 .to_string(),
         ),
     }
@@ -350,6 +409,7 @@ fn parse(content: &str) -> Option<TerminalConfig> {
     let mut seen_toolbar_visible = false;
     let mut seen_theme = false;
     let mut seen_cursor_color = false;
+    let mut seen_font = false;
     for line in lines {
         let (key, value) = line.split_once('=')?;
         match key {
@@ -393,6 +453,10 @@ fn parse(content: &str) -> Option<TerminalConfig> {
                 config.cursor_color = TerminalCursorColor::parse(value)?;
                 seen_cursor_color = true;
             }
+            "font" if !seen_font => {
+                config.font = TerminalFont::parse(value)?;
+                seen_font = true;
+            }
             _ => return None,
         }
     }
@@ -402,9 +466,9 @@ fn parse(content: &str) -> Option<TerminalConfig> {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse, TerminalConfig, TerminalCursorColor, TerminalTheme, CONFIG_HEADER,
-        DEFAULT_CURSOR_COLOR, DEFAULT_FONT_SIZE, DEFAULT_SCROLLBACK_LIMIT, DEFAULT_THEME,
-        DEFAULT_TOOLBAR_VISIBLE,
+        parse, TerminalConfig, TerminalCursorColor, TerminalFont, TerminalTheme, CONFIG_HEADER,
+        DEFAULT_CURSOR_COLOR, DEFAULT_FONT, DEFAULT_FONT_SIZE, DEFAULT_SCROLLBACK_LIMIT,
+        DEFAULT_THEME, DEFAULT_TOOLBAR_VISIBLE,
     };
 
     #[test]
@@ -417,6 +481,7 @@ mod tests {
         assert_eq!(config.toolbar_visible(), DEFAULT_TOOLBAR_VISIBLE);
         assert_eq!(config.theme(), DEFAULT_THEME);
         assert_eq!(config.cursor_color(), DEFAULT_CURSOR_COLOR);
+        assert_eq!(config.font(), DEFAULT_FONT);
     }
 
     #[test]
@@ -455,6 +520,12 @@ mod tests {
             TerminalCursorColor::Ember
         );
         assert!(parse("RUNE_CONFIG_V1\ncursor_color=violet\n").is_none());
+        let font = format!("{content}font=rounded\n");
+        assert_eq!(
+            parse(&font).expect("font should parse").font(),
+            TerminalFont::Rounded
+        );
+        assert!(parse("RUNE_CONFIG_V1\nfont=serif\n").is_none());
     }
 
     #[test]
@@ -481,6 +552,7 @@ mod tests {
             TerminalConfig::default().cursor_color(),
             DEFAULT_CURSOR_COLOR
         );
+        assert_eq!(TerminalConfig::default().font(), DEFAULT_FONT);
         assert!(parse("not-rune-config\n").is_none());
     }
 }

@@ -8,7 +8,7 @@ mod commands;
 mod config;
 mod persistence;
 
-pub use config::{TerminalConfig, TerminalCursorColor, TerminalTheme};
+pub use config::{TerminalConfig, TerminalCursorColor, TerminalFont, TerminalTheme};
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -1859,6 +1859,7 @@ mod tests {
         assert_eq!(session.configuration().scrollback_limit(), 4_096);
         assert!(session.configuration().toolbar_visible());
         assert_eq!(session.configuration().cursor_color().as_str(), "cyan");
+        assert_eq!(session.configuration().font().as_str(), "monospaced");
         assert_eq!(session.execute_line("config set history-limit 3").status, 0);
         assert_eq!(
             session.execute_line("config get history-limit").stdout,
@@ -1881,6 +1882,11 @@ mod tests {
         assert_eq!(
             session.execute_line("config get cursor-color").stdout,
             "cursor-color=ember\n"
+        );
+        assert_eq!(session.execute_line("config set font rounded").status, 0);
+        assert_eq!(
+            session.execute_line("config get font").stdout,
+            "font=rounded\n"
         );
         assert_eq!(
             session
@@ -1934,12 +1940,14 @@ mod tests {
         assert!(!restored.configuration().toolbar_visible());
         assert_eq!(restored.configuration().theme().as_str(), "ember");
         assert_eq!(restored.configuration().cursor_color().as_str(), "ember");
+        assert_eq!(restored.configuration().font().as_str(), "rounded");
         assert!(restored.history().len() <= 3);
         assert_eq!(restored.execute_line("config reset").status, 0);
         assert_eq!(restored.configuration().history_limit(), 1_000);
         assert_eq!(restored.configuration().scrollback_limit(), 4_096);
         assert!(restored.configuration().toolbar_visible());
         assert_eq!(restored.configuration().cursor_color().as_str(), "cyan");
+        assert_eq!(restored.configuration().font().as_str(), "monospaced");
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
@@ -1966,6 +1974,8 @@ mod tests {
             session.configuration().cursor_color().as_str(),
             "foreground"
         );
+        assert_eq!(session.set_configuration("font", "system").status, 0);
+        assert_eq!(session.configuration().font().as_str(), "system");
         assert_eq!(session.history(), ["echo keep"]);
 
         let invalid = session.set_configuration("theme", "paper");
@@ -1981,6 +1991,10 @@ mod tests {
             session.configuration().cursor_color().as_str(),
             "foreground"
         );
+        let invalid_font = session.set_configuration("font", "serif");
+        assert_eq!(invalid_font.status, 2);
+        assert!(invalid_font.stderr.contains("font must be one of"));
+        assert_eq!(session.configuration().font().as_str(), "system");
 
         assert_eq!(session.set_configuration("history-limit", "1").status, 0);
         assert_eq!(session.history(), ["echo keep"]);
