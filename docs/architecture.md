@@ -52,8 +52,9 @@ status is preserved. Individual command lines are capped at 64 KiB before
 parsing; automation scripts have separate 256 KiB and 1,024-line limits.
 
 Session cancellation is cooperative. Rust owns an atomic cancellation request,
-observes it before commands and between pipelines/script lines, clears it when
-reported, and returns the conventional status 130. The C bridge exposes the
+observes it before commands and between pipelines/script lines, and bounded
+filesystem/archive traversals also poll it. The flag is cleared when reported,
+and cancellation returns the conventional status 130. The C bridge exposes the
 same request for a native cancellation callback. A synchronous filesystem or
 runtime operation already in progress is not forcefully interrupted, and Rune
 does not claim host signal delivery on iOS yet.

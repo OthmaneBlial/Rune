@@ -221,6 +221,14 @@ pub struct CommandContext<'a> {
     pub(crate) cancellation: &'a AtomicBool,
 }
 
+impl CommandContext<'_> {
+    pub(crate) fn take_cancellation(&self) -> Option<CommandOutput> {
+        self.cancellation
+            .swap(false, Ordering::AcqRel)
+            .then(|| CommandOutput::failure(CANCELLED_STATUS, "rune: command cancelled\n"))
+    }
+}
+
 /// One independent terminal session.
 pub struct Session {
     filesystem: Box<dyn VirtualFileSystem>,
@@ -1948,6 +1956,43 @@ mod tests {
         assert_eq!(script.stdout, "");
         assert_eq!(script.stderr, "rune: command cancelled\n");
         assert!(!session.history().contains(&"echo first".to_string()));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn command_context_consumes_cancellation_for_long_operations() {
+        let root = test_root();
+        let mut filesystem = SandboxedFileSystem::new(&root).expect("sandbox filesystem created");
+        let mut environment = std::collections::BTreeMap::new();
+        let mut aliases = std::collections::BTreeMap::new();
+        let mut bookmarks = std::collections::BTreeMap::new();
+        let mut config = super::TerminalConfig::default();
+        let mut history = Vec::new();
+        let registry = super::CommandRegistry::default();
+        let runtime = rune_wasm::WasmRunner::default();
+        let args = Vec::new();
+        let cancellation = std::sync::atomic::AtomicBool::new(true);
+        let context = super::CommandContext {
+            args: &args,
+            stdin: "",
+            fs: &mut filesystem,
+            env: &mut environment,
+            aliases: &mut aliases,
+            bookmarks: &mut bookmarks,
+            config: &mut config,
+            history: &mut history,
+            command_definitions: registry.definitions(),
+            runtime: &runtime,
+            filesystem_root: None,
+            cancellation: &cancellation,
+        };
+        let cancelled = context
+            .take_cancellation()
+            .expect("cancellation should be observed");
+        assert_eq!(cancelled.status, CANCELLED_STATUS);
+        assert_eq!(cancelled.stderr, "rune: command cancelled\n");
+        assert!(context.take_cancellation().is_none());
+        drop(context);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

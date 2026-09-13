@@ -198,6 +198,9 @@ fn disk_usage(
     path: &str,
     visited: &mut usize,
 ) -> Result<u64, CommandOutput> {
+    if let Some(output) = context.take_cancellation() {
+        return Err(output);
+    }
     if *visited >= MAX_DISK_USAGE_ENTRIES {
         return Err(CommandOutput::failure(
             1,

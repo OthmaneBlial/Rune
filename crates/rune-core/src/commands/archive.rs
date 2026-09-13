@@ -73,6 +73,9 @@ pub(super) fn unzip(context: &mut CommandContext<'_>) -> CommandOutput {
     }
     let entry_count = entries.len();
     for entry in entries {
+        if let Some(output) = context.take_cancellation() {
+            return output;
+        }
         let output_path = append_path(destination, &entry.name);
         if entry.directory {
             if let Err(error) = context.fs.make_directory(&output_path, true) {
@@ -104,6 +107,9 @@ fn collect_entries(
     recursive: bool,
     entries: &mut Vec<ArchiveEntry>,
 ) -> Result<(), CommandOutput> {
+    if let Some(output) = context.take_cancellation() {
+        return Err(output);
+    }
     if entries.len() >= MAX_ARCHIVE_ENTRIES {
         return Err(archive_failure("entry limit exceeded"));
     }

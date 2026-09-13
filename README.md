@@ -70,8 +70,8 @@ through the same Rust parser, session environment, VFS, status, and history
 path. Scripts receive bounded positional values as `$0`, `$1...`, `$#`, and
 `$@`; nested sourcing is capped at 16 levels and accepts at most 64 arguments.
 The Rust session and C/Swift bridge also expose cooperative cancellation at
-command, pipeline, and script boundaries, returning status 130; an operation
-already running synchronously is allowed to finish.
+command, pipeline, script, and bounded traversal boundaries, returning status
+130; an operation already running synchronously is allowed to finish.
 The event-aware Rust/FFI execution path delivers bounded output after each
 completed pipeline and status/directory events at command boundaries. Swift
 copies those borrowed callback strings and renders them through the same

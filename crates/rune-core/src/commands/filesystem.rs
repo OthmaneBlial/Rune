@@ -295,6 +295,9 @@ fn visit_find(
     visited: &mut usize,
     stdout: &mut String,
 ) -> Result<(), CommandOutput> {
+    if let Some(output) = context.take_cancellation() {
+        return Err(output);
+    }
     if *visited >= FIND_ENTRY_LIMIT {
         return Err(CommandOutput::failure(
             1,
