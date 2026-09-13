@@ -83,6 +83,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: utilities::dirname,
     },
     CommandDefinition {
+        name: "diff",
+        summary: "compare two bounded UTF-8 files",
+        handler: text::diff,
+    },
+    CommandDefinition {
         name: "du",
         summary: "summarize bounded virtual filesystem bytes",
         handler: utilities::du,

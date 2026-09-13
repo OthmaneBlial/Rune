@@ -218,7 +218,7 @@ enumeration are each capped at 10,000 entries. These limits are separate from
 the terminal and native-transfer limits.
 
 The current registry includes bounded text filters (`cut`, `head`, `tail`,
-`grep`, `sed`, `sort`, `uniq`, and `wc`). They consume the same in-memory pipeline stdin
+`grep`, `sed`, `sort`, `uniq`, `wc`, and `diff`). They consume the same in-memory pipeline stdin
 as file commands, accept `-` as an explicit stdin operand, and never delegate
 to a host shell. `sed` currently supports
 literal `s///` substitutions with `g` and `p` flags plus `-n`; it does not claim
@@ -227,6 +227,10 @@ deliberately smaller than POSIX utilities until compatibility tests justify
 expanding them.
 `grep` performs bounded literal matching and supports `-i`, `-v`, `-n`, and
 `-c`, retaining status 0/1 match semantics and status 2 for usage errors.
+`diff` reads two confined UTF-8 files, uses a bounded longest-common-subsequence
+comparison, emits a whole-file unified view, and returns status 0/1 for equal or
+different inputs. Its input, line, and dynamic-programming-cell limits reject
+oversized comparisons before the table is allocated.
 
 The `find` built-in walks the same virtual filesystem through `metadata` and
 `list`; it never traverses the host root directly. Its initial surface supports

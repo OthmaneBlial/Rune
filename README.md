@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 80%**
+**Overall progress: 81%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -20,7 +20,7 @@ working iOS application or a feature-parity claim.
 |---|---:|
 | Rust workspace | 80% |
 | Shell tokenizer/parser | 65% |
-| Command runtime | 95% |
+| Command runtime | 96% |
 | Sandboxed filesystem | 70% |
 | Sessions/history | 66% |
 | Configuration | 66% |
@@ -35,7 +35,7 @@ working iOS application or a feature-parity claim.
 The first Rust vertical slice is implemented and locally verified. It executes
 the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `curl`, `echo`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
-`setenv`, `printf`, `basename`, `dirname`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `unlink`, `tee`, `tr`, `xxd`,
+`setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
 `true`, `false`, `cut`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `pkg`, `tar`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
@@ -61,6 +61,9 @@ The text pipeline also includes bounded `cut` field/character selection
 accept `-` as an explicit stdin path when file operands are present.
 `grep` additionally supports literal matching with `-i`, `-v`, `-n`, and `-c`;
 its status remains 0 for a match, 1 for no match, and 2 for invalid usage.
+`diff [-u|--unified] FILE1 FILE2` compares two bounded UTF-8 VFS files with a
+whole-file unified view, returning status 0 when equal, 1 when different, and
+2 when input, comparison size, or usage bounds are rejected.
 A synchronous command response and each intermediate pipeline channel are
 capped at 1 MiB per output channel; a truncation marker is emitted rather
 than allowing unbounded terminal output.
@@ -356,6 +359,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded virtual filesystem metadata and usage commands
 - [x] Confined canonical-path and SHA-256 utility commands
 - [x] Bounded `pbcopy`/`pbpaste` through an explicit host clipboard capability
+- [x] Bounded UTF-8 `diff` with unified output and comparison limits
 
 ### Phase 3 — Developer environment
 

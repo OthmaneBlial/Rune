@@ -5,6 +5,9 @@ use crate::{fs_failure, usage, CommandContext, CommandOutput};
 
 const MAX_CUT_RANGES: usize = 256;
 const MAX_CUT_POSITION: usize = 1_000_000;
+const MAX_DIFF_INPUT_BYTES: usize = 1024 * 1024;
+const MAX_DIFF_LINES: usize = 4_096;
+const MAX_DIFF_CELLS: usize = 4_000_000;
 
 #[derive(Debug, Clone, Copy)]
 struct CutRange {
@@ -371,6 +374,144 @@ pub(super) fn grep(context: &mut CommandContext<'_>) -> CommandOutput {
         stdout,
         stderr: String::new(),
         status: i32::from(!matched),
+    }
+}
+
+pub(super) fn diff(context: &mut CommandContext<'_>) -> CommandOutput {
+    let paths = match parse_diff_args(context.args) {
+        Ok(paths) => paths,
+        Err(output) => return output,
+    };
+    let left = match read_diff_input(context, &paths[0]) {
+        Ok(text) => text,
+        Err(output) => return output,
+    };
+    let right = match read_diff_input(context, &paths[1]) {
+        Ok(text) => text,
+        Err(output) => return output,
+    };
+    if left == right {
+        return CommandOutput::success("");
+    }
+    let left_lines = lines_with_endings(&left);
+    let right_lines = lines_with_endings(&right);
+    if left_lines.len() > MAX_DIFF_LINES || right_lines.len() > MAX_DIFF_LINES {
+        return CommandOutput::failure(
+            2,
+            format!("diff: input exceeds the {MAX_DIFF_LINES}-line comparison limit\n"),
+        );
+    }
+    let cells = (left_lines.len() + 1).saturating_mul(right_lines.len() + 1);
+    if cells > MAX_DIFF_CELLS {
+        return CommandOutput::failure(
+            2,
+            format!("diff: comparison exceeds the {MAX_DIFF_CELLS}-cell limit\n"),
+        );
+    }
+    let operations = diff_operations(&left_lines, &right_lines);
+    let mut stdout = format!("--- {}\n+++ {}\n@@\n", paths[0], paths[1]);
+    for operation in operations {
+        match operation {
+            DiffOperation::Equal(line) => append_diff_line(&mut stdout, ' ', line),
+            DiffOperation::Remove(line) => append_diff_line(&mut stdout, '-', line),
+            DiffOperation::Add(line) => append_diff_line(&mut stdout, '+', line),
+        }
+    }
+    CommandOutput {
+        stdout,
+        stderr: String::new(),
+        status: 1,
+    }
+}
+
+enum DiffOperation<'a> {
+    Equal(&'a str),
+    Remove(&'a str),
+    Add(&'a str),
+}
+
+fn parse_diff_args(args: &[String]) -> Result<Vec<String>, CommandOutput> {
+    let mut paths = Vec::new();
+    let mut parse_options = true;
+    for argument in args {
+        if parse_options && argument == "--" {
+            parse_options = false;
+        } else if parse_options && matches!(argument.as_str(), "-u" | "--unified") {
+            // The bounded renderer is unified by default.
+        } else if parse_options && argument.starts_with('-') {
+            return Err(usage("diff", "usage: diff [-u|--unified] FILE1 FILE2"));
+        } else {
+            paths.push(argument.clone());
+        }
+    }
+    if paths.len() != 2 {
+        return Err(usage("diff", "usage: diff [-u|--unified] FILE1 FILE2"));
+    }
+    Ok(paths)
+}
+
+fn read_diff_input(context: &mut CommandContext<'_>, path: &str) -> Result<String, CommandOutput> {
+    let bytes = if path == "-" {
+        context.stdin.as_bytes().to_vec()
+    } else {
+        context
+            .fs
+            .read(path)
+            .map_err(|error| fs_failure("diff", &error))?
+    };
+    if bytes.len() > MAX_DIFF_INPUT_BYTES {
+        return Err(CommandOutput::failure(
+            2,
+            format!("diff: {path}: input exceeds {MAX_DIFF_INPUT_BYTES} bytes\n"),
+        ));
+    }
+    String::from_utf8(bytes)
+        .map_err(|_| CommandOutput::failure(2, format!("diff: {path}: input is not valid UTF-8\n")))
+}
+
+fn diff_operations<'a>(left: &[&'a str], right: &[&'a str]) -> Vec<DiffOperation<'a>> {
+    let mut table = vec![vec![0_u16; right.len() + 1]; left.len() + 1];
+    for left_index in (0..left.len()).rev() {
+        for right_index in (0..right.len()).rev() {
+            table[left_index][right_index] = if left[left_index] == right[right_index] {
+                table[left_index + 1][right_index + 1].saturating_add(1)
+            } else {
+                table[left_index + 1][right_index].max(table[left_index][right_index + 1])
+            };
+        }
+    }
+
+    let mut operations = Vec::with_capacity(left.len() + right.len());
+    let (mut left_index, mut right_index) = (0, 0);
+    while left_index < left.len() && right_index < right.len() {
+        if left[left_index] == right[right_index] {
+            operations.push(DiffOperation::Equal(left[left_index]));
+            left_index += 1;
+            right_index += 1;
+        } else if table[left_index + 1][right_index] >= table[left_index][right_index + 1] {
+            operations.push(DiffOperation::Remove(left[left_index]));
+            left_index += 1;
+        } else {
+            operations.push(DiffOperation::Add(right[right_index]));
+            right_index += 1;
+        }
+    }
+    while left_index < left.len() {
+        operations.push(DiffOperation::Remove(left[left_index]));
+        left_index += 1;
+    }
+    while right_index < right.len() {
+        operations.push(DiffOperation::Add(right[right_index]));
+        right_index += 1;
+    }
+    operations
+}
+
+fn append_diff_line(output: &mut String, prefix: char, line: &str) {
+    output.push(prefix);
+    output.push_str(line);
+    if !line.ends_with('\n') {
+        output.push('\n');
     }
 }
 

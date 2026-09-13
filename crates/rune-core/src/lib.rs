@@ -64,6 +64,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "cp"
             | "cut"
             | "curl"
+            | "diff"
             | "du"
             | "find"
             | "grep"
@@ -3635,6 +3636,40 @@ mod tests {
         let oversized = session.execute_line("pbpaste");
         assert_eq!(oversized.status, 1);
         assert!(oversized.stderr.contains("clipboard text is"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn compares_bounded_utf8_files_with_unified_diff_statuses() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(
+            session.execute_line("printf 'same\\n' > left.txt").status,
+            0
+        );
+        assert_eq!(
+            session.execute_line("printf 'same\\n' > right.txt").status,
+            0
+        );
+        assert_eq!(session.execute_line("diff left.txt right.txt").status, 0);
+        assert!(session
+            .execute_line("printf 'changed\\n' > right.txt")
+            .stdout
+            .is_empty());
+        let changed = session.execute_line("diff -u left.txt right.txt");
+        assert_eq!(changed.status, 1);
+        assert!(changed.stdout.contains("--- left.txt\n+++ right.txt\n@@\n"));
+        assert!(changed.stdout.contains("-same\n+changed\n"));
+        assert_eq!(session.execute_line("diff missing.txt right.txt").status, 1);
+        let invalid = session.execute_line("diff --bad left.txt right.txt");
+        assert_eq!(invalid.status, 2);
+        assert!(invalid.stderr.contains("usage: diff"));
+        session
+            .write_file("binary", &[0xff])
+            .expect("binary fixture written");
+        let invalid_text = session.execute_line("diff binary right.txt");
+        assert_eq!(invalid_text.status, 2);
+        assert!(invalid_text.stderr.contains("not valid UTF-8"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
