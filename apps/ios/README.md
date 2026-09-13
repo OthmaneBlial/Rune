@@ -110,7 +110,8 @@ integration remain unverified.
   container.
 - `RuneTerminalView.swift` declares source-only Command-key shortcuts for
   folder import, cancellation, history navigation, and command execution, plus
-  a settings sheet backed by Rust configuration calls.
+  a settings sheet backed by Rust configuration calls and an optional bounded
+  input toolbar for Tab/completion, Escape, Ctrl-C, clear, and paste.
 - `RuneTerminalView.swift` includes the `@main` SwiftUI application entry point
   and launches the source-only workspace view.
 - The bridge asks Rust for bounded command/path replacement candidates; it does

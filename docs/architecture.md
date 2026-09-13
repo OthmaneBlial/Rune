@@ -178,10 +178,12 @@ complete emulator.
 
 The terminal view also declares native keyboard shortcuts for folder import,
 cooperative cancellation, history navigation, command submission, and a
-source-only settings sheet. These controls dispatch into the existing Swift
-model and Rust FFI rather than maintaining a second command, configuration, or
-history implementation. Their behavior still needs Apple keyboard/runtime
-validation.
+source-only settings sheet. An optional bounded input toolbar adds
+Tab/completion, Escape, Ctrl-C, display-clear, and paste controls. These
+controls dispatch into the existing Swift model and Rust FFI rather than
+maintaining a second command, configuration, or history implementation; the
+toolbar visibility preference is presentation-only Swift state. Their
+behavior still needs Apple keyboard/runtime validation.
 
 The filesystem starts with a host-backed root for local development. The root
 is a policy boundary: paths are resolved relative to it, `~` maps to the root,

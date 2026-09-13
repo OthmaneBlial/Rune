@@ -159,6 +159,28 @@ public final class RuneTerminalModel: ObservableObject {
         session?.cancel()
     }
 
+    public func insertText(_ value: String) {
+        guard !isExecuting else { return }
+        command.append(contentsOf: value)
+    }
+
+    public func acceptFirstCompletion() {
+        guard !isExecuting else { return }
+        if let candidate = completionCandidates.first {
+            applyCompletion(candidate)
+        } else {
+            insertText("\t")
+        }
+    }
+
+    /// Clears only the native transcript presentation. The Rust session and
+    /// persisted history remain unchanged; the `clear` command remains the
+    /// portable shell control for scripted callers.
+    public func clearDisplay() {
+        guard !isExecuting else { return }
+        clearTranscript()
+    }
+
     /// Updates a validated Rust-owned setting without routing the change
     /// through shell text or adding it to command history.
     public func setConfiguration(key: String, value: String) {
@@ -342,6 +364,7 @@ public struct RuneTerminalView: View {
     @FocusState private var inputFocused: Bool
     @State private var isImportingFolder = false
     @State private var isShowingSettings = false
+    @AppStorage("rune.toolbar-visible") private var toolbarVisible = true
 
     public init(rootURL: URL? = nil, sessionID: String? = nil) {
         _model = StateObject(wrappedValue: RuneTerminalModel(rootURL: rootURL, sessionID: sessionID))
@@ -473,6 +496,12 @@ public struct RuneTerminalView: View {
                     }
                 }
 
+                if toolbarVisible {
+                    RuneInputToolbar(model: model) {
+                        inputFocused = true
+                    }
+                }
+
                 HStack(alignment: .bottom, spacing: 10) {
                     Text("\(model.currentDirectory) ›")
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
@@ -547,7 +576,7 @@ public struct RuneTerminalView: View {
             }
         }
         .sheet(isPresented: $isShowingSettings) {
-            RuneSettingsView(model: model)
+            RuneSettingsView(model: model, toolbarVisible: $toolbarVisible)
         }
         .onAppear { inputFocused = true }
     }
@@ -564,6 +593,7 @@ public struct RuneTerminalView: View {
 
 private struct RuneSettingsView: View {
     @ObservedObject var model: RuneTerminalModel
+    @Binding var toolbarVisible: Bool
     @Environment(\.dismiss) private var dismiss
 
     private let themes = ["ink", "light", "ember"]
@@ -572,6 +602,8 @@ private struct RuneSettingsView: View {
         NavigationStack {
             Form {
                 Section("Terminal") {
+                    Toggle("Show input toolbar", isOn: $toolbarVisible)
+
                     HStack {
                         Text("Font size")
                         Spacer()
@@ -653,6 +685,58 @@ private struct RuneSettingsView: View {
     private func adjustScrollback(by delta: Int) {
         let value = min(max(model.scrollbackLimit + delta, 128), 8_192)
         model.setConfiguration(key: "scrollback-limit", value: String(value))
+    }
+}
+
+private struct RuneInputToolbar: View {
+    @ObservedObject var model: RuneTerminalModel
+    let focusInput: () -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                RuneToolbarButton(title: "Tab", systemImage: "arrow.right.to.line") {
+                    model.acceptFirstCompletion()
+                    focusInput()
+                }
+                RuneToolbarButton(title: "Esc", systemImage: "escape") {
+                    model.insertText("\u{1b}")
+                    focusInput()
+                }
+                RuneToolbarButton(title: "Ctrl-C", systemImage: "xmark.circle") {
+                    model.cancel()
+                    focusInput()
+                }
+                RuneToolbarButton(title: "Clear", systemImage: "clear") {
+                    model.clearDisplay()
+                    focusInput()
+                }
+                PasteButton(payloadType: String.self) { values in
+                    model.insertText(values.joined())
+                    focusInput()
+                }
+                .labelStyle(.titleAndIcon)
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Paste text")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+        }
+    }
+}
+
+private struct RuneToolbarButton: View {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel(title)
     }
 }
 

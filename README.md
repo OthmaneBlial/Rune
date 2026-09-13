@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 62%**
+**Overall progress: 63%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -25,7 +25,7 @@ working iOS application or a feature-parity claim.
 | Sessions/history | 62% |
 | Configuration | 35% |
 | WASM | 40% |
-| Native iOS UI | 52% |
+| Native iOS UI | 56% |
 | Swift/Rust bridge | 48% |
 | Package manager | 36% |
 | Compatibility evidence | 2% |
@@ -186,10 +186,12 @@ Apple-native file parameter contract is validated.
 
 The source-only terminal now dispatches command execution away from the SwiftUI
 main actor behind a lock-protected FFI session, keeps the UI responsive, and
-offers a stop control that sends Rust's cooperative cancellation request. A
-currently running synchronous Rust operation may still finish before its next
-boundary; background execution, cancellation, and Apple runtime behavior are
-not device-validated here.
+offers a stop control that sends Rust's cooperative cancellation request. Its
+optional input toolbar routes Tab/completion, Escape, Ctrl-C, display-clear,
+and paste actions through the native model; only command execution and shell
+state cross the Rust boundary. A currently running synchronous Rust operation
+may still finish before its next boundary; background execution, cancellation,
+and Apple runtime behavior are not device-validated here.
 
 The Swift transcript also applies a separate bounded scrollback window
 (4,096 entries by default, configurable up to 8,192) and an 8 MiB in-memory
@@ -203,8 +205,11 @@ The portable configuration boundary currently supports bounded `history-limit`,
 rendered entries and remains subject to the UI's 8 MiB byte cap. It persists in
 `~/.rune/config.state`. The FFI also exposes validated Rust-native set/reset
 calls that do not create history entries; the source-only SwiftUI settings
-sheet uses those calls for font size, scrollback, theme, and reset. Cursor
-styling and toolbar preferences are not yet wired through.
+sheet uses those calls for font size, scrollback, theme, and reset. A separate
+source-only input toolbar provides bounded Tab/completion, Escape, Ctrl-C,
+display-clear, and paste controls; its visibility is a presentation preference
+stored by SwiftUI. Cursor shape/styling remains unverified and not yet
+configurable.
 
 The `history` built-in also supports `history N` for a bounded recent view,
 `history search QUERY ...` for a case-insensitive substring search that keeps
@@ -313,6 +318,7 @@ git check-ignore -v base/a-shell
 - [x] Source-only native keyboard shortcuts
 - [ ] iPad multi-window behavior
 - [x] Source-only command/script/file App Intent declarations
+- [x] Source-only settings sheet and bounded input toolbar
 - [ ] Apple Shortcuts registration and runtime validation
 - [ ] Accessibility and VoiceOver validation
 
