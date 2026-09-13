@@ -815,7 +815,9 @@ impl Session {
             if let Some(output) = self.take_cancellation() {
                 return output;
             }
-            let result = self.execute_command(command, &stdin, record_history, source_depth, sink);
+            let mut result =
+                self.execute_command(command, &stdin, record_history, source_depth, sink);
+            limit_output(&mut result);
             stdin = result.stdout;
             stderr.push_str(&result.stderr);
             status = result.status;
@@ -2130,6 +2132,11 @@ mod tests {
         assert!(output.stdout.len() <= MAX_OUTPUT_BYTES);
         assert!(output.stdout.ends_with(OUTPUT_TRUNCATION_MARKER));
         assert_eq!(output.stderr, OUTPUT_TRUNCATION_MARKER);
+        let piped = session.execute_line("cat large.txt | cat");
+        assert_eq!(piped.status, 0);
+        assert!(piped.stdout.len() <= MAX_OUTPUT_BYTES);
+        assert!(piped.stdout.ends_with(OUTPUT_TRUNCATION_MARKER));
+        assert_eq!(piped.stderr, OUTPUT_TRUNCATION_MARKER);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

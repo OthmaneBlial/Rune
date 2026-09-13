@@ -56,14 +56,13 @@ The text pipeline also supports a bounded literal `sed` substitution surface:
 `s///` with optional `g`/`p` flags and `-n`; regular expressions and addresses
 are not implemented yet.
 The text pipeline also includes bounded `cut` field/character selection
-(`-f`, `-c`, `-d`, and `-s`) over stdin or sandbox files.
-The text pipeline also includes bounded `cut` field/character selection
 (`-f`, `-c`, `-d`, and `-s`) over stdin or sandbox files. Its text filters
 accept `-` as an explicit stdin path when file operands are present.
 `grep` additionally supports literal matching with `-i`, `-v`, `-n`, and `-c`;
 its status remains 0 for a match, 1 for no match, and 2 for invalid usage.
-A synchronous command response is capped at 1 MiB per output channel; a
-truncation marker is emitted rather than allowing unbounded terminal output.
+A synchronous command response and each intermediate pipeline channel are
+capped at 1 MiB per output channel; a truncation marker is emitted rather
+than allowing unbounded terminal output.
 Individual command lines are capped at 64 KiB before parsing, and automation
 scripts have their separate 256 KiB/1,024-line input boundary.
 `source FILE [ARG ...]` and `. FILE [ARG ...]` execute bounded UTF-8 script files

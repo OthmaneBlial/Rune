@@ -45,11 +45,11 @@ delivery, not live UI rendering or byte-level streaming from an in-flight WASM
 call.
 
 A synchronous command response is capped at 1 MiB per stdout or stderr
-channel. The cap is applied after redirections, so terminal rendering cannot
-receive unbounded output; a visible truncation marker is emitted and the
-underlying command status is preserved. Individual command lines are capped at
-64 KiB before parsing; automation scripts have separate 256 KiB and 1,024-line
-limits.
+channel, and the same bound is applied between pipeline stages. The cap is
+applied after redirections, so terminal rendering cannot receive unbounded
+output; a visible truncation marker is emitted and the underlying command
+status is preserved. Individual command lines are capped at 64 KiB before
+parsing; automation scripts have separate 256 KiB and 1,024-line limits.
 
 Session cancellation is cooperative. Rust owns an atomic cancellation request,
 observes it before commands and between pipelines/script lines, clears it when
