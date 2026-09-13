@@ -147,7 +147,7 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
     },
     CommandDefinition {
         name: "pkg",
-        summary: "inspect, verify, install, list, or remove local packages",
+        summary: "inspect, verify, install, search, list, or remove local packages",
         handler: package::pkg,
     },
     CommandDefinition {
@@ -267,7 +267,7 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
     },
     CommandDefinition {
         name: "which",
-        summary: "describe aliases and registered built-ins",
+        summary: "describe aliases, built-ins, and installed package commands",
         handler: shell::which,
     },
     CommandDefinition {
