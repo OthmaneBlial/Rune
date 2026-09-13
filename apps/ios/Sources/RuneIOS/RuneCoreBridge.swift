@@ -15,7 +15,7 @@ private struct RuneFFIEvent {
 }
 
 private typealias RuneEventCallback = @convention(c) (
-    UnsafePointer<RuneFFIEvent>?,
+    UnsafeRawPointer?,
     UnsafeMutableRawPointer?
 ) -> Void
 
@@ -59,18 +59,19 @@ private final class RuneEventCollector {
 
 private let runeEventCallback: RuneEventCallback = { event, userData in
     guard let event, let userData else { return }
+    let rawEvent = event.assumingMemoryBound(to: RuneFFIEvent.self).pointee
     let collector = Unmanaged<RuneEventCollector>
         .fromOpaque(userData)
         .takeUnretainedValue()
-    guard let kind = RuneExecutionEventKind(rawValue: event.pointee.kind) else {
+    guard let kind = RuneExecutionEventKind(rawValue: rawEvent.kind) else {
         return
     }
     collector.events.append(RuneExecutionEvent(
         kind: kind,
-        stdout: event.pointee.stdout.map { String(cString: $0) } ?? "",
-        stderr: event.pointee.stderr.map { String(cString: $0) } ?? "",
-        status: event.pointee.status,
-        currentDirectory: event.pointee.currentDirectory.map { String(cString: $0) } ?? ""
+        stdout: rawEvent.stdout.map { String(cString: $0) } ?? "",
+        stderr: rawEvent.stderr.map { String(cString: $0) } ?? "",
+        status: rawEvent.status,
+        currentDirectory: rawEvent.currentDirectory.map { String(cString: $0) } ?? ""
     ))
 }
 

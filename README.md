@@ -77,8 +77,9 @@ native source UI now asks Rust for bounded command and sandbox-path completion;
 the registry and filesystem lookup remain Rust-owned and the bridge exposes only
 replacement tokens.
 It also has a focused command bar, keyboard-aware history controls, an
-ink/cyan/ember console palette, accessible completion controls, and native
-handling for the Rust `clear` screen-control sequence.
+ink/cyan/ember console palette, accessible completion controls, native handling
+for the Rust `clear` screen-control sequence, and source-only ANSI rendering
+for common SGR colors, 256-color/RGB foregrounds, bold, and underline output.
 Interactive `export`, `setenv`, and assignment lines are replaced by a
 redaction marker in history before persistence; this is an initial defense, not
 a complete secret management policy.

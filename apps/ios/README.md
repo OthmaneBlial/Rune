@@ -115,7 +115,10 @@ integration remain unverified.
 - `RuneTerminalView.swift` renders stdout, stderr, and non-zero exit status
   separately, applies Rust-backed command/path suggestions, and provides the
   native focused command bar/history controls. It consumes Rune's clear-screen
-  control sequence as a display action instead of showing escape bytes.
+  control sequence as a display action instead of showing escape bytes. The
+  source-only `RuneANSIText.swift` renderer also consumes common SGR color,
+  256-color/RGB foreground, bold, and underline sequences; unsupported control
+  sequences are omitted from display rather than shown as raw escape bytes.
 - `swiftc -parse` and `swift package dump-package` pass with the already
   available Swift toolchain; the full package build is not used as evidence.
 - iOS compilation, simulator behavior, device behavior, and linking are

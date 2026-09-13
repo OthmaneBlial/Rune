@@ -23,6 +23,8 @@ public struct RuneTranscriptEntry: Identifiable, Hashable, Sendable {
 @MainActor
 public final class RuneTerminalModel: ObservableObject {
     private static let clearSequence = "\u{1b}[2J\u{1b}[H"
+    private static let clearScreenControl = "\u{1b}[2J"
+    private static let cursorHomeControl = "\u{1b}[H"
     private static let maximumTranscriptEntries = 4_096
     private static let maximumTranscriptBytes = 8 * 1024 * 1024
 
@@ -117,9 +119,7 @@ public final class RuneTerminalModel: ObservableObject {
             command = ""
             clearTranscript()
             initializationError = nil
-            if let startup = nextSession.takeStartupOutput() {
-                append(startup)
-            }
+            append(nextSession.takeStartupOutput())
             refreshConfiguration()
             previousScope?.stopAccessing()
         } catch {
@@ -208,7 +208,11 @@ public final class RuneTerminalModel: ObservableObject {
         if let clearRange = stdout.range(of: Self.clearSequence, options: .backwards) {
             clearTranscript()
             stdout = String(stdout[clearRange.upperBound...])
+        } else if let clearRange = stdout.range(of: Self.clearScreenControl, options: .backwards) {
+            clearTranscript()
+            stdout = String(stdout[clearRange.upperBound...])
         }
+        stdout = stdout.replacingOccurrences(of: Self.cursorHomeControl, with: "")
         if !stdout.isEmpty {
             appendEntry(.init(kind: .stdout, text: stdout))
         }
@@ -366,9 +370,11 @@ public struct RuneTerminalView: View {
                                     .textSelection(.enabled)
                             }
                             ForEach(model.entries) { entry in
-                                Text(entry.text)
+                                RuneANSIText(
+                                    text: entry.text,
+                                    defaultColor: color(for: entry.kind, palette: palette)
+                                )
                                     .font(.system(size: model.fontSize, design: .monospaced))
-                                    .foregroundStyle(color(for: entry.kind, palette: palette))
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .textSelection(.enabled)
                                     .id(entry.id)
@@ -390,26 +396,15 @@ public struct RuneTerminalView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(model.completionCandidates, id: \.self) { candidate in
-                                Button(candidate) {
+                                RuneCompletionButton(
+                                    candidate: candidate,
+                                    fontSize: model.fontSize,
+                                    foreground: palette.foreground,
+                                    tint: palette.cyan
+                                ) {
                                     model.applyCompletion(candidate)
                                     inputFocused = true
                                 }
-                                .buttonStyle(.plain)
-                                .font(.system(
-                                    size: max(model.fontSize - 2, 11),
-                                    weight: .medium,
-                                    design: .monospaced
-                                ))
-                                .foregroundStyle(palette.foreground)
-                                .padding(.horizontal, 11)
-                                .padding(.vertical, 8)
-                                .background(palette.cyan.opacity(0.12))
-                                .overlay {
-                                    Capsule()
-                                        .stroke(palette.cyan.opacity(0.45), lineWidth: 1)
-                                }
-                                .clipShape(Capsule())
-                                .accessibilityLabel("Complete with \(candidate)")
                             }
                         }
                         .padding(.horizontal, 16)
@@ -500,6 +495,37 @@ public struct RuneTerminalView: View {
         case .stderr: return palette.ember
         case .status: return palette.muted
         }
+    }
+}
+
+private struct RuneCompletionButton: View {
+    let candidate: String
+    let fontSize: CGFloat
+    let foreground: Color
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(verbatim: candidate)
+                .font(.system(
+                    size: max(fontSize - 2, 11),
+                    weight: .medium,
+                    design: .monospaced
+                ))
+                .foregroundStyle(foreground)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 8)
+                .background(tint.opacity(0.12))
+                .overlay {
+                    Capsule()
+                        .stroke(tint.opacity(0.45), lineWidth: 1)
+                }
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Completion option")
+        .accessibilityValue(Text(verbatim: candidate))
     }
 }
 

@@ -50,7 +50,10 @@ Apple runtime integration.
 The source-only UI also contains background-task and cancellation code, but
 there is no Apple concurrency, device, or runtime validation in this workspace.
 Its transcript cache has explicit entry and byte bounds in source, but that
-presentation policy cannot be runtime-tested without SwiftUI.
+presentation policy cannot be runtime-tested without SwiftUI. The source-only
+renderer also consumes bounded ANSI SGR foreground colors, bold, and underline
+controls; Apple text-layout and terminal-control fidelity remain unverified
+without the Apple runtime.
 
 ## Local checks
 

@@ -12,7 +12,6 @@ public enum RuneShortcutError: LocalizedError {
     }
 }
 
-@MainActor
 private func executeInDefaultSession(
     _ operation: (RuneFFISession) throws -> RuneCommandResult
 ) throws -> String {
@@ -20,7 +19,7 @@ private func executeInDefaultSession(
         throw RuneShortcutError.noDocumentsDirectory
     }
     let session = try RuneFFISession(rootURL: root)
-    return formatShortcutResult(operation(session))
+    return formatShortcutResult(try operation(session))
 }
 
 private func formatShortcutResult(_ result: RuneCommandResult) -> String {
@@ -37,7 +36,6 @@ private func formatShortcutResult(_ result: RuneCommandResult) -> String {
     return text
 }
 
-@MainActor
 public struct RuneExecuteCommandIntent: AppIntent {
     public static let title: LocalizedStringResource = "Execute Rune Command"
     public static let description = IntentDescription("Run one command through Rune's Rust session.")
@@ -56,7 +54,6 @@ public struct RuneExecuteCommandIntent: AppIntent {
     }
 }
 
-@MainActor
 public struct RuneExecuteScriptIntent: AppIntent {
     public static let title: LocalizedStringResource = "Execute Rune Script"
     public static let description = IntentDescription("Run a bounded newline-delimited script through Rune's Rust session.")
@@ -75,7 +72,6 @@ public struct RuneExecuteScriptIntent: AppIntent {
     }
 }
 
-@MainActor
 public struct RunePutFileIntent: AppIntent {
     public static let title: LocalizedStringResource = "Put Text File in Rune"
     public static let description = IntentDescription(
@@ -101,7 +97,6 @@ public struct RunePutFileIntent: AppIntent {
     }
 }
 
-@MainActor
 public struct RuneGetFileIntent: AppIntent {
     public static let title: LocalizedStringResource = "Get Text File from Rune"
     public static let description = IntentDescription(
@@ -129,31 +124,29 @@ public struct RuneGetFileIntent: AppIntent {
 
 public struct RuneShortcuts: AppShortcutsProvider {
     public static var appShortcuts: [AppShortcut] {
-        [
             AppShortcut(
                 intent: RuneExecuteCommandIntent(),
                 phrases: ["Execute a command in \(.applicationName)"],
                 shortTitle: "Execute Command",
                 systemImageName: "terminal"
-            ),
+            )
             AppShortcut(
                 intent: RuneExecuteScriptIntent(),
                 phrases: ["Execute a script in \(.applicationName)"],
                 shortTitle: "Execute Script",
                 systemImageName: "scroll"
-            ),
+            )
             AppShortcut(
                 intent: RunePutFileIntent(),
                 phrases: ["Put a text file in \(.applicationName)"],
                 shortTitle: "Put Text File",
                 systemImageName: "arrow.down.doc"
-            ),
+            )
             AppShortcut(
                 intent: RuneGetFileIntent(),
                 phrases: ["Get a text file from \(.applicationName)"],
                 shortTitle: "Get Text File",
                 systemImageName: "arrow.up.doc"
-            ),
-        ]
+            )
     }
 }
