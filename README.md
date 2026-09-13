@@ -107,9 +107,11 @@ Directory changes update the Rust-owned `PWD` and `OLDPWD` values. `cd -`
 returns to the previous directory and prints the resulting virtual path, while
 bookmark jumps and aliases that change directories use the same state update.
 
-The FFI and Swift source boundary also exposes a newline-delimited automation
-script method for a future Shortcuts adapter. It is Rust-executed and locally
-tested, but native Shortcuts registration remains unverified.
+The FFI and Swift source boundary also exposes a bounded newline-delimited
+automation script method for a future Shortcuts adapter. Rust rejects scripts
+larger than 256 KiB or 1,024 lines before execution and caps accumulated output
+per channel while running accepted scripts. It is locally tested, but native
+Shortcuts registration remains unverified.
 
 The portable configuration boundary currently supports bounded `history-limit`,
 `font-size`, and `theme` settings through `config get`, `config set`, and

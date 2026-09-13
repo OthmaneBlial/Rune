@@ -207,6 +207,8 @@ assumed capabilities.
 
 Automation uses the same ownership boundary: `Session::execute_script` runs
 non-empty newline-delimited lines through the Rust parser and returns combined
-stdout/stderr plus the last status. `rune-ffi` and the Swift source bridge
-expose that method for a future Apple Shortcuts adapter; they do not register
-an Intent or claim Shortcuts runtime compatibility yet.
+stdout/stderr plus the last status. The input is limited to 256 KiB and 1,024
+lines; accepted scripts cap accumulated output per channel after each line.
+`rune-ffi` and the Swift source bridge expose that method for a future Apple
+Shortcuts adapter; they do not register an Intent or claim Shortcuts runtime
+compatibility yet.

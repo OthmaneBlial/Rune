@@ -24,6 +24,8 @@ const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_COMPLETION_CANDIDATES: usize = 8;
 const MAX_COMPLETION_INPUT_BYTES: usize = 64 * 1024;
 const MAX_INSTALLED_COMMANDS: usize = 4_096;
+const MAX_SCRIPT_BYTES: usize = 256 * 1024;
+const MAX_SCRIPT_LINES: usize = 1_024;
 const OUTPUT_TRUNCATION_MARKER: &str = "\n[rune: output truncated at 1048576 bytes]\n";
 pub(crate) const PACKAGE_INSTALL_ROOT: &str = "~/.rune/packages";
 
@@ -402,19 +404,27 @@ impl Session {
     /// continues after a failed line so automation can observe the complete
     /// output. The returned status is the status of the last executed line.
     pub fn execute_script(&mut self, script: &str) -> CommandOutput {
+        if script.len() > MAX_SCRIPT_BYTES {
+            return CommandOutput::failure(
+                2,
+                format!("rune: script exceeds the {MAX_SCRIPT_BYTES}-byte input limit\n"),
+            );
+        }
+        if script.lines().count() > MAX_SCRIPT_LINES {
+            return CommandOutput::failure(
+                2,
+                format!("rune: script exceeds the {MAX_SCRIPT_LINES}-line input limit\n"),
+            );
+        }
         let mut output = CommandOutput::success("");
-        let mut executed = false;
         for line in script.lines() {
             if line.trim().is_empty() {
                 continue;
             }
-            executed = true;
             let line_output = self.execute_line(line);
             output.stdout.push_str(&line_output.stdout);
             output.stderr.push_str(&line_output.stderr);
             output.status = line_output.status;
-        }
-        if executed {
             limit_output(&mut output);
         }
         output
@@ -897,7 +907,9 @@ fn package_runtime_failure(command: &str, error: &rune_package::PackageError) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{Session, MAX_OUTPUT_BYTES, OUTPUT_TRUNCATION_MARKER};
+    use super::{
+        Session, MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES, OUTPUT_TRUNCATION_MARKER,
+    };
     use rune_fs::SandboxedFileSystem;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1117,6 +1129,40 @@ mod tests {
             session.environment().get("OLDPWD"),
             Some(&"~/work".to_string())
         );
+
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn bounds_automation_input_and_accumulated_output() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+
+        let too_many_lines = "true\n".repeat(MAX_SCRIPT_LINES + 1);
+        let line_limit = session.execute_script(&too_many_lines);
+        assert_eq!(line_limit.status, 2);
+        assert!(line_limit.stderr.contains("line input limit"));
+        assert!(session.history().is_empty());
+
+        let too_many_bytes = "x".repeat(MAX_SCRIPT_BYTES + 1);
+        let byte_limit = session.execute_script(&too_many_bytes);
+        assert_eq!(byte_limit.status, 2);
+        assert!(byte_limit.stderr.contains("byte input limit"));
+        assert!(session.history().is_empty());
+
+        std::fs::write(
+            root.join("large.txt"),
+            vec![b'x'; MAX_OUTPUT_BYTES + OUTPUT_TRUNCATION_MARKER.len() + 128],
+        )
+        .expect("large file written");
+        let output = session.execute_script("cat large.txt\ncat large.txt");
+        assert_eq!(output.status, 0);
+        assert!(output.stdout.len() <= MAX_OUTPUT_BYTES);
+        assert!(output.stdout.ends_with(OUTPUT_TRUNCATION_MARKER));
+        assert!(output.stderr.len() <= MAX_OUTPUT_BYTES);
+        assert!(session
+            .history()
+            .ends_with(&["cat large.txt".to_string(), "cat large.txt".to_string()]));
 
         std::fs::remove_dir_all(root).expect("test root removed");
     }
