@@ -6,10 +6,84 @@ use rune_package::sha256_hex;
 const MAX_HEXDUMP_INPUT: usize = 256 * 1024;
 const MAX_BASE64_INPUT: usize = 768 * 1024;
 const MAX_CKSUM_INPUT: usize = 16 * 1024 * 1024;
+const MAX_MD5_INPUT: usize = 16 * 1024 * 1024;
 const MAX_DISK_USAGE_ENTRIES: usize = 10_000;
 
 const BASE64_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+const MD5_SHIFTS: [u32; 64] = [
+    7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9,
+    14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10, 15,
+    21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+];
+
+const MD5_CONSTANTS: [u32; 64] = [
+    0xd76a_a478,
+    0xe8c7_b756,
+    0x2420_70db,
+    0xc1bd_ceee,
+    0xf57c_0faf,
+    0x4787_c62a,
+    0xa830_4613,
+    0xfd46_9501,
+    0x6980_98d8,
+    0x8b44_f7af,
+    0xffff_5bb1,
+    0x895c_d7be,
+    0x6b90_1122,
+    0xfd98_7193,
+    0xa679_438e,
+    0x49b4_0821,
+    0xf61e_2562,
+    0xc040_b340,
+    0x265e_5a51,
+    0xe9b6_c7aa,
+    0xd62f_105d,
+    0x0244_1453,
+    0xd8a1_e681,
+    0xe7d3_fbc8,
+    0x21e1_cde6,
+    0xc337_07d6,
+    0xf4d5_0d87,
+    0x455a_14ed,
+    0xa9e3_e905,
+    0xfcef_a3f8,
+    0x676f_02d9,
+    0x8d2a_4c8a,
+    0xfffa_3942,
+    0x8771_f681,
+    0x6d9d_6122,
+    0xfde5_380c,
+    0xa4be_ea44,
+    0x4bde_cfa9,
+    0xf6bb_4b60,
+    0xbebf_bc70,
+    0x289b_7ec6,
+    0xeaa1_27fa,
+    0xd4ef_3085,
+    0x0488_1d05,
+    0xd9d4_d039,
+    0xe6db_99e5,
+    0x1fa2_7cf8,
+    0xc4ac_5665,
+    0xf429_2244,
+    0x432a_ff97,
+    0xab94_23a7,
+    0xfc93_a039,
+    0x655b_59c3,
+    0x8f0c_cc92,
+    0xffef_f47d,
+    0x8584_5dd1,
+    0x6fa8_7e4f,
+    0xfe2c_e6e0,
+    0xa301_4314,
+    0x4e08_11a1,
+    0xf753_7e82,
+    0xbd3a_f235,
+    0x2ad7_d2bb,
+    0xeb86_d391,
+];
 
 pub(super) fn base64(context: &mut CommandContext<'_>) -> CommandOutput {
     let mut decode = false;
@@ -92,6 +166,27 @@ pub(super) fn cksum(context: &mut CommandContext<'_>) -> CommandOutput {
         );
     }
     CommandOutput::success(format!("{} {}\n", posix_cksum(&bytes), bytes.len()))
+}
+
+pub(super) fn md5(context: &mut CommandContext<'_>) -> CommandOutput {
+    let path = match context.args {
+        [] => "-",
+        [path] => path.as_str(),
+        [flag, path] if flag == "--" => path.as_str(),
+        _ => return usage("md5", "usage: md5 [--] [FILE]"),
+    };
+    let bytes = if path == "-" {
+        context.stdin.as_bytes().to_vec()
+    } else {
+        match context.fs.read(path) {
+            Ok(bytes) => bytes,
+            Err(error) => return fs_failure("md5", &error),
+        }
+    };
+    if bytes.len() > MAX_MD5_INPUT {
+        return CommandOutput::failure(1, format!("md5: input exceeds {MAX_MD5_INPUT} bytes\n"));
+    }
+    CommandOutput::success(format!("{}  {path}\n", md5_hex(&bytes)))
 }
 
 fn encode_base64(bytes: &[u8]) -> String {
@@ -192,6 +287,57 @@ fn posix_cksum(bytes: &[u8]) -> u32 {
         length >>= 8;
     }
     !checksum
+}
+
+fn md5_hex(bytes: &[u8]) -> String {
+    let padded_len = (bytes.len() + 9).div_ceil(64) * 64;
+    let mut padded = Vec::with_capacity(padded_len);
+    padded.extend_from_slice(bytes);
+    padded.push(0x80);
+    padded.resize(padded_len - 8, 0);
+    let bit_length = u64::try_from(bytes.len()).expect("MD5 input length fits") * 8;
+    padded.extend_from_slice(&bit_length.to_le_bytes());
+
+    let mut a = 0x6745_2301_u32;
+    let mut b = 0xefcd_ab89_u32;
+    let mut c = 0x98ba_dcfe_u32;
+    let mut d = 0x1032_5476_u32;
+    for block in padded.chunks_exact(64) {
+        let mut words = [0_u32; 16];
+        for (word, bytes) in words.iter_mut().zip(block.chunks_exact(4)) {
+            *word = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        }
+        let (original_a, original_b, original_c, original_d) = (a, b, c, d);
+        for index in 0..64 {
+            let (function, word_index) = match index {
+                0..=15 => ((b & c) | (!b & d), index),
+                16..=31 => ((d & b) | (!d & c), (5 * index + 1) % 16),
+                32..=47 => (b ^ c ^ d, (3 * index + 5) % 16),
+                _ => (c ^ (b | !d), (7 * index) % 16),
+            };
+            let rotated = a
+                .wrapping_add(function)
+                .wrapping_add(MD5_CONSTANTS[index])
+                .wrapping_add(words[word_index])
+                .rotate_left(MD5_SHIFTS[index]);
+            a = d;
+            d = c;
+            c = b;
+            b = b.wrapping_add(rotated);
+        }
+        a = a.wrapping_add(original_a);
+        b = b.wrapping_add(original_b);
+        c = c.wrapping_add(original_c);
+        d = d.wrapping_add(original_d);
+    }
+
+    let mut output = String::with_capacity(32);
+    for word in [a, b, c, d] {
+        for byte in word.to_le_bytes() {
+            let _ = write!(output, "{byte:02x}");
+        }
+    }
+    output
 }
 
 pub(super) fn dirname(context: &mut CommandContext<'_>) -> CommandOutput {

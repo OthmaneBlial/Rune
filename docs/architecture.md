@@ -244,7 +244,7 @@ malicious or cyclic tree from turning a synchronous command into unbounded
 work.
 
 The portable utility slice adds bounded `base64`, `basename`, `cksum`, `dirname`,
-`du`, `realpath`, `rmdir`, `sha256`, `stat`, `unlink`, `tee`, `tr`, and `xxd` commands, plus
+`du`, `md5`, `realpath`, `rmdir`, `sha256`, `stat`, `unlink`, `tee`, `tr`, and `xxd` commands, plus
 `ln -s`/`readlink` and
 the `unsetenv` spelling for environment removal. They operate on Rune's virtual filesystem or pipeline
 stdin only; they do not invoke host executables. `tr` supports literal Unicode
@@ -253,6 +253,8 @@ output with a 256 KiB input limit. `base64` uses standard alphabet/padding,
 accepts `-d`/`--decode`, and limits input to 768 KiB; decoded bytes must be
 valid UTF-8 because the core output boundary is text-based. `cksum` uses the
 POSIX CRC-32 polynomial and includes the bounded byte length in its result.
+`md5` is implemented locally for legacy digest compatibility and is explicitly
+not presented as a secure password or integrity primitive.
 `cp -r` copies regular-file directory trees
 with a 10,000-entry limit and rejects symlinks; `mv` can move a directory
 without recursively traversing it. `du` reports a recursive byte total with a

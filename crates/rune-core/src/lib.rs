@@ -73,6 +73,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "head"
             | "ls"
             | "ln"
+            | "md5"
             | "mkdir"
             | "mv"
             | "readlink"
@@ -3929,6 +3930,27 @@ mod tests {
         let oversized_output = session.execute_line("base64 oversized.b64");
         assert_eq!(oversized_output.status, 1);
         assert!(oversized_output.stderr.contains("input exceeds"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn executes_bounded_md5_utility_with_standard_vectors() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(
+            session.execute_line("printf 123456789 | md5").stdout,
+            "25f9e794323b453885f5181f1b624d0b  -\n"
+        );
+        session
+            .write_file("digest-input", b"hello")
+            .expect("digest fixture written");
+        assert_eq!(
+            session.execute_line("md5 digest-input").stdout,
+            "5d41402abc4b2a76b9719d911017c592  digest-input\n"
+        );
+        let invalid = session.execute_line("md5 one two");
+        assert_eq!(invalid.status, 2);
+        assert!(invalid.stderr.contains("usage: md5"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

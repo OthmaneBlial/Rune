@@ -168,6 +168,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: filesystem::mkdir,
     },
     CommandDefinition {
+        name: "md5",
+        summary: "print a bounded MD5 digest for compatibility",
+        handler: utilities::md5,
+    },
+    CommandDefinition {
         name: "mv",
         summary: "move one file or directory",
         handler: filesystem::mv,

@@ -44,6 +44,8 @@ missing files, invalid UTF-8, and rejected options with distinct statuses.
 Base64 tests cover stdin encode/decode, padded input, malformed characters,
 non-UTF-8 decoded output, usage errors, and the 768 KiB input bound.
 Checksum tests cover the POSIX CRC vector and invalid operand counts.
+MD5 tests cover standard stdin/file vectors and invalid operand counts; the
+digest is compatibility evidence, not security evidence.
 Redirection tests cover append writes, `2>&1`, `1>&2`, `&>`, left-to-right
 duplication order, and carrying merged stderr through a pipeline.
 Script tests also cover bounded positional arguments (`$0`, `$1...`, `$#`, and
