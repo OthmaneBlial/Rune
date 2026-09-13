@@ -32,6 +32,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: utilities::basename,
     },
     CommandDefinition {
+        name: "realpath",
+        summary: "print the confined canonical path of an existing file",
+        handler: utilities::realpath,
+    },
+    CommandDefinition {
         name: "cat",
         summary: "write file contents to stdout",
         handler: filesystem::cat,
@@ -180,6 +185,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "sed",
         summary: "apply bounded literal substitutions to text",
         handler: text::sed,
+    },
+    CommandDefinition {
+        name: "sha256",
+        summary: "print a SHA-256 digest for bounded input",
+        handler: utilities::sha256,
     },
     CommandDefinition {
         name: "sort",

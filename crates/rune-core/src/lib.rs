@@ -61,9 +61,11 @@ fn supports_path_completion(command: &str) -> bool {
             | "mkdir"
             | "mv"
             | "readlink"
+            | "realpath"
             | "rm"
             | "rmdir"
             | "sed"
+            | "sha256"
             | "source"
             | "stat"
             | "tail"
@@ -1682,11 +1684,26 @@ mod tests {
             session.execute_line("readlink note-link").stdout,
             "note.txt\n"
         );
+        assert_eq!(
+            session.execute_line("realpath note-link").stdout,
+            "~/work/note.txt\n"
+        );
+        assert_eq!(
+            session.execute_line("sha256 note.txt").stdout,
+            format!("{}  note.txt\n", rune_package::sha256_hex(b"hello\n"))
+        );
+        assert_eq!(
+            session.execute_line("printf hello | sha256").stdout,
+            format!("{}  -\n", rune_package::sha256_hex(b"hello"))
+        );
         assert_eq!(session.execute_line("cat note-link").stdout, "hello\n");
         assert!(session
             .execute_line("ln -s ../missing.txt dangling-link")
             .stderr
             .contains("no such file or directory"));
+        let missing = session.execute_line("realpath missing.txt");
+        assert_eq!(missing.status, 1);
+        assert!(missing.stderr.contains("no such file or directory"));
         assert_eq!(session.execute_line("pwd").stdout, "~/work\n");
         assert_eq!(session.execute_line("mkdir -p source/nested").status, 0);
         assert_eq!(

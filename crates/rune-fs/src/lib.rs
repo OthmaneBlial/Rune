@@ -95,6 +95,8 @@ pub trait VirtualFileSystem {
     }
     fn current_dir_display(&self) -> String;
     fn change_dir(&mut self, input: &str) -> Result<(), FsError>;
+    /// Resolves an existing path and returns its confined virtual canonical path.
+    fn canonical_path(&self, input: &str) -> Result<String, FsError>;
     fn metadata(&self, input: &str) -> Result<FileInfo, FsError>;
     fn list(&self, input: Option<&str>) -> Result<Vec<FileEntry>, FsError>;
     /// Expands unquoted `*` and `?` patterns while preserving the sandbox.
@@ -638,6 +640,16 @@ impl VirtualFileSystem for SandboxedFileSystem {
         self.display_path(&self.current_dir)
     }
 
+    fn canonical_path(&self, input: &str) -> Result<String, FsError> {
+        let path = self.resolve_path(input)?;
+        let canonical = path
+            .canonicalize()
+            .map_err(|error| Self::reframe(Self::map_metadata_error(&path, &error), input))?;
+        self.ensure_inside(&canonical, input)
+            .map_err(|error| Self::reframe(error, input))?;
+        Ok(self.display_path(&canonical))
+    }
+
     fn change_dir(&mut self, input: &str) -> Result<(), FsError> {
         let target = if input == "-" {
             self.previous_dir
@@ -1117,11 +1129,19 @@ mod tests {
         fs.make_symlink("target.txt", "link.txt")
             .expect("link created");
         assert_eq!(fs.read_link("link.txt").expect("link read"), "target.txt");
+        assert_eq!(
+            fs.canonical_path("link.txt").expect("canonical link path"),
+            "~/target.txt"
+        );
         assert!(fs.metadata("link.txt").expect("link metadata").is_symlink);
         assert_eq!(fs.read("link.txt").expect("link target read"), b"linked");
         assert!(matches!(
             fs.make_symlink("../outside.txt", "escape.txt"),
             Err(FsError::OutsideSandbox(_))
+        ));
+        assert!(matches!(
+            fs.canonical_path("missing.txt"),
+            Err(FsError::NotFound(_))
         ));
         std::fs::remove_dir_all(root).expect("test root removed");
     }

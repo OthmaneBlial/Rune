@@ -1,6 +1,7 @@
 use std::fmt::Write as _;
 
 use crate::{fs_failure, usage, CommandContext, CommandOutput};
+use rune_package::sha256_hex;
 
 const MAX_HEXDUMP_INPUT: usize = 256 * 1024;
 const MAX_DISK_USAGE_ENTRIES: usize = 10_000;
@@ -23,6 +24,56 @@ pub(super) fn dirname(context: &mut CommandContext<'_>) -> CommandOutput {
         return usage("dirname", "usage: dirname PATH");
     }
     CommandOutput::success(format!("{}\n", dirname_value(&context.args[0])))
+}
+
+pub(super) fn realpath(context: &mut CommandContext<'_>) -> CommandOutput {
+    let mut paths = Vec::new();
+    let mut parse_options = true;
+    for argument in context.args {
+        if parse_options && argument == "--" {
+            parse_options = false;
+        } else if parse_options && argument.starts_with('-') {
+            return usage("realpath", "usage: realpath [--] PATH ...");
+        } else {
+            paths.push(argument.as_str());
+        }
+    }
+    if paths.is_empty() {
+        return usage("realpath", "usage: realpath [--] PATH ...");
+    }
+
+    let mut output = CommandOutput::success("");
+    for path in paths {
+        match context.fs.canonical_path(path) {
+            Ok(canonical) => {
+                output.stdout.push_str(&canonical);
+                output.stdout.push('\n');
+            }
+            Err(error) => {
+                output.status = 1;
+                let _ = writeln!(output.stderr, "realpath: {path}: {error}");
+            }
+        }
+    }
+    output
+}
+
+pub(super) fn sha256(context: &mut CommandContext<'_>) -> CommandOutput {
+    let path = match context.args {
+        [] => "-",
+        [path] => path.as_str(),
+        [flag, path] if flag == "--" => path.as_str(),
+        _ => return usage("sha256", "usage: sha256 [--] [FILE]"),
+    };
+    let bytes = if path == "-" {
+        context.stdin.as_bytes().to_vec()
+    } else {
+        match context.fs.read(path) {
+            Ok(bytes) => bytes,
+            Err(error) => return fs_failure("sha256", &error),
+        }
+    };
+    CommandOutput::success(format!("{}  {path}\n", sha256_hex(&bytes)))
 }
 
 pub(super) fn du(context: &mut CommandContext<'_>) -> CommandOutput {

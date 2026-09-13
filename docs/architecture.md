@@ -224,8 +224,9 @@ at 10,000 visited entries and does not follow symlink entries, keeping a
 malicious or cyclic tree from turning a synchronous command into unbounded
 work.
 
-The portable utility slice adds bounded `basename`, `dirname`, `du`, `rmdir`,
-`stat`, `unlink`, `tee`, `tr`, and `xxd` commands, plus `ln -s`/`readlink` and
+The portable utility slice adds bounded `basename`, `dirname`, `du`, `realpath`,
+`rmdir`, `sha256`, `stat`, `unlink`, `tee`, `tr`, and `xxd` commands, plus
+`ln -s`/`readlink` and
 the `unsetenv` spelling for environment removal. They operate on Rune's virtual filesystem or pipeline
 stdin only; they do not invoke host executables. `tr` supports literal Unicode
 character translation/deletion, while `xxd` supports plain and classic hex
@@ -243,6 +244,12 @@ the portable boundary does not expose them.
 resolves inside the sandbox before creating the link. `readlink` exposes the
 stored relative target, while ordinary recursive operations do not follow
 symlinks.
+
+`realpath` canonicalizes existing files and directories through the same VFS
+boundary, reports the virtual `~` path rather than a host path, and rejects
+every resolution outside an approved root. `sha256` hashes stdin or one
+bounded VFS file and emits a digest plus operand name; it does not expose host
+paths or invoke an external hashing process.
 
 The host-backed VFS can model the standard Apple app layout with Documents as
 the virtual home (`~`), plus separately approved `Library` and `tmp` mounts at

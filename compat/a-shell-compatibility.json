@@ -109,9 +109,9 @@
       "reference_comparison": "pending"
     },
     "accessibility": {
-      "status": "planned",
-      "rune_evidence": [],
-      "reference_comparison": "not-started"
+      "status": "partial",
+      "rune_evidence": ["apps/ios/Sources/RuneIOS/RuneTerminalView.swift", "apps/ios/Sources/RuneIOS/RuneWorkspaceView.swift"],
+      "reference_comparison": "pending"
     },
     "networking": {
       "status": "planned",
