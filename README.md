@@ -26,7 +26,7 @@ working iOS application or a feature-parity claim.
 | WASM | 23% |
 | Native iOS UI | 9% |
 | Swift/Rust bridge | 6% |
-| Package manager | 10% |
+| Package manager | 25% |
 | Compatibility evidence | 2% |
 
 ## Current status
@@ -64,13 +64,13 @@ The iOS app is represented by
 source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
 and runtime gates remain unverified. Bounded current-directory/history
 persistence now exists in Rust; configuration/redaction and broader session
-recovery remain planned. Package management and language runtimes remain
-planned work.
+recovery remain planned. Package transport and non-WASM language runtimes
+remain planned work.
 
 The Rust package boundary now validates a bounded, versioned JSON manifest and
 checks declared file bytes with SHA-256. There is deliberately no network
-transport or install/remove command yet, so package-manager progress remains
-early.
+transport, registry, search, or update flow yet, so package-manager progress
+remains early.
 
 The `wasm MODULE [arg ...]` built-in loads a module through the bounded virtual
 filesystem and executes WASI preview1 `_start` in Rust. It exposes only
@@ -79,10 +79,11 @@ preopen a host directory. Module bytes, interpreter fuel, linear memory,
 tables, and captured output are bounded. This is an initial WASM execution
 slice, not a language runtime or package manager.
 
-The `pkg info MANIFEST` and `pkg verify MANIFEST` commands inspect local
-versioned package metadata through the same VFS and verify declared SHA-256
-file digests. Network transport and installation commands are intentionally
-unsupported at this stage.
+The local package flow supports `pkg info MANIFEST`, `pkg verify MANIFEST`,
+`pkg install MANIFEST`, `pkg list`, and `pkg remove NAME [VERSION]`. Install
+copies only SHA-256-verified files into `~/.rune/packages`; declared `.wasm`
+commands can then run through the bounded WASI runtime. Network transport,
+registry search, and update remain unsupported at this stage.
 
 The portable core also supports session-local virtual directory bookmarks with
 `bookmark`, `showmarks`, `jump`, `cd ~NAME`, `renamemark`, and `deletemark`.
@@ -166,8 +167,9 @@ git check-ignore -v base/a-shell
 ### Phase 3 — Developer environment
 
 - [x] Bounded WASI preview1 runtime boundary and resource limits
-- [x] Bounded package metadata and integrity verification
+- [x] Bounded package metadata, integrity, and local WASM installation
 - [x] Portable runtime request/output contract
+- [ ] Network registry, search, and update policy
 - [ ] Python, JavaScript, and Lua runtime evaluation
 - [ ] Completion and help system (initial first-word suggestions exist)
 

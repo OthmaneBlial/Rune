@@ -115,7 +115,7 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
     },
     CommandDefinition {
         name: "pkg",
-        summary: "inspect or verify a local Rune package manifest",
+        summary: "inspect, verify, install, list, or remove local packages",
         handler: package::pkg,
     },
     CommandDefinition {

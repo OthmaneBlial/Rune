@@ -11,13 +11,22 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use rune_fs::{FsError, VirtualFileSystem};
-use rune_runtime::Runtime;
+use rune_package::PackageManifest;
+use rune_runtime::{Runtime, RuntimeKind, RuntimeRequest};
 use rune_shell::{parse, CommandPlan, Connector, ExecutionPlan, Redirection, Word, WordPart};
 use rune_wasm::WasmRunner;
 
 const MAX_ALIAS_EXPANSIONS: usize = 32;
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const OUTPUT_TRUNCATION_MARKER: &str = "\n[rune: output truncated at 1048576 bytes]\n";
+pub(crate) const PACKAGE_INSTALL_ROOT: &str = "~/.rune/packages";
+
+struct InstalledCommand {
+    package: String,
+    manifest_path: String,
+    module_path: String,
+    entry: String,
+}
 
 /// The result of one command or complete command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -383,12 +392,18 @@ impl Session {
             }
         }
 
+        let installed_command =
+            if command.program.parts().is_empty() || self.registry.find(&program).is_some() {
+                None
+            } else {
+                match self.find_installed_command(&program) {
+                    Ok(command) => command,
+                    Err(error) => return fs_failure(&program, &error),
+                }
+            };
         let mut output = if command.program.parts().is_empty() && !command.assignments.is_empty() {
             CommandOutput::success("")
-        } else {
-            let Some(handler) = self.registry.find(&program) else {
-                return CommandOutput::failure(127, format!("{program}: command not found\n"));
-            };
+        } else if let Some(handler) = self.registry.find(&program) {
             let mut context = CommandContext {
                 args: &arguments,
                 stdin: &stdin,
@@ -401,6 +416,10 @@ impl Session {
                 runtime: &self.wasm_runner,
             };
             handler(&mut context)
+        } else if let Some(installed_command) = installed_command {
+            self.execute_installed_command(&program, &arguments, &stdin, &installed_command)
+        } else {
+            CommandOutput::failure(127, format!("{program}: command not found\n"))
         };
         self.update_pwd();
 
@@ -420,6 +439,97 @@ impl Session {
         }
         self.last_status = output.status;
         output
+    }
+
+    fn find_installed_command(&self, name: &str) -> Result<Option<InstalledCommand>, FsError> {
+        let packages = match self.filesystem.list(Some(PACKAGE_INSTALL_ROOT)) {
+            Ok(entries) => entries,
+            Err(FsError::NotFound(_)) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        for package in packages.into_iter().filter(|entry| entry.is_directory) {
+            let package_path = format!("{PACKAGE_INSTALL_ROOT}/{}", package.name);
+            let Ok(versions) = self.filesystem.list(Some(&package_path)) else {
+                continue;
+            };
+            for version in versions.into_iter().filter(|entry| entry.is_directory) {
+                let version_path = format!("{package_path}/{}", version.name);
+                let manifest_path = format!("{version_path}/manifest.json");
+                let Ok(bytes) = self.filesystem.read(&manifest_path) else {
+                    continue;
+                };
+                let Ok(manifest) = PackageManifest::parse(&bytes) else {
+                    continue;
+                };
+                if let Some(command) = manifest
+                    .commands
+                    .iter()
+                    .find(|command| command.name == name)
+                {
+                    return Ok(Some(InstalledCommand {
+                        package: format!("{}@{}", manifest.name, manifest.version),
+                        manifest_path,
+                        module_path: format!("{version_path}/{}", command.entry),
+                        entry: command.entry.clone(),
+                    }));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    fn execute_installed_command(
+        &mut self,
+        program: &str,
+        arguments: &[String],
+        stdin: &str,
+        installed_command: &InstalledCommand,
+    ) -> CommandOutput {
+        if !std::path::Path::new(&installed_command.entry)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("wasm"))
+        {
+            return CommandOutput::failure(
+                126,
+                format!(
+                    "{program}: package {} exposes unsupported entry {}; only WASM is available\n",
+                    installed_command.package, installed_command.entry
+                ),
+            );
+        }
+        let module = match self.filesystem.read(&installed_command.module_path) {
+            Ok(module) => module,
+            Err(error) => return fs_failure(program, &error),
+        };
+        let manifest = match self.filesystem.read(&installed_command.manifest_path) {
+            Ok(bytes) => match PackageManifest::parse(&bytes) {
+                Ok(manifest) => manifest,
+                Err(error) => return package_runtime_failure(program, &error),
+            },
+            Err(error) => return fs_failure(program, &error),
+        };
+        if let Err(error) = manifest.verify_file(&installed_command.entry, &module) {
+            return package_runtime_failure(program, &error);
+        }
+        let request = RuntimeRequest::new(
+            RuntimeKind::Wasm,
+            program,
+            &module,
+            arguments,
+            &self.environment,
+            stdin,
+        );
+        match Runtime::execute(&self.wasm_runner, &request) {
+            Ok(execution) => CommandOutput {
+                stdout: execution.stdout,
+                stderr: execution.stderr,
+                status: execution.status,
+            },
+            Err(error) => CommandOutput::failure(
+                126,
+                format!("{program}: installed package runtime failed: {error}\n"),
+            ),
+        }
     }
 
     fn expand_alias(
@@ -555,6 +665,13 @@ pub(crate) fn usage(command: &str, message: &str) -> CommandOutput {
 
 pub(crate) fn fs_failure(command: &str, error: &FsError) -> CommandOutput {
     CommandOutput::failure(1, format!("{command}: {error}\n"))
+}
+
+fn package_runtime_failure(command: &str, error: &rune_package::PackageError) -> CommandOutput {
+    CommandOutput::failure(
+        126,
+        format!("{command}: installed package integrity failure: {error}\n"),
+    )
 }
 
 #[cfg(test)]
@@ -761,7 +878,71 @@ mod tests {
         let mismatch = session.execute_line("pkg verify bundle/manifest.json");
         assert_eq!(mismatch.status, 1);
         assert!(mismatch.stderr.contains("integrity mismatch"));
-        assert_eq!(session.execute_line("pkg install hello").status, 2);
+        assert_eq!(session.execute_line("pkg search hello").status, 2);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn installs_lists_runs_and_removes_a_verified_wasm_package() {
+        let root = test_root();
+        let package_root = root.join("bundle/bin");
+        std::fs::create_dir_all(&package_root).expect("package directories created");
+        let wasm = wat::parse_str(
+            r#"
+                (module
+                  (import "wasi_snapshot_preview1" "proc_exit"
+                    (func $proc_exit (param i32)))
+                  (memory (export "memory") 1)
+                  (func (export "_start")
+                    (i32.const 7)
+                    (call $proc_exit)))
+            "#,
+        )
+        .expect("valid package module");
+        let digest = rune_package::sha256_hex(&wasm);
+        std::fs::write(package_root.join("hello.wasm"), &wasm).expect("module written");
+        let manifest = format!(
+            r#"{{
+                "schema_version": 1,
+                "name": "local-wasm",
+                "version": "0.1.0",
+                "description": "A local WASM package",
+                "files": [{{"path": "bin/hello.wasm", "sha256": "{digest}"}}],
+                "commands": [{{"name": "local-hello", "entry": "bin/hello.wasm"}}]
+            }}"#
+        );
+        std::fs::write(root.join("bundle/manifest.json"), manifest).expect("manifest written");
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+
+        let installed = session.execute_line("pkg install bundle/manifest.json");
+        assert_eq!(installed.status, 0);
+        assert_eq!(installed.stdout, "installed local-wasm@0.1.0\n");
+        assert_eq!(
+            session.execute_line("pkg list").stdout,
+            "local-wasm@0.1.0\n"
+        );
+        let command_output = session.execute_line("local-hello argument");
+        assert_eq!(command_output.status, 7, "{command_output:?}");
+        std::fs::write(
+            root.join(".rune/packages/local-wasm/0.1.0/bin/hello.wasm"),
+            b"tampered",
+        )
+        .expect("installed module modified");
+        let tampered = session.execute_line("local-hello");
+        assert_eq!(tampered.status, 126);
+        assert!(tampered.stderr.contains("integrity failure"));
+        assert_eq!(
+            session
+                .execute_line("pkg install bundle/manifest.json")
+                .status,
+            1
+        );
+        assert_eq!(
+            session.execute_line("pkg remove local-wasm 0.1.0").stdout,
+            "removed local-wasm@0.1.0\n"
+        );
+        assert!(session.execute_line("pkg list").stdout.is_empty());
+        assert_eq!(session.execute_line("local-hello").status, 127);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

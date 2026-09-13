@@ -2,8 +2,7 @@
 //!
 //! This crate deliberately stops at a validated manifest and byte-level
 //! verification. Network transport, installation, removal, and trust policy
-//! belong to a later package manager layer and must not be implied by the
-//! metadata API.
+//! belong to the package manager layer and are not part of this metadata API.
 
 use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter, Write as _};
@@ -259,12 +258,13 @@ fn validate_version(version: &str) -> Result<(), PackageError> {
     if version.is_empty()
         || version.chars().count() > MAX_VERSION_CHARS
         || version.chars().any(char::is_whitespace)
+        || !version.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.' | '+')
+        })
     {
         return Err(invalid_field(
             "version",
-            format!(
-                "must be non-empty, whitespace-free, and at most {MAX_VERSION_CHARS} characters"
-            ),
+            format!("must be non-empty, path-safe, and at most {MAX_VERSION_CHARS} characters"),
         ));
     }
     Ok(())
@@ -408,6 +408,12 @@ mod tests {
         assert!(matches!(
             PackageManifest::parse(unsupported.as_bytes()),
             Err(PackageError::UnsupportedSchema(2))
+        ));
+        let unsafe_version = manifest_json(HELLO_DIGEST)
+            .replace("\"version\": \"0.1.0\"", "\"version\": \"0.1/unsafe\"");
+        assert!(matches!(
+            PackageManifest::parse(unsafe_version.as_bytes()),
+            Err(PackageError::InvalidField { field, .. }) if field == "version"
         ));
     }
 }

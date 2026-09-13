@@ -116,16 +116,20 @@ capabilities. Each invocation bounds module bytes, interpreter fuel, linear
 memory, tables, and captured output. Guest traps become a failed command while
 preserving captured output; explicit WASI exits preserve their exit status.
 
-Package metadata is parsed independently of network or filesystem installation
-through `rune-package`. Schema version 1 rejects unknown fields, path traversal,
-duplicate entries, undeclared command targets, and malformed digests. Declared
-file bytes are checked with SHA-256 before a future installer can trust them.
+Package metadata is parsed independently of network transport through
+`rune-package`. Schema version 1 rejects unknown fields, path traversal,
+duplicate entries, undeclared command targets, malformed digests, and
+path-unsafe package versions. Declared file bytes are checked with SHA-256
+before the local installer accepts them.
 This is integrity evidence, not a signature or publisher-trust system; signed
 repositories and installation policy remain future work.
 The `pkg info` and `pkg verify` built-ins expose only local manifest inspection
-and verification through the VFS. `install`, `search`, `remove`, and `update`
-return an explicit unsupported-operation error; no network client or installer
-exists yet.
+and verification through the VFS. `pkg install` copies a verified manifest and
+its declared files into the bounded `~/.rune/packages` tree; `pkg list` reads
+those installed manifests and `pkg remove` deletes an explicitly named package
+or version. Only declared `.wasm` command entries are executable today, and
+installed module bytes are verified again before execution. There is no
+network client or registry yet.
 
 The runtime contract is owned by Rust and carries only explicit program bytes,
 arguments, environment, and stdin into a provider. `rune-wasm` implements the

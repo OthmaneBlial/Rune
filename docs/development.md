@@ -8,8 +8,9 @@
 
 The portable WASM slice is validated through Rust tests and does not require
 Xcode, a simulator, an Apple SDK, or a third-party Apple dependency.
-Package metadata tests are also local-only; no registry or download is needed
-to validate the manifest and digest boundary.
+Package metadata and local WASM installation tests are also local-only; no
+registry or download is needed to validate the manifest, digest, and bounded
+package-tree boundaries.
 
 ## Local checks
 
