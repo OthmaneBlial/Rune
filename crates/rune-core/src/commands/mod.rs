@@ -223,6 +223,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: text::tail,
     },
     CommandDefinition {
+        name: "tar",
+        summary: "create, list, or extract bounded USTAR archives",
+        handler: archive::tar,
+    },
+    CommandDefinition {
         name: "tee",
         summary: "copy stdin to files and stdout",
         handler: utilities::tee,

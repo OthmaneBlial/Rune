@@ -319,14 +319,17 @@ before the local installer accepts them.
 This is integrity evidence, not a signature or publisher-trust system; signed
 repositories and publisher policy remain future work.
 
-The archive command layer implements a deliberately narrow ZIP32 profile. ZIP
-creation writes stored UTF-8 entries and CRC32 values through the VFS; recursive
-directory traversal is bounded to 10,000 entries and the complete archive to
-64 MiB. Extraction reads the central directory, rejects encryption,
-compression, data descriptors, multi-disk records, duplicate names, absolute
-paths, and dot or parent components, then verifies each local entry's name,
-bounds, and CRC before writing it into the confined destination. ZIP64,
-compression, and broad external compatibility are not claimed.
+The archive command layer implements deliberately narrow stored ZIP32 and USTAR
+profiles. ZIP creation writes UTF-8 entries and CRC32 values through the VFS;
+USTAR creation writes regular-file and directory headers, using the standard
+name/prefix fields for longer paths. Both recursive traversals are bounded to
+10,000 entries and complete archives to 64 MiB. ZIP extraction rejects
+encryption, compression, data descriptors, multi-disk records, duplicate names,
+absolute paths, and dot or parent components, then verifies each local entry's
+name, bounds, and CRC. USTAR extraction verifies header checksums, rejects
+absolute or parent paths, duplicate names, links, device nodes, and unsupported
+extensions before writing into the confined destination. ZIP64, compression,
+PAX extensions, and broad external compatibility are not claimed.
 The `pkg info` and `pkg verify` built-ins expose only local manifest inspection
 and verification through the VFS. `pkg info NAME [VERSION]` can also resolve
 an installed manifest, but refuses an unversioned lookup when multiple

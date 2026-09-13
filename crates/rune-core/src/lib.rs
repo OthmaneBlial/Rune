@@ -2226,6 +2226,47 @@ mod tests {
     }
 
     #[test]
+    fn creates_lists_and_extracts_a_bounded_ustar_archive() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("mkdir -p source/nested").status, 0);
+        assert_eq!(
+            session
+                .execute_line("echo tar-data > source/nested/note.txt")
+                .status,
+            0
+        );
+        assert_eq!(session.execute_line("touch source/empty.txt").status, 0);
+
+        let created = session.execute_line("tar -cf bundle.tar source");
+        assert_eq!(created.status, 0);
+        assert!(created.stdout.contains("4 entries"));
+        assert!(root.join("bundle.tar").exists());
+
+        let listing = session.execute_line("tar -tf bundle.tar");
+        assert_eq!(listing.status, 0);
+        assert!(listing.stdout.contains("source/\n"));
+        assert!(listing.stdout.contains("source/nested/note.txt\n"));
+
+        assert_eq!(session.execute_line("rm -r source").status, 0);
+        let extracted = session.execute_line("tar -xf bundle.tar -C restored");
+        assert_eq!(extracted.status, 0);
+        assert_eq!(
+            session
+                .execute_line("cat restored/source/nested/note.txt")
+                .stdout,
+            "tar-data\n"
+        );
+        assert_eq!(
+            session
+                .execute_line("tar -czf compressed.tar source")
+                .status,
+            1
+        );
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn provides_bounded_rust_owned_command_and_path_completion() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));

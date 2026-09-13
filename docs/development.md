@@ -48,9 +48,10 @@ Event tests verify Rust pipeline/status emission and the C callback lifetime:
 event strings are borrowed only during the callback and are copied by the
 native bridge. This validates boundary-level event delivery, not Apple runtime,
 live UI rendering, or byte-level WASM streaming.
-The archive integration test creates nested files, extracts them into a new
-confined destination, and rejects an escaping extraction destination. It does
-not establish compatibility with compressed or ZIP64 archives.
+The archive integration tests create nested files, list and extract a USTAR
+archive into a new confined destination, and reject compressed tar flags and
+escaping archive members. ZIP coverage remains stored-only and does not
+establish compatibility with compressed, ZIP64, PAX, or encrypted archives.
 The filesystem resource test uses a sparse file to verify the 64 MiB read,
 append, and copy guards without allocating a large in-memory fixture.
 The directory resource test creates 10,001 small entries and verifies that

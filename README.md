@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 76%**
+**Overall progress: 77%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -20,7 +20,7 @@ working iOS application or a feature-parity claim.
 |---|---:|
 | Rust workspace | 80% |
 | Shell tokenizer/parser | 65% |
-| Command runtime | 93% |
+| Command runtime | 94% |
 | Sandboxed filesystem | 70% |
 | Sessions/history | 62% |
 | Configuration | 63% |
@@ -37,7 +37,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `curl`, `echo`, `mkdir
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
 `setenv`, `printf`, `basename`, `dirname`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
-`true`, `false`, `cut`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `pkg`,
+`true`, `false`, `cut`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `pkg`, `tar`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
 `help`, `history`, `sleep`, `uname`, `which`, `whoami`, `source`, and `.` against a
 bounded filesystem,
@@ -159,12 +159,14 @@ bridge supplies a synchronous, size-limited `URLSession` callback for an
 eventual native target; URLSession, ATS, transport, and device behavior remain
 unverified without an Apple runtime.
 
-The Rust core also provides bounded zip -r ARCHIVE FILE ... and unzip ARCHIVE
-[DESTINATION] commands. They use ZIP32 stored entries through the VFS, verify
-CRC32 before extraction, reject absolute or parent-traversal archive names, and
-cap archives at 64 MiB and 10,000 entries. Compression methods, ZIP64,
-encrypted archives, and compatibility with every external ZIP producer remain
-unsupported until separately tested.
+The Rust core also provides bounded zip -r ARCHIVE FILE ..., unzip ARCHIVE
+[DESTINATION], and tar -cf/-tf/-xf ARCHIVE commands. ZIP uses stored ZIP32
+entries through the VFS and verifies CRC32 before extraction. Tar uses UTF-8
+USTAR entries with long names split across the standard name/prefix fields.
+Both formats reject absolute or parent-traversal names, links, unsupported
+entry types, and archives above 64 MiB or 10,000 entries. Compression methods,
+ZIP64, PAX extensions, encrypted archives, and compatibility with every
+external producer remain unsupported until separately tested.
 
 The host-backed VFS also rejects regular-file reads, appends, and copies over
 64 MiB before allocating or copying their contents. This limit is independent
@@ -347,7 +349,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded package metadata, integrity, local WASM installation, and local update
 - [x] Portable runtime request/output contract
 - [x] Bounded Rust-owned history, font, font-size, scrollback, theme, cursor-color, background, and foreground configuration
-- [x] Bounded stored ZIP creation/extraction with path validation
+- [x] Bounded stored ZIP and USTAR tar creation/listing/extraction with path validation
 - [x] Explicit host HTTP capability and bounded `curl` transport boundary
 - [x] Bounded HTTPS registry index, remote search, and explicit-version update policy
 - [ ] Python, JavaScript, and Lua runtime evaluation
