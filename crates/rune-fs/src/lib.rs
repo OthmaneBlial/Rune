@@ -93,6 +93,13 @@ pub trait VirtualFileSystem {
             .map(|root| (root, "/"))
             .collect()
     }
+    /// Returns the approved host path for an existing VFS target when the
+    /// host-backed implementation can safely provide one. Portable VFS
+    /// implementations may return `None`, which disables external file
+    /// opening without weakening the virtual path boundary.
+    fn host_path(&self, _input: &str) -> Result<Option<PathBuf>, FsError> {
+        Ok(None)
+    }
     fn current_dir_display(&self) -> String;
     fn change_dir(&mut self, input: &str) -> Result<(), FsError>;
     /// Resolves an existing path and returns its confined virtual canonical path.
@@ -634,6 +641,16 @@ impl VirtualFileSystem for SandboxedFileSystem {
             (mount.physical.as_path(), guest_path)
         }));
         preopens
+    }
+
+    fn host_path(&self, input: &str) -> Result<Option<PathBuf>, FsError> {
+        let path = self.resolve_path(input)?;
+        let canonical = path
+            .canonicalize()
+            .map_err(|error| Self::reframe(Self::map_metadata_error(&path, &error), input))?;
+        self.ensure_inside(&canonical, input)
+            .map_err(|error| Self::reframe(error, input))?;
+        Ok(Some(canonical))
     }
 
     fn current_dir_display(&self) -> String {

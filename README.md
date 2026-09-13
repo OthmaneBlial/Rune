@@ -210,6 +210,11 @@ VFS file. The Rust CLI has no network grant by default. The source-only Apple
 bridge supplies a synchronous, size-limited `URLSession` callback for an
 eventual native target; URLSession, ATS, transport, and device behavior remain
 unverified without an Apple runtime.
+The open and openurl commands validate approved URL schemes or existing
+confined VFS files/directories, then call an explicit host-open capability.
+The default CLI has no launcher, and the source-only Apple adapter schedules
+UIKit opening on the main queue; it does not expose arbitrary host paths or
+claim completion before Apple runtime validation.
 
 The Rust core also provides bounded `ar -rcs`/`ar t`/`ar x` member archives,
 zip -r ARCHIVE FILE ..., unzip ARCHIVE [DESTINATION], tar -cf/-tf/-xf ARCHIVE,
@@ -447,6 +452,7 @@ git check-ignore -v base/a-shell
 
 - [x] Source-level lazy terminal transcript with cached ANSI spans
 - [x] Source-only external folders and bounded security-scoped bookmarks
+- [x] Explicit host URL/file opening capability with bounded open/openurl
 - [x] Rust-namespaced sessions and source-only terminal tabs
 - [x] Source-only typed iPad window routing
 - [x] Source-only native keyboard shortcuts

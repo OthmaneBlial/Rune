@@ -15,8 +15,9 @@ use std::sync::Arc;
 
 use rune_core::{
     ClipboardError, ClipboardProvider, CommandEvent, CommandOutput, DisabledClipboardProvider,
-    DisabledNetworkProvider, EventSink, NetworkError, NetworkProvider, NetworkRequest,
-    NetworkResponse, Session, MAX_CLIPBOARD_BYTES, MAX_FILE_TRANSFER_BYTES, MAX_NETWORK_BODY_BYTES,
+    DisabledNetworkProvider, DisabledOpenProvider, EventSink, NetworkError, NetworkProvider,
+    NetworkRequest, NetworkResponse, OpenError, OpenProvider, OpenRequest, Session,
+    MAX_CLIPBOARD_BYTES, MAX_FILE_TRANSFER_BYTES, MAX_NETWORK_BODY_BYTES,
 };
 use rune_fs::{FsError, SandboxedFileSystem};
 
@@ -103,6 +104,14 @@ pub type RuneClipboardReadCallback = Option<
 pub type RuneClipboardWriteCallback =
     Option<unsafe extern "C" fn(user_data: *mut c_void, text: *const u8, length: usize) -> bool>;
 
+/// Native callback for opening a validated URL or confined host file path.
+pub type RuneOpenCallback = Option<
+    unsafe extern "C" fn(user_data: *mut c_void, target: *const c_char, target_kind: i32) -> bool,
+>;
+
+pub const RUNE_OPEN_URL: i32 = 1;
+pub const RUNE_OPEN_FILE: i32 = 2;
+
 struct CallbackNetworkProvider {
     callback: unsafe extern "C" fn(
         user_data: *mut c_void,
@@ -126,6 +135,15 @@ struct CallbackClipboardProvider {
         response: *mut RuneClipboardResponse,
     ) -> bool,
     write: unsafe extern "C" fn(user_data: *mut c_void, text: *const u8, length: usize) -> bool,
+    user_data: *mut c_void,
+}
+
+struct CallbackOpenProvider {
+    callback: unsafe extern "C" fn(
+        user_data: *mut c_void,
+        target: *const c_char,
+        target_kind: i32,
+    ) -> bool,
     user_data: *mut c_void,
 }
 
@@ -173,6 +191,21 @@ impl ClipboardProvider for CallbackClipboardProvider {
             Ok(())
         } else {
             Err(ClipboardError::HostFailure)
+        }
+    }
+}
+
+impl OpenProvider for CallbackOpenProvider {
+    fn open(&self, request: &OpenRequest) -> Result<(), OpenError> {
+        let target = CString::new(request.target.as_str()).map_err(|_| OpenError::HostFailure)?;
+        let accepted = catch_unwind(AssertUnwindSafe(|| unsafe {
+            (self.callback)(self.user_data, target.as_ptr(), request.kind as i32)
+        }))
+        .unwrap_or(false);
+        if accepted {
+            Ok(())
+        } else {
+            Err(OpenError::HostFailure)
         }
     }
 }
@@ -544,6 +577,32 @@ pub extern "C" fn rune_session_set_clipboard_callbacks(
         }
         _ => 2,
     }
+}
+
+/// Installs or clears the native external-open capability for one session.
+///
+/// The callback receives a validated URL or an existing confined host file
+/// path and must return whether the host accepted the request. Passing None
+/// removes the capability.
+#[no_mangle]
+pub extern "C" fn rune_session_set_open_callback(
+    handle: *mut c_void,
+    callback: RuneOpenCallback,
+    user_data: *mut c_void,
+) -> i32 {
+    if handle.is_null() {
+        return 1;
+    }
+    let core = unsafe { &mut (*handle.cast::<RuneSession>()).core };
+    if let Some(callback) = callback {
+        core.set_open_provider(Box::new(CallbackOpenProvider {
+            callback,
+            user_data,
+        }));
+    } else {
+        core.set_open_provider(Box::new(DisabledOpenProvider));
+    }
+    0
 }
 
 /// Updates one validated Rust-owned configuration value without recording a
@@ -951,9 +1010,9 @@ mod tests {
         rune_session_history_search, rune_session_new, rune_session_new_named,
         rune_session_new_with_layout, rune_session_put_file, rune_session_reset_configuration,
         rune_session_set_clipboard_callbacks, rune_session_set_configuration,
-        rune_session_set_network_callback, rune_session_startup_output, rune_string_free,
-        RuneClipboardResponse, RuneEvent, RuneNetworkResponse, RUNE_EVENT_OUTPUT,
-        RUNE_EVENT_STATUS,
+        rune_session_set_network_callback, rune_session_set_open_callback,
+        rune_session_startup_output, rune_string_free, RuneClipboardResponse, RuneEvent,
+        RuneNetworkResponse, RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS, RUNE_OPEN_FILE, RUNE_OPEN_URL,
     };
     use std::ffi::{c_void, CStr, CString};
     use std::os::raw::c_char;
@@ -1062,6 +1121,26 @@ mod tests {
         };
         state.value = value.to_string();
         state.writes += 1;
+        true
+    }
+
+    struct OpenState {
+        targets: Vec<(i32, String)>,
+    }
+
+    unsafe extern "C" fn test_open_callback(
+        user_data: *mut c_void,
+        target: *const c_char,
+        target_kind: i32,
+    ) -> bool {
+        if user_data.is_null() || target.is_null() {
+            return false;
+        }
+        let state = unsafe { &mut *user_data.cast::<OpenState>() };
+        let Ok(target) = unsafe { CStr::from_ptr(target) }.to_str() else {
+            return false;
+        };
+        state.targets.push((target_kind, target.to_string()));
         true
     }
 
@@ -1595,6 +1674,70 @@ mod tests {
         assert_eq!(disabled.status, 1);
         assert!(c_string(disabled.stderr).contains("network provider is unavailable"));
         // SAFETY: both pointers came from the second rune_session_execute.
+        unsafe {
+            rune_string_free(disabled.stdout);
+            rune_string_free(disabled.stderr);
+        }
+        rune_session_destroy(handle);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn c_abi_routes_open_through_the_native_callback() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rune-ffi-open-test-{suffix}"));
+        std::fs::create_dir_all(&root).expect("test root created");
+        std::fs::write(root.join("note.txt"), b"open me\n").expect("file written");
+        let root_string = CString::new(root.to_string_lossy().as_bytes()).expect("valid root");
+        let handle = rune_session_new(root_string.as_ptr());
+        assert!(!handle.is_null());
+        let mut state = OpenState {
+            targets: Vec::new(),
+        };
+        assert_eq!(
+            rune_session_set_open_callback(
+                handle,
+                Some(test_open_callback),
+                std::ptr::addr_of_mut!(state).cast(),
+            ),
+            0
+        );
+
+        let file_command = CString::new("open note.txt").expect("valid file command");
+        let output = rune_session_execute(handle, file_command.as_ptr());
+        assert_eq!(output.status, 0);
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+        let url_command =
+            CString::new("openurl shortcuts://run-shortcut").expect("valid URL command");
+        let output = rune_session_execute(handle, url_command.as_ptr());
+        assert_eq!(output.status, 0);
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+        assert_eq!(state.targets.len(), 2);
+        assert_eq!(state.targets[0].0, RUNE_OPEN_FILE);
+        assert!(state.targets[0].1.ends_with("/note.txt"));
+        assert_eq!(
+            state.targets[1],
+            (RUNE_OPEN_URL, "shortcuts://run-shortcut".to_string())
+        );
+
+        assert_eq!(
+            rune_session_set_open_callback(handle, None, std::ptr::null_mut()),
+            0
+        );
+        let disabled_command =
+            CString::new("openurl https://example.test").expect("valid disabled command");
+        let disabled = rune_session_execute(handle, disabled_command.as_ptr());
+        assert_eq!(disabled.status, 1);
+        assert!(c_string(disabled.stderr).contains("provider is unavailable"));
         unsafe {
             rune_string_free(disabled.stdout);
             rune_string_free(disabled.stderr);

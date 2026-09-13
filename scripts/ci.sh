@@ -33,6 +33,7 @@ if command -v swiftc >/dev/null 2>&1; then
     apps/ios/Sources/RuneIOS/RuneClipboardBridge.swift \
     apps/ios/Sources/RuneIOS/RuneExternalFolderAccess.swift \
     apps/ios/Sources/RuneIOS/RuneNetworkBridge.swift \
+    apps/ios/Sources/RuneIOS/RuneOpenBridge.swift \
     apps/ios/Sources/RuneIOS/RuneShortcuts.swift \
     apps/ios/Sources/RuneIOS/RuneANSIText.swift \
     apps/ios/Sources/RuneIOS/RuneTerminalView.swift \

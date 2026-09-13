@@ -67,6 +67,15 @@ typedef bool (*RuneClipboardWriteCallback)(
     size_t length
 );
 
+typedef bool (*RuneOpenCallback)(
+    void *user_data,
+    const char *target,
+    int32_t target_kind
+);
+
+#define RUNE_OPEN_URL 1
+#define RUNE_OPEN_FILE 2
+
 void *rune_session_new(const char *root);
 // Create a session with an independent bounded persistence namespace.
 void *rune_session_new_named(const char *root, const char *session_id);
@@ -84,6 +93,12 @@ int32_t rune_session_set_clipboard_callbacks(
     void *handle,
     RuneClipboardReadCallback read,
     RuneClipboardWriteCallback write,
+    void *user_data
+);
+// Install or clear the explicit external URL/file opening capability.
+int32_t rune_session_set_open_callback(
+    void *handle,
+    RuneOpenCallback callback,
     void *user_data
 );
 // Update one validated Rust-owned configuration value without history entry.

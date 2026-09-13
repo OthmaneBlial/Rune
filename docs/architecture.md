@@ -464,6 +464,15 @@ bounded synchronous `URLSession` callback that fills a Rust-owned response
 buffer. This keeps network and WASM capabilities separate and leaves ATS,
 TLS, redirects, and Apple runtime validation as explicit gates.
 
+External application opening is a separate OpenProvider capability. The Rust
+openurl command allows only bounded http, https, mailto, tel, sms, and
+shortcuts URLs; open additionally resolves an existing regular file or
+directory through the confined VFS and passes its canonical approved host path
+to the provider. Sessions default to a disabled opener, and the source-only
+UIKit adapter schedules the accepted target on the main queue. The callback
+never searches for or launches a host executable, and its asynchronous
+acceptance does not prove that another application opened successfully.
+
 The native configuration query is also Rust-owned: its FFI serialization now
 includes every persisted key consumed by Swift, including cursor shape, while Swift applies only values
 from the validated finite sets. This keeps the settings sheet from maintaining

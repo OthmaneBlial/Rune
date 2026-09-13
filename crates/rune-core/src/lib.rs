@@ -8,6 +8,7 @@ mod clipboard;
 mod commands;
 mod config;
 mod network;
+mod open;
 mod persistence;
 
 pub use clipboard::{
@@ -21,6 +22,10 @@ pub use network::{
     DisabledNetworkProvider, NetworkError, NetworkMethod, NetworkProvider, NetworkRequest,
     NetworkResponse, MAX_NETWORK_BODY_BYTES, MAX_NETWORK_HEADERS, MAX_NETWORK_HEADER_BYTES,
     MAX_NETWORK_URL_BYTES,
+};
+pub use open::{
+    DisabledOpenProvider, OpenError, OpenProvider, OpenRequest, OpenTargetKind,
+    MAX_OPEN_TARGET_BYTES,
 };
 
 use std::collections::BTreeMap;
@@ -89,6 +94,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "md5"
             | "mkdir"
             | "mv"
+            | "open"
             | "python"
             | "python3"
             | "readlink"
@@ -321,6 +327,7 @@ pub struct CommandContext<'a> {
     pub(crate) javascript_runtime: &'a dyn Runtime,
     pub(crate) network: &'a dyn NetworkProvider,
     pub(crate) clipboard: &'a dyn ClipboardProvider,
+    pub(crate) opener: &'a dyn OpenProvider,
     pub(crate) cancellation: &'a AtomicBool,
 }
 
@@ -350,6 +357,7 @@ pub struct Session {
     javascript_runner: JavaScriptRunner,
     network_provider: Box<dyn NetworkProvider>,
     clipboard_provider: Box<dyn ClipboardProvider>,
+    open_provider: Box<dyn OpenProvider>,
     cancellation_requested: Arc<AtomicBool>,
     command_substitution_depth: usize,
     state_session_id: Option<String>,
@@ -384,6 +392,7 @@ impl Session {
             javascript_runner: JavaScriptRunner,
             network_provider: Box::new(DisabledNetworkProvider),
             clipboard_provider: Box::new(DisabledClipboardProvider),
+            open_provider: Box::new(DisabledOpenProvider),
             cancellation_requested: Arc::new(AtomicBool::new(false)),
             command_substitution_depth: 0,
             state_session_id: None,
@@ -478,6 +487,12 @@ impl Session {
     /// `pbpaste`. The default session has no clipboard provider.
     pub fn set_clipboard_provider(&mut self, provider: Box<dyn ClipboardProvider>) {
         self.clipboard_provider = provider;
+    }
+
+    /// Installs the host-owned external application capability used by open
+    /// and openurl. The default session has no launcher provider.
+    pub fn set_open_provider(&mut self, provider: Box<dyn OpenProvider>) {
+        self.open_provider = provider;
     }
 
     /// Returns the bridge handle used to request cancellation safely while
@@ -969,6 +984,7 @@ impl Session {
             javascript_runtime: &self.javascript_runner,
             network: self.network_provider.as_ref(),
             clipboard: self.clipboard_provider.as_ref(),
+            opener: self.open_provider.as_ref(),
             cancellation: &self.cancellation_requested,
         };
         handler(&mut context)
@@ -2100,10 +2116,11 @@ fn package_runtime_failure(command: &str, error: &rune_package::PackageError) ->
 mod tests {
     use super::{
         persistence::MAX_HISTORY_BYTES, ClipboardError, ClipboardProvider, CommandEvent, EventSink,
-        NetworkError, NetworkMethod, NetworkProvider, NetworkRequest, NetworkResponse, Session,
-        TerminalConfig, CANCELLED_STATUS, MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS,
-        MAX_CLIPBOARD_BYTES, MAX_COMMAND_INPUT_BYTES, MAX_FILE_TRANSFER_BYTES, MAX_OUTPUT_BYTES,
-        MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES, MAX_SOURCE_DEPTH, OUTPUT_TRUNCATION_MARKER,
+        NetworkError, NetworkMethod, NetworkProvider, NetworkRequest, NetworkResponse, OpenError,
+        OpenProvider, OpenRequest, OpenTargetKind, Session, TerminalConfig, CANCELLED_STATUS,
+        MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS, MAX_CLIPBOARD_BYTES, MAX_COMMAND_INPUT_BYTES,
+        MAX_FILE_TRANSFER_BYTES, MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES,
+        MAX_SOURCE_DEPTH, OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -2186,6 +2203,20 @@ mod tests {
 
         fn write_text(&self, text: &str) -> Result<(), ClipboardError> {
             *self.value.lock().expect("clipboard lock") = text.to_string();
+            Ok(())
+        }
+    }
+
+    struct RecordingOpenProvider {
+        requests: Arc<Mutex<Vec<OpenRequest>>>,
+    }
+
+    impl OpenProvider for RecordingOpenProvider {
+        fn open(&self, request: &OpenRequest) -> Result<(), OpenError> {
+            self.requests
+                .lock()
+                .expect("open request log lock")
+                .push(request.clone());
             Ok(())
         }
     }
@@ -2424,6 +2455,67 @@ mod tests {
             .execute_line("curl https://example.test");
         assert_eq!(disabled.status, 1);
         assert!(disabled.stderr.contains("network provider is unavailable"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn routes_open_through_an_explicit_host_provider() {
+        let root = test_root();
+        std::fs::write(root.join("note.txt"), b"open me\n").expect("file written");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        session.set_open_provider(Box::new(RecordingOpenProvider {
+            requests: Arc::clone(&requests),
+        }));
+
+        let opened_file = session.execute_line("open note.txt");
+        assert_eq!(opened_file.status, 0);
+        let opened_url = session.execute_line("openurl https://example.test/docs");
+        assert_eq!(opened_url.status, 0);
+
+        let recorded = requests.lock().expect("open request log lock");
+        assert_eq!(recorded.len(), 2);
+        assert_eq!(recorded[0].kind, OpenTargetKind::File);
+        let expected_file_path =
+            std::fs::canonicalize(root.join("note.txt")).expect("file path canonicalized");
+        assert_eq!(
+            recorded[0].target,
+            expected_file_path.to_string_lossy().as_ref()
+        );
+        assert_eq!(recorded[1].kind, OpenTargetKind::Url);
+        assert_eq!(recorded[1].target, "https://example.test/docs");
+        drop(recorded);
+
+        let invalid_scheme = session.execute_line("openurl ftp://example.test/file");
+        assert_eq!(invalid_scheme.status, 2);
+        let escaped = session.execute_line("open ../outside.txt");
+        assert_eq!(escaped.status, 1);
+        assert!(escaped.stderr.contains("sandbox"));
+        assert_eq!(requests.lock().expect("open request log lock").len(), 2);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn rejects_open_targets_before_the_host_provider() {
+        let root = test_root();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        session.set_open_provider(Box::new(RecordingOpenProvider {
+            requests: Arc::clone(&requests),
+        }));
+
+        let invalid_url = session.execute_line("openurl https://");
+        assert_eq!(invalid_url.status, 2);
+        assert!(invalid_url.stderr.contains("host"));
+        let invalid_scheme = session.execute_line("openurl javascript:alert");
+        assert_eq!(invalid_scheme.status, 2);
+        assert!(invalid_scheme.stderr.contains("not allowed"));
+        assert!(requests.lock().expect("open request log lock").is_empty());
+
+        let disabled = Session::new(SandboxedFileSystem::new(&root).expect("root reopened"))
+            .execute_line("openurl https://example.test");
+        assert_eq!(disabled.status, 1);
+        assert!(disabled.stderr.contains("provider is unavailable"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
@@ -3525,6 +3617,7 @@ mod tests {
         let runtime = rune_wasm::WasmRunner::default();
         let network = super::DisabledNetworkProvider;
         let clipboard = super::DisabledClipboardProvider;
+        let opener = super::DisabledOpenProvider;
         let args = Vec::new();
         let cancellation = std::sync::atomic::AtomicBool::new(true);
         let cancelled = {
@@ -3544,6 +3637,7 @@ mod tests {
                 javascript_runtime: &runtime,
                 network: &network,
                 clipboard: &clipboard,
+                opener: &opener,
                 cancellation: &cancellation,
             };
             context
@@ -3569,6 +3663,7 @@ mod tests {
         let runtime = rune_wasm::WasmRunner::default();
         let network = super::DisabledNetworkProvider;
         let clipboard = super::DisabledClipboardProvider;
+        let opener = super::DisabledOpenProvider;
         let args = vec!["1".to_string()];
         let cancellation = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let trigger = std::sync::Arc::clone(&cancellation);
@@ -3592,6 +3687,7 @@ mod tests {
             javascript_runtime: &runtime,
             network: &network,
             clipboard: &clipboard,
+            opener: &opener,
             cancellation: cancellation.as_ref(),
         };
         let cancelled = super::commands::shell::sleep(&mut context);

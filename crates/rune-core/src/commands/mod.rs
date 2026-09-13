@@ -10,6 +10,7 @@ mod filesystem;
 mod javascript;
 mod lua;
 mod network;
+mod open;
 mod package;
 mod python;
 pub(super) mod shell;
@@ -260,6 +261,16 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "mv",
         summary: "move one file or directory",
         handler: filesystem::mv,
+    },
+    CommandDefinition {
+        name: "open",
+        summary: "open a confined file or approved external URL through the host",
+        handler: open::open,
+    },
+    CommandDefinition {
+        name: "openurl",
+        summary: "open an approved external URL through the host",
+        handler: open::openurl,
     },
     CommandDefinition {
         name: "pwd",

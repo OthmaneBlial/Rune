@@ -138,6 +138,13 @@ private func rune_session_set_clipboard_callbacks(
     _ userData: UnsafeMutableRawPointer?
 ) -> Int32
 
+@_silgen_name("rune_session_set_open_callback")
+private func rune_session_set_open_callback(
+    _ handle: OpaquePointer?,
+    _ callback: RuneOpenCallback?,
+    _ userData: UnsafeMutableRawPointer?
+) -> Int32
+
 @_silgen_name("rune_session_set_configuration")
 private func rune_session_set_configuration(
     _ handle: OpaquePointer?,
@@ -298,6 +305,7 @@ public final class RuneFFISession: @unchecked Sendable {
             runeClipboardWriteCallback,
             nil
         )
+        _ = rune_session_set_open_callback(created, runeOpenCallback, nil)
     }
 
     deinit {

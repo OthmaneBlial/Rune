@@ -79,6 +79,11 @@ Swift owns URL loading and copies the response into a Rust-provided buffer;
 there is no ambient socket access for the core or WASM. This is source/API
 evidence only: URLSession, ATS configuration, TLS, redirects, and runtime
 behavior remain unverified without an Apple build.
+The bridge also installs an explicit external-open callback. Rust validates
+approved URL schemes and confined file targets; RuneOpenBridge.swift hands
+those accepted targets to UIKit on the main queue. The callback is an
+asynchronous host acceptance boundary, so URL routing and document opening
+remain unverified without an Apple runtime.
 The same callback can serve Rust-owned package registry search and exact-version
 package fetches; the registry index, manifest, artifact mapping, origin policy,
 and SHA-256 checks remain in Rust. No registry URL or package bytes are stored
@@ -129,6 +134,9 @@ tab rendering, lifecycle behavior, scene restoration, and Apple runtime
 integration remain unverified.
 
 ## Current evidence
+
+RuneOpenBridge.swift provides the source-only UIKit adapter for the Rust
+open/openurl capability; the portable CLI remains launcher-disabled by default.
 
 - `Package.swift` is a source/package boundary.
 - `RuneFFI.h` documents the C ABI layout.

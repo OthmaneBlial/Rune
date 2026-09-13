@@ -156,6 +156,12 @@ request data, response output, raw VFS-file output, disabled-provider behavior,
 and the C callback boundary. They do not prove internet reachability, TLS,
 ATS, redirects, or Apple URLSession behavior. The native callback enforces the
 same 8 MiB response buffer while receiving data in bounded chunks.
+The external-open tests use an injected provider and verify confined file
+canonicalization, approved URL schemes, disabled-provider behavior, rejected
+targets before callback invocation, and the C callback target-kind boundary.
+The source-only Apple adapter schedules UIKit opening on the main queue, but
+does not prove URL routing, document handling, or completion on an Apple
+runtime.
 
 ## Local checks
 
