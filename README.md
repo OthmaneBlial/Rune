@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 15%**
+**Overall progress: 16%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -19,8 +19,8 @@ working iOS application or a feature-parity claim.
 | Area | Progress |
 |---|---:|
 | Rust workspace | 70% |
-| Shell tokenizer/parser | 52% |
-| Command runtime | 52% |
+| Shell tokenizer/parser | 58% |
+| Command runtime | 57% |
 | Sandboxed filesystem | 43% |
 | Sessions/history | 32% |
 | WASM | 0% |
@@ -37,17 +37,18 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `true`, `false`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `clear`, `help`,
 and `history` against a bounded filesystem, including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
-with quotes, variables, pipes, redirections, sequencing, separate
-stdout/stderr, and exit status. Environment changes are session-local and are
-not serialized. A bounded `~/.rune_profile` is loaded on restore; its supported
+with quotes, variables, leading `NAME=value` assignments, pipes, redirections,
+sequencing, separate stdout/stderr, and exit status. Assignments are expanded
+left-to-right, remain session-local, and can also be issued without a command.
+Environment changes are not serialized. A bounded `~/.rune_profile` is loaded on restore; its supported
 Rust built-ins can update the session environment and its output is surfaced to
 the CLI/native boundary without polluting history. The native source UI now
 receives the Rust command registry and offers first-word command suggestions.
 It also has a focused command bar, keyboard-aware history controls, an
 ink/cyan/ember console palette, and accessible completion controls.
-Interactive `export` and `setenv` lines are replaced by a redaction marker in
-history before persistence; this is an initial defense, not a complete secret
-management policy.
+Interactive `export`, `setenv`, and assignment lines are replaced by a
+redaction marker in history before persistence; this is an initial defense, not
+a complete secret management policy.
 The iOS app is represented by
 source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
 and runtime gates remain unverified. Bounded current-directory/history
@@ -112,6 +113,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded session/history persistence and startup profile
 - [x] Pipes and redirections
 - [x] Basic bounded pathname expansion
+- [x] Leading environment assignments
 
 ### Phase 3 — Developer environment
 

@@ -67,9 +67,17 @@ pub enum Redirection {
     Stderr { path: Word, append: bool },
 }
 
+/// An environment assignment applied before a command runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Assignment {
+    pub name: String,
+    pub value: Word,
+}
+
 /// One command and its arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandPlan {
+    pub assignments: Vec<Assignment>,
     pub program: Word,
     pub arguments: Vec<Word>,
     pub redirections: Vec<Redirection>,
@@ -166,6 +174,34 @@ fn push_variable(parts: &mut Vec<WordPart>, name: String) {
 
 fn push_wildcard(parts: &mut Vec<WordPart>, wildcard: char) {
     parts.push(WordPart::Wildcard(wildcard));
+}
+
+fn is_valid_assignment_name(name: &str) -> bool {
+    let mut characters = name.chars();
+    matches!(
+        characters.next(),
+        Some(character) if character == '_' || character.is_ascii_alphabetic()
+    ) && characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
+}
+
+fn split_assignment(word: &Word) -> Option<Assignment> {
+    let WordPart::Literal(first) = word.parts.first()? else {
+        return None;
+    };
+    let (name, value_prefix) = first.split_once('=')?;
+    if !is_valid_assignment_name(name) {
+        return None;
+    }
+    let mut value_parts = word.parts.clone();
+    if value_prefix.is_empty() {
+        value_parts.remove(0);
+    } else {
+        value_parts[0] = WordPart::Literal(value_prefix.to_string());
+    }
+    Some(Assignment {
+        name: name.to_string(),
+        value: Word::new(value_parts),
+    })
 }
 
 fn parse_variable(input: &[char], index: &mut usize) -> Result<Option<String>, ParseError> {
@@ -399,20 +435,35 @@ pub fn parse(input: &str) -> Result<ExecutionPlan, ParseError> {
     loop {
         let mut commands = Vec::new();
         loop {
-            let Some((token, word)) = tokens.get(index) else {
+            if tokens.get(index).is_none() {
                 if commands.is_empty() {
                     return Err(ParseError::EmptyPipeline);
                 }
                 break;
+            }
+            let mut assignments = Vec::new();
+            let program = loop {
+                let Some((token, word)) = tokens.get(index) else {
+                    if assignments.is_empty() {
+                        return Err(ParseError::EmptyPipeline);
+                    }
+                    break Word::new(Vec::new());
+                };
+                if *token != Token::Word {
+                    if assignments.is_empty() {
+                        return Err(ParseError::UnexpectedToken(token_name(*token)));
+                    }
+                    break Word::new(Vec::new());
+                }
+                let candidate = word.clone().ok_or(ParseError::EmptyPipeline)?;
+                if let Some(assignment) = split_assignment(&candidate) {
+                    assignments.push(assignment);
+                    index += 1;
+                    continue;
+                }
+                index += 1;
+                break candidate;
             };
-            let Some(program) = (if *token == Token::Word {
-                word.clone()
-            } else {
-                None
-            }) else {
-                return Err(ParseError::UnexpectedToken(token_name(*token)));
-            };
-            index += 1;
             let mut arguments = Vec::new();
             let mut redirections = Vec::new();
 
@@ -462,6 +513,7 @@ pub fn parse(input: &str) -> Result<ExecutionPlan, ParseError> {
             }
 
             commands.push(CommandPlan {
+                assignments,
                 program,
                 arguments,
                 redirections,
@@ -547,6 +599,25 @@ mod tests {
                 WordPart::Literal(".rs".to_string())
             ]
         );
+    }
+
+    #[test]
+    fn parses_leading_environment_assignments_without_reclassifying_arguments() {
+        let plan = parse("GREETING='hello world' echo $GREETING").expect("valid assignment");
+        let command = &plan.pipelines[0].commands[0];
+        assert_eq!(command.assignments.len(), 1);
+        assert_eq!(command.assignments[0].name, "GREETING");
+        assert_eq!(
+            command.assignments[0].value.parts(),
+            &[WordPart::Literal("hello world".to_string())]
+        );
+        assert_eq!(command.program.literal_value().as_deref(), Some("echo"));
+        assert_eq!(command.arguments.len(), 1);
+
+        let assignment_only = parse("TOKEN=secret").expect("assignment-only command");
+        let command = &assignment_only.pipelines[0].commands[0];
+        assert_eq!(command.assignments.len(), 1);
+        assert!(command.program.parts().is_empty());
     }
 
     #[test]

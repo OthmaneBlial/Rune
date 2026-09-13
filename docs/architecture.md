@@ -38,12 +38,14 @@ Session persistence is explicit and intentionally narrow: `~/.rune/session.state
 stores the virtual working directory and command history, while environment
 variables are reconstructed for every session and are never serialized. The
 current shell environment can be changed by the Rust `export`, `unset`, and
-`setenv` built-ins, but those changes are intentionally session-local. The
-The initial history policy replaces parsed `export` and `setenv` command lines
-with `[redacted environment assignment]` before storage. The command still
-executes with its real value in memory. This is only a narrow first defense;
-configurable redaction is still required before Rune handles workflows where
-users type credentials into arbitrary commands.
+`setenv` built-ins, or by leading `NAME=value` assignments. Assignments are
+expanded from the current environment in left-to-right order, remain
+session-local, and may be used without a command. The initial history policy
+replaces parsed `export`, `setenv`, and assignment lines with
+`[redacted environment assignment]` before storage. The command still executes
+with its real value in memory. This is only a narrow first defense; configurable
+redaction is still required before Rune handles workflows where users type
+credentials into arbitrary commands.
 
 On restore, Rune reads at most 64 KiB from `~/.rune_profile`. It skips blank and
 full-line comment entries, executes each remaining line through the same Rust

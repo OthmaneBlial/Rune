@@ -279,6 +279,10 @@ impl Session {
     }
 
     fn execute_command(&mut self, command: &CommandPlan, external_stdin: &str) -> CommandOutput {
+        for assignment in &command.assignments {
+            let value = expand_word(&assignment.value, &self.environment, self.last_status).value;
+            self.environment.insert(assignment.name.clone(), value);
+        }
         let program = expand_word(&command.program, &self.environment, self.last_status).value;
         let mut arguments = Vec::new();
         for word in &command.arguments {
@@ -320,10 +324,12 @@ impl Session {
             }
         }
 
-        let Some(handler) = self.registry.find(&program) else {
-            return CommandOutput::failure(127, format!("{program}: command not found\n"));
-        };
-        let mut output = {
+        let mut output = if command.program.parts().is_empty() && !command.assignments.is_empty() {
+            CommandOutput::success("")
+        } else {
+            let Some(handler) = self.registry.find(&program) else {
+                return CommandOutput::failure(127, format!("{program}: command not found\n"));
+            };
             let mut context = CommandContext {
                 args: &arguments,
                 stdin: &stdin,
@@ -399,10 +405,11 @@ fn history_entry(line: &str) -> String {
     };
     let contains_environment_setter = plan.pipelines.iter().any(|pipeline| {
         pipeline.commands.iter().any(|command| {
-            matches!(
-                command.program.literal_value().as_deref(),
-                Some("export" | "setenv")
-            )
+            !command.assignments.is_empty()
+                || matches!(
+                    command.program.literal_value().as_deref(),
+                    Some("export" | "setenv")
+                )
         })
     });
     if contains_environment_setter {
@@ -495,6 +502,19 @@ mod tests {
         );
         assert_eq!(session.execute_line("setenv NUMBER 42").status, 0);
         assert_eq!(session.execute_line("echo $NUMBER").stdout, "42\n");
+        assert_eq!(
+            session.execute_line("PREFIX=run echo \"$PREFIX\"").stdout,
+            "run\n"
+        );
+        assert_eq!(
+            session.environment().get("PREFIX").map(String::as_str),
+            Some("run")
+        );
+        assert_eq!(session.execute_line("FIRST=one SECOND=$FIRST").status, 0);
+        assert_eq!(
+            session.environment().get("SECOND").map(String::as_str),
+            Some("one")
+        );
         assert_eq!(session.execute_line("unset GREETING").status, 0);
         assert_eq!(session.execute_line("printenv GREETING").status, 1);
         assert_eq!(
@@ -591,6 +611,25 @@ mod tests {
             session.history().last().map(String::as_str),
             Some("[redacted environment assignment]")
         );
+        let output = session.execute_line("SECOND_TOKEN=another-secret-value echo ok");
+        assert_eq!(output.status, 0);
+        assert_eq!(
+            session.history().last().map(String::as_str),
+            Some("[redacted environment assignment]")
+        );
+        let output = session.execute_line("ONLY_TOKEN=only-secret-value");
+        assert_eq!(output.status, 0);
+        assert_eq!(
+            session.environment().get("ONLY_TOKEN").map(String::as_str),
+            Some("only-secret-value")
+        );
+        assert_eq!(
+            session.history().last().map(String::as_str),
+            Some("[redacted environment assignment]")
+        );
+        session.persist().expect("redacted history persisted");
+        let state = std::fs::read_to_string(root.join(".rune/session.state")).expect("state read");
+        assert!(!state.contains("only-secret-value"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 }
