@@ -15,6 +15,7 @@ const MAX_SCROLLBACK_LIMIT: usize = 8_192;
 const DEFAULT_TOOLBAR_VISIBLE: bool = true;
 const DEFAULT_THEME: TerminalTheme = TerminalTheme::Ink;
 const DEFAULT_CURSOR_COLOR: TerminalCursorColor = TerminalCursorColor::Cyan;
+const DEFAULT_CURSOR_SHAPE: TerminalCursorShape = TerminalCursorShape::Bar;
 const DEFAULT_FONT: TerminalFont = TerminalFont::Monospaced;
 const DEFAULT_BACKGROUND: TerminalBackground = TerminalBackground::Auto;
 const DEFAULT_FOREGROUND: TerminalForeground = TerminalForeground::Auto;
@@ -70,6 +71,34 @@ impl TerminalCursorColor {
             "cyan" => Some(Self::Cyan),
             "ember" => Some(Self::Ember),
             "foreground" => Some(Self::Foreground),
+            _ => None,
+        }
+    }
+}
+
+/// Cursor shapes exposed by the native terminal configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalCursorShape {
+    Block,
+    Underline,
+    Bar,
+}
+
+impl TerminalCursorShape {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Block => "block",
+            Self::Underline => "underline",
+            Self::Bar => "bar",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "block" => Some(Self::Block),
+            "underline" => Some(Self::Underline),
+            "bar" => Some(Self::Bar),
             _ => None,
         }
     }
@@ -177,6 +206,7 @@ pub struct TerminalConfig {
     toolbar_visible: bool,
     theme: TerminalTheme,
     cursor_color: TerminalCursorColor,
+    cursor_shape: TerminalCursorShape,
     font: TerminalFont,
     background: TerminalBackground,
     foreground: TerminalForeground,
@@ -191,6 +221,7 @@ impl Default for TerminalConfig {
             toolbar_visible: DEFAULT_TOOLBAR_VISIBLE,
             theme: DEFAULT_THEME,
             cursor_color: DEFAULT_CURSOR_COLOR,
+            cursor_shape: DEFAULT_CURSOR_SHAPE,
             font: DEFAULT_FONT,
             background: DEFAULT_BACKGROUND,
             foreground: DEFAULT_FOREGROUND,
@@ -238,6 +269,12 @@ impl TerminalConfig {
         self.cursor_color
     }
 
+    /// Returns the configured native terminal cursor shape.
+    #[must_use]
+    pub const fn cursor_shape(&self) -> TerminalCursorShape {
+        self.cursor_shape
+    }
+
     /// Returns the configured native terminal font design.
     #[must_use]
     pub const fn font(&self) -> TerminalFont {
@@ -280,6 +317,10 @@ impl TerminalConfig {
         self.cursor_color = value;
     }
 
+    pub(super) fn set_cursor_shape(&mut self, value: TerminalCursorShape) {
+        self.cursor_shape = value;
+    }
+
     pub(super) fn set_font(&mut self, value: TerminalFont) {
         self.font = value;
     }
@@ -308,13 +349,14 @@ impl TerminalConfig {
             Err(error) => return Err(error),
         }
         let content = format!(
-            "{CONFIG_HEADER}\nhistory_limit={}\nfont_size={}\nscrollback_limit={}\ntoolbar_visible={}\ntheme={}\ncursor_color={}\nfont={}\nbackground={}\nforeground={}\n",
+            "{CONFIG_HEADER}\nhistory_limit={}\nfont_size={}\nscrollback_limit={}\ntoolbar_visible={}\ntheme={}\ncursor_color={}\ncursor_shape={}\nfont={}\nbackground={}\nforeground={}\n",
             self.history_limit,
             self.font_size,
             self.scrollback_limit,
             self.toolbar_visible,
             self.theme.as_str(),
             self.cursor_color.as_str(),
+            self.cursor_shape.as_str(),
             self.font.as_str(),
             self.background.as_str(),
             self.foreground.as_str()
@@ -440,6 +482,22 @@ pub(super) fn update_cursor_color(
     Ok(())
 }
 
+pub(super) fn update_cursor_shape(
+    filesystem: &mut dyn VirtualFileSystem,
+    config: &mut TerminalConfig,
+    value: &str,
+) -> Result<(), String> {
+    let cursor_shape = TerminalCursorShape::parse(value)
+        .ok_or_else(|| "cursor-shape must be one of: block, underline, bar".to_string())?;
+    let previous = config.clone();
+    config.set_cursor_shape(cursor_shape);
+    if let Err(error) = config.save(filesystem) {
+        *config = previous;
+        return Err(format!("could not persist configuration: {error}"));
+    }
+    Ok(())
+}
+
 pub(super) fn update_font(
     filesystem: &mut dyn VirtualFileSystem,
     config: &mut TerminalConfig,
@@ -501,11 +559,12 @@ pub(super) fn update(
         "toolbar-visible" => update_toolbar_visible(filesystem, config, value),
         "theme" => update_theme(filesystem, config, value),
         "cursor-color" => update_cursor_color(filesystem, config, value),
+        "cursor-shape" => update_cursor_shape(filesystem, config, value),
         "font" => update_font(filesystem, config, value),
         "background" => update_background(filesystem, config, value),
         "foreground" => update_foreground(filesystem, config, value),
         _ => Err(
-            "unknown key; available keys: history-limit, font-size, scrollback-limit, toolbar-visible, theme, cursor-color, font, background, foreground"
+            "unknown key; available keys: history-limit, font-size, scrollback-limit, toolbar-visible, theme, cursor-color, cursor-shape, font, background, foreground"
                 .to_string(),
         ),
     }
@@ -536,6 +595,7 @@ fn parse(content: &str) -> Option<TerminalConfig> {
     let mut seen_toolbar_visible = false;
     let mut seen_theme = false;
     let mut seen_cursor_color = false;
+    let mut seen_cursor_shape = false;
     let mut seen_font = false;
     let mut seen_background = false;
     let mut seen_foreground = false;
@@ -582,6 +642,10 @@ fn parse(content: &str) -> Option<TerminalConfig> {
                 config.cursor_color = TerminalCursorColor::parse(value)?;
                 seen_cursor_color = true;
             }
+            "cursor_shape" if !seen_cursor_shape => {
+                config.cursor_shape = TerminalCursorShape::parse(value)?;
+                seen_cursor_shape = true;
+            }
             "font" if !seen_font => {
                 config.font = TerminalFont::parse(value)?;
                 seen_font = true;
@@ -603,10 +667,10 @@ fn parse(content: &str) -> Option<TerminalConfig> {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse, TerminalBackground, TerminalConfig, TerminalCursorColor, TerminalFont,
-        TerminalForeground, TerminalTheme, CONFIG_HEADER, DEFAULT_BACKGROUND, DEFAULT_CURSOR_COLOR,
-        DEFAULT_FONT, DEFAULT_FONT_SIZE, DEFAULT_FOREGROUND, DEFAULT_SCROLLBACK_LIMIT,
-        DEFAULT_THEME, DEFAULT_TOOLBAR_VISIBLE,
+        parse, TerminalBackground, TerminalConfig, TerminalCursorColor, TerminalCursorShape,
+        TerminalFont, TerminalForeground, TerminalTheme, CONFIG_HEADER, DEFAULT_BACKGROUND,
+        DEFAULT_CURSOR_COLOR, DEFAULT_CURSOR_SHAPE, DEFAULT_FONT, DEFAULT_FONT_SIZE,
+        DEFAULT_FOREGROUND, DEFAULT_SCROLLBACK_LIMIT, DEFAULT_THEME, DEFAULT_TOOLBAR_VISIBLE,
     };
 
     #[test]
@@ -619,6 +683,7 @@ mod tests {
         assert_eq!(config.toolbar_visible(), DEFAULT_TOOLBAR_VISIBLE);
         assert_eq!(config.theme(), DEFAULT_THEME);
         assert_eq!(config.cursor_color(), DEFAULT_CURSOR_COLOR);
+        assert_eq!(config.cursor_shape(), DEFAULT_CURSOR_SHAPE);
         assert_eq!(config.font(), DEFAULT_FONT);
         assert_eq!(config.background(), DEFAULT_BACKGROUND);
         assert_eq!(config.foreground(), DEFAULT_FOREGROUND);
@@ -660,6 +725,14 @@ mod tests {
             TerminalCursorColor::Ember
         );
         assert!(parse("RUNE_CONFIG_V1\ncursor_color=violet\n").is_none());
+        let cursor_shape = format!("{content}cursor_shape=underline\n");
+        assert_eq!(
+            parse(&cursor_shape)
+                .expect("cursor shape should parse")
+                .cursor_shape(),
+            TerminalCursorShape::Underline
+        );
+        assert!(parse("RUNE_CONFIG_V1\ncursor_shape=diamond\n").is_none());
         let font = format!("{content}font=rounded\n");
         assert_eq!(
             parse(&font).expect("font should parse").font(),
@@ -707,6 +780,10 @@ mod tests {
         assert_eq!(
             TerminalConfig::default().cursor_color(),
             DEFAULT_CURSOR_COLOR
+        );
+        assert_eq!(
+            TerminalConfig::default().cursor_shape(),
+            DEFAULT_CURSOR_SHAPE
         );
         assert_eq!(TerminalConfig::default().font(), DEFAULT_FONT);
         assert_eq!(TerminalConfig::default().background(), DEFAULT_BACKGROUND);

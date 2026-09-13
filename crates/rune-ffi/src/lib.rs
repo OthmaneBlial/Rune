@@ -723,13 +723,14 @@ pub extern "C" fn rune_session_configuration(handle: *const std::ffi::c_void) ->
     // SAFETY: the pointer is read-only and owned by the Swift session.
     let session = unsafe { &*handle.cast::<RuneSession>() };
     let configuration = format!(
-        "history-limit={}\nfont-size={}\nscrollback-limit={}\ntoolbar-visible={}\ntheme={}\ncursor-color={}\nfont={}\nbackground={}\nforeground={}\n",
+        "history-limit={}\nfont-size={}\nscrollback-limit={}\ntoolbar-visible={}\ntheme={}\ncursor-color={}\ncursor-shape={}\nfont={}\nbackground={}\nforeground={}\n",
         session.core.configuration().history_limit(),
         session.core.configuration().font_size(),
         session.core.configuration().scrollback_limit(),
         session.core.configuration().toolbar_visible(),
         session.core.configuration().theme().as_str(),
         session.core.configuration().cursor_color().as_str(),
+        session.core.configuration().cursor_shape().as_str(),
         session.core.configuration().font().as_str(),
         session.core.configuration().background().as_str(),
         session.core.configuration().foreground().as_str()
@@ -967,7 +968,7 @@ mod tests {
         let configuration = rune_session_configuration(handle);
         assert_eq!(
             c_string(configuration),
-            "history-limit=1000\nfont-size=15\nscrollback-limit=4096\ntoolbar-visible=true\ntheme=ink\ncursor-color=cyan\nfont=monospaced\nbackground=auto\nforeground=auto\n"
+            "history-limit=1000\nfont-size=15\nscrollback-limit=4096\ntoolbar-visible=true\ntheme=ink\ncursor-color=cyan\ncursor-shape=bar\nfont=monospaced\nbackground=auto\nforeground=auto\n"
         );
         // SAFETY: configuration was returned by rune_session_configuration.
         unsafe { rune_string_free(configuration) };

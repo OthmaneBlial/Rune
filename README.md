@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 78%**
+**Overall progress: 79%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -23,10 +23,10 @@ working iOS application or a feature-parity claim.
 | Command runtime | 94% |
 | Sandboxed filesystem | 70% |
 | Sessions/history | 66% |
-| Configuration | 63% |
+| Configuration | 66% |
 | WASM | 52% |
-| Native iOS UI | 70% |
-| Swift/Rust bridge | 58% |
+| Native iOS UI | 72% |
+| Swift/Rust bridge | 60% |
 | Package manager | 66% |
 | Compatibility evidence | 3% |
 
@@ -100,13 +100,14 @@ The iOS app is represented by
 source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
 and runtime gates remain unverified. Bounded directory enumeration and
 current-directory/history persistence now exist in Rust; bounded
-`history-limit`, `font`, `font-size`, `scrollback-limit`, `theme`, `cursor-color`,
-`background`, and `foreground` configuration
+`history-limit`, `font`, `font-size`, `scrollback-limit`, `toolbar-visible`, `theme`,
+`cursor-color`, `cursor-shape`, `background`, and `foreground` configuration
 is available, and the native source UI consumes the font size, bounded
 scrollback window, three named palettes, the Rust-owned font design, cursor color,
-and independent background/foreground overrides. Cursor shape,
-configurable redaction, and broader session recovery remain planned. Non-WASM language runtimes remain
-planned work.
+and independent background/foreground overrides. The native source-only command
+editor applies the configured bar, block, or underline caret when UIKit is
+available. Configurable redaction and broader session recovery remain planned.
+Non-WASM language runtimes remain planned work.
 
 The Rust package boundary now validates bounded, versioned JSON manifests and
 registry indexes, and checks declared file bytes with SHA-256. Local installation
@@ -244,17 +245,18 @@ This protects the UI from unbounded replay growth while Rust retains its own
 bounded per-command output and persisted history policies.
 
 The portable configuration boundary currently supports bounded `history-limit`,
-`font`, `font-size`, `scrollback-limit`, `theme`, `cursor-color`, `background`,
-and `foreground` settings through `config get`,
+`font`, `font-size`, `scrollback-limit`, `toolbar-visible`, `theme`,
+`cursor-color`, `cursor-shape`, `background`, and `foreground` settings through `config get`,
 `config set`, and `config reset`. The scrollback setting accepts 128–8,192
 rendered entries and remains subject to the UI's 8 MiB byte cap. It persists in
 `~/.rune/config.state`. The FFI also exposes validated Rust-native set/reset
 calls that do not create history entries; the source-only SwiftUI settings
 sheet uses those calls for font, font size, scrollback, theme, cursor color,
-background, foreground, reset, and toolbar visibility. A separate source-only input toolbar provides bounded
+cursor shape, background, foreground, reset, and toolbar visibility. A separate source-only input toolbar provides bounded
 Tab/completion, Escape, Ctrl-C, display-clear, and paste controls; its
-visibility and cursor color are persisted by the Rust configuration boundary. Cursor
-shape remains unverified and not yet configurable.
+visibility, cursor color, and cursor shape are persisted by the Rust configuration
+boundary. The UIKit caret implementation is source-only evidence; Apple
+compilation and runtime rendering remain unverified.
 
 The `history` built-in also supports `history N` for a bounded recent view,
 `history search QUERY ...` for a case-insensitive substring search that keeps
@@ -352,7 +354,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded WASI preview1 runtime boundary and resource limits
 - [x] Bounded package metadata, integrity, local WASM installation, and local update
 - [x] Portable runtime request/output contract
-- [x] Bounded Rust-owned history, font, font-size, scrollback, theme, cursor-color, background, and foreground configuration
+- [x] Bounded Rust-owned history, font, font-size, scrollback, toolbar-visible, theme, cursor-color, cursor-shape, background, and foreground configuration
 - [x] Bounded stored ZIP and USTAR tar creation/listing/extraction with path validation
 - [x] Explicit host HTTP capability and bounded `curl` transport boundary
 - [x] Bounded HTTPS registry index, remote search, and explicit-version update policy

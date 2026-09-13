@@ -1,6 +1,9 @@
 import SwiftUI
 import Combine
 import UniformTypeIdentifiers
+#if canImport(UIKit)
+import UIKit
+#endif
 
 public struct RuneTranscriptEntry: Identifiable, Hashable, Sendable {
     public enum Kind: Hashable, Sendable {
@@ -40,6 +43,7 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var toolbarVisible = true
     @Published public private(set) var theme = "ink"
     @Published public private(set) var cursorColor = "cyan"
+    @Published public private(set) var cursorShape = "bar"
     @Published public private(set) var background = "auto"
     @Published public private(set) var foreground = "auto"
     @Published public private(set) var initializationError: String?
@@ -351,6 +355,10 @@ public final class RuneTerminalModel: ObservableObject {
                 if ["cyan", "ember", "foreground"].contains(pair[1]) {
                     cursorColor = pair[1]
                 }
+            case "cursor-shape":
+                if ["bar", "block", "underline"].contains(pair[1]) {
+                    cursorShape = pair[1]
+                }
             case "background":
                 if ["auto", "black", "white", "slate"].contains(pair[1]) {
                     background = pair[1]
@@ -605,6 +613,25 @@ public struct RuneTerminalView: View {
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
                         .foregroundStyle(palette.cyan)
                         .lineLimit(1)
+#if canImport(UIKit)
+                    RuneUIKitCommandEditor(
+                        text: $model.command,
+                        isFocused: Binding(
+                            get: { inputFocused },
+                            set: { inputFocused = $0 }
+                        ),
+                        fontSize: model.fontSize,
+                        fontDesign: model.font,
+                        foreground: model.foreground,
+                        cursorColor: model.cursorColor,
+                        cursorShape: model.cursorShape,
+                        onSubmit: {
+                            model.submit()
+                            inputFocused = true
+                        }
+                    )
+                    .frame(minHeight: 22, maxHeight: 100)
+#else
                     TextField("Enter a Rune command", text: $model.command, axis: .vertical)
                         .font(terminalFont(size: model.fontSize))
                         .foregroundStyle(palette.foreground)
@@ -619,6 +646,7 @@ public struct RuneTerminalView: View {
                             model.submit()
                             inputFocused = true
                         }
+#endif
                         .accessibilityLabel("Command input")
                         .accessibilityHint("Enter a Rust-backed Rune command and submit it.")
                         .accessibilityIdentifier("rune.commandInput")
@@ -740,12 +768,138 @@ public struct RuneTerminalView: View {
     }
 }
 
+#if canImport(UIKit)
+private final class RuneCursorTextView: UITextView {
+    var cursorShape = "bar" {
+        didSet { setNeedsDisplay() }
+    }
+
+    override func caretRect(for position: UITextPosition) -> CGRect {
+        var rect = super.caretRect(for: position)
+        guard !rect.isNull, !rect.isInfinite, rect.height > 0 else {
+            return rect
+        }
+        switch cursorShape {
+        case "block":
+            rect.size.width = max(rect.width, rect.height * 0.6)
+        case "underline":
+            rect.origin.y = max(rect.origin.y, rect.maxY - 2)
+            rect.size.height = 2
+        default:
+            rect.size.width = max(rect.width, 2)
+        }
+        return rect
+    }
+}
+
+private struct RuneUIKitCommandEditor: UIViewRepresentable {
+    @Binding var text: String
+    @Binding var isFocused: Bool
+    let fontSize: CGFloat
+    let fontDesign: String
+    let foreground: String
+    let cursorColor: String
+    let cursorShape: String
+    let onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, onSubmit: onSubmit)
+    }
+
+    func makeUIView(context: Context) -> RuneCursorTextView {
+        let view = RuneCursorTextView()
+        view.delegate = context.coordinator
+        view.backgroundColor = .clear
+        view.textContainerInset = .zero
+        view.textContainer.lineFragmentPadding = 0
+        view.textContainer.maximumNumberOfLines = 4
+        view.textContainer.lineBreakMode = .byWordWrapping
+        view.isScrollEnabled = false
+        view.autocorrectionType = .no
+        view.autocapitalizationType = .none
+        view.font = resolvedFont()
+        view.textColor = resolvedForegroundColor()
+        view.tintColor = resolvedCursorColor()
+        view.cursorShape = cursorShape
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return view
+    }
+
+    func updateUIView(_ view: RuneCursorTextView, context: Context) {
+        if view.text != text {
+            view.text = text
+        }
+        view.font = resolvedFont()
+        view.textColor = resolvedForegroundColor()
+        view.tintColor = resolvedCursorColor()
+        view.cursorShape = cursorShape
+        view.invalidateIntrinsicContentSize()
+        if isFocused, !view.isFirstResponder {
+            view.becomeFirstResponder()
+        } else if !isFocused, view.isFirstResponder {
+            view.resignFirstResponder()
+        }
+    }
+
+    private func resolvedFont() -> UIFont {
+        if fontDesign == "monospaced" {
+            return .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        }
+        return .systemFont(ofSize: fontSize)
+    }
+
+    private func resolvedForegroundColor() -> UIColor {
+        switch foreground {
+        case "black": return .black
+        case "white": return .white
+        case "cyan": return .systemTeal
+        case "ember": return .systemOrange
+        default: return .label
+        }
+    }
+
+    private func resolvedCursorColor() -> UIColor {
+        switch cursorColor {
+        case "ember": return .systemOrange
+        case "foreground": return resolvedForegroundColor()
+        default: return .systemTeal
+        }
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        @Binding var text: String
+        let onSubmit: () -> Void
+
+        init(text: Binding<String>, onSubmit: @escaping () -> Void) {
+            _text = text
+            self.onSubmit = onSubmit
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            text = textView.text
+        }
+
+        func textView(
+            _ textView: UITextView,
+            shouldChangeTextIn range: NSRange,
+            replacementText replacement: String
+        ) -> Bool {
+            guard replacement == "\n" else { return true }
+            onSubmit()
+            return false
+        }
+    }
+}
+#endif
+
 private struct RuneSettingsView: View {
     @ObservedObject var model: RuneTerminalModel
     @Environment(\.dismiss) private var dismiss
 
     private let themes = ["ink", "light", "ember"]
     private let cursorColors = ["cyan", "ember", "foreground"]
+    private let cursorShapes = ["bar", "block", "underline"]
     private let fonts = ["monospaced", "system", "rounded"]
     private let backgrounds = ["auto", "black", "white", "slate"]
     private let foregrounds = ["auto", "black", "white", "cyan", "ember"]
@@ -820,6 +974,18 @@ private struct RuneSettingsView: View {
                     ) {
                         ForEach(cursorColors, id: \.self) { color in
                             Text(color.capitalized).tag(color)
+                        }
+                    }
+
+                    Picker(
+                        "Cursor shape",
+                        selection: Binding(
+                            get: { model.cursorShape },
+                            set: { model.setConfiguration(key: "cursor-shape", value: $0) }
+                        )
+                    ) {
+                        ForEach(cursorShapes, id: \.self) { shape in
+                            Text(shape.capitalized).tag(shape)
                         }
                     }
 

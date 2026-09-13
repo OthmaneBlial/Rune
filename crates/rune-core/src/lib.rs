@@ -10,8 +10,8 @@ mod network;
 mod persistence;
 
 pub use config::{
-    TerminalBackground, TerminalConfig, TerminalCursorColor, TerminalFont, TerminalForeground,
-    TerminalTheme,
+    TerminalBackground, TerminalConfig, TerminalCursorColor, TerminalCursorShape, TerminalFont,
+    TerminalForeground, TerminalTheme,
 };
 pub use network::{
     DisabledNetworkProvider, NetworkError, NetworkMethod, NetworkProvider, NetworkRequest,
@@ -2415,6 +2415,7 @@ mod tests {
         let settings = [
             ("font", "rounded", "font=rounded\n"),
             ("cursor-color", "ember", "cursor-color=ember\n"),
+            ("cursor-shape", "underline", "cursor-shape=underline\n"),
             ("background", "slate", "background=slate\n"),
             ("foreground", "ember", "foreground=ember\n"),
         ];
@@ -2435,6 +2436,10 @@ mod tests {
             Session::restore(SandboxedFileSystem::new(&root).expect("root reopened"));
         assert_eq!(restored.configuration().font().as_str(), "rounded");
         assert_eq!(restored.configuration().cursor_color().as_str(), "ember");
+        assert_eq!(
+            restored.configuration().cursor_shape().as_str(),
+            "underline"
+        );
         assert_eq!(restored.configuration().background().as_str(), "slate");
         assert_eq!(restored.configuration().foreground().as_str(), "ember");
         assert_eq!(restored.execute_line("config reset").status, 0);
@@ -2465,6 +2470,8 @@ mod tests {
             session.configuration().cursor_color().as_str(),
             "foreground"
         );
+        assert_eq!(session.set_configuration("cursor-shape", "block").status, 0);
+        assert_eq!(session.configuration().cursor_shape().as_str(), "block");
         assert_eq!(session.set_configuration("font", "system").status, 0);
         assert_eq!(session.configuration().font().as_str(), "system");
         assert_eq!(session.set_configuration("background", "white").status, 0);
@@ -2486,6 +2493,12 @@ mod tests {
             session.configuration().cursor_color().as_str(),
             "foreground"
         );
+        let invalid_cursor_shape = session.set_configuration("cursor-shape", "diamond");
+        assert_eq!(invalid_cursor_shape.status, 2);
+        assert!(invalid_cursor_shape
+            .stderr
+            .contains("cursor-shape must be one of"));
+        assert_eq!(session.configuration().cursor_shape().as_str(), "block");
         let invalid_font = session.set_configuration("font", "serif");
         assert_eq!(invalid_font.status, 2);
         assert!(invalid_font.stderr.contains("font must be one of"));

@@ -95,19 +95,21 @@ Configuration is a separate, versioned Rust-owned file at
 between 1 and 10,000, a `font_size` between 8 and 32 points, a
 `scrollback_limit` between 128 and 8,192 rendered entries, a font design in
 `monospaced`, `system`, or `rounded`, a theme in `ink`, `light`, or `ember`, and
-a cursor color in `cyan`, `ember`, or `foreground`.
+a cursor color in `cyan`, `ember`, or `foreground`, and a cursor shape in
+`bar`, `block`, or `underline`.
 It also supports independent background overrides in `auto`, `black`, `white`,
 or `slate`, and foreground overrides in `auto`, `black`, `white`, `cyan`, or
 `ember`.
 `config get`, `config set`, and `config reset` update these
-values, and the session applies them immediately. SwiftUI consumes all nine
+values, and the session applies them immediately. SwiftUI consumes all ten
 settings; the public session and C ABI also expose validated set/reset
 operations that do not add shell text to history, allowing native settings
 surfaces to use the same Rust policy. The source-only SwiftUI sheet uses that
-boundary for font, font size, scrollback, theme, cursor color, background,
-foreground, reset, and toolbar
-visibility; its scrollback window also remains subject to an 8 MiB byte cap.
-Cursor shape remains outside the current contract.
+boundary for font, font size, scrollback, theme, cursor color, cursor shape,
+background, foreground, reset, and toolbar visibility; its scrollback window
+also remains subject to an 8 MiB byte cap. The source-only UIKit command editor
+maps the validated shape to bar, block, or underline caret geometry when UIKit
+is available; Apple compilation and runtime rendering remain unverified.
 
 The `history` built-in can render the full session, a bounded recent count,
 search matching entries with `history search QUERY ...`, or clear the mutable
@@ -379,7 +381,7 @@ buffer. This keeps network and WASM capabilities separate and leaves ATS,
 TLS, redirects, and Apple runtime validation as explicit gates.
 
 The native configuration query is also Rust-owned: its FFI serialization now
-includes every persisted key consumed by Swift, while Swift applies only values
+includes every persisted key consumed by Swift, including cursor shape, while Swift applies only values
 from the validated finite sets. This keeps the settings sheet from maintaining
 a second configuration source; visual rendering remains an Apple-runtime gate.
 

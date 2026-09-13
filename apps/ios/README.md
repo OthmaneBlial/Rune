@@ -52,8 +52,8 @@ alive while the matching Rust session is active, and hands Rust only the
 approved folder root. This is source/API evidence; picker behavior and
 entitlements remain unverified without an Apple build/runtime.
 
-The configuration query crosses the FFI as all nine persisted Rust-owned keys,
-including cursor color, font, background, and foreground overrides; Swift
+The configuration query crosses the FFI as all ten persisted Rust-owned keys,
+including cursor color, cursor shape, font, background, and foreground overrides; Swift
 validates those values before applying them to the source-only view. This is
 contract evidence, not proof of rendered appearance on Apple hardware.
 
@@ -100,13 +100,15 @@ intentionally visible in the local state boundary. Interactive `export`,
 `setenv`, and assignment command lines are currently replaced by a redaction
 marker before history is stored; arbitrary credential-bearing commands still
 require a configurable policy. The Rust core also persists bounded
-`history-limit`, `font`, `font-size`, `scrollback-limit`, `theme`, `cursor-color`,
-`background`, and `foreground` configuration in
+`history-limit`, `font`, `font-size`, `scrollback-limit`, `toolbar-visible`, `theme`,
+`cursor-color`, `cursor-shape`, `background`, and `foreground` configuration in
 `~/.rune/config.state`. The bridge exposes both key/value inspection and
 validated set/reset calls without creating history entries; the source-only
 Swift view provides a settings sheet for font, font size, scrollback, theme,
-cursor color, background, foreground, reset, and Rust-persisted toolbar visibility. Cursor shape remains
-outside the current source-only contract.
+cursor color, cursor shape, background, foreground, reset, and Rust-persisted
+toolbar visibility. The source-only UIKit command editor maps bar, block, and
+underline to caret geometry when UIKit is available. Apple compilation and
+runtime rendering remain unverified.
 
 On restore, the Rust core reads a maximum of 64 KiB from `~/.rune_profile`,
 skips blank/full-line comment entries, runs only registered Rune built-ins, and
