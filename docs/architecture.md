@@ -113,6 +113,10 @@ duplicate entries, undeclared command targets, and malformed digests. Declared
 file bytes are checked with SHA-256 before a future installer can trust them.
 This is integrity evidence, not a signature or publisher-trust system; signed
 repositories and installation policy remain future work.
+The `pkg info` and `pkg verify` built-ins expose only local manifest inspection
+and verification through the VFS. `install`, `search`, `remove`, and `update`
+return an explicit unsupported-operation error; no network client or installer
+exists yet.
 
 Unquoted `*` and `?` are expanded by `rune-core` through the VFS `glob` method;
 quoted patterns remain literal, hidden entries require a leading `.`, and an

@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 23%**
+**Overall progress: 24%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -26,7 +26,7 @@ working iOS application or a feature-parity claim.
 | WASM | 22% |
 | Native iOS UI | 9% |
 | Swift/Rust bridge | 6% |
-| Package manager | 4% |
+| Package manager | 10% |
 | Compatibility evidence | 2% |
 
 ## Current status
@@ -35,8 +35,8 @@ The first Rust vertical slice is implemented and locally verified. It executes
 the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `printenv`, `setenv`,
 `alias`, `unalias`, `find`, `sed`,
-`true`, `false`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `clear`,
-`help`,
+`true`, `false`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `pkg`,
+`clear`, `help`,
 and `history` against a bounded filesystem, including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
 with quotes, variables, leading `NAME=value` assignments, pipes, redirections,
@@ -69,7 +69,8 @@ planned work.
 
 The Rust package boundary now validates a bounded, versioned JSON manifest and
 checks declared file bytes with SHA-256. There is deliberately no network
-transport or install command yet, so package-manager progress remains early.
+transport or install/remove command yet, so package-manager progress remains
+early.
 
 The `wasm MODULE [arg ...]` built-in loads a module through the bounded virtual
 filesystem and executes WASI preview1 `_start` in Rust. It exposes only
@@ -77,6 +78,11 @@ stdin/stdout/stderr, arguments, and the session environment; it does not
 preopen a host directory. Module bytes, interpreter fuel, linear memory,
 tables, and captured output are bounded. This is an initial WASM execution
 slice, not a language runtime or package manager.
+
+The `pkg info MANIFEST` and `pkg verify MANIFEST` commands inspect local
+versioned package metadata through the same VFS and verify declared SHA-256
+file digests. Network transport and installation commands are intentionally
+unsupported at this stage.
 
 No a-Shell compatibility area is marked `supported` without behavior and test
 evidence. See [`compat/a-shell-compatibility.json`](compat/a-shell-compatibility.json).
@@ -148,7 +154,7 @@ git check-ignore -v base/a-shell
 ### Phase 3 — Developer environment
 
 - [x] Bounded WASI preview1 runtime boundary and resource limits
-- [ ] Package metadata and verification
+- [x] Bounded package metadata and integrity verification
 - [ ] Python, JavaScript, and Lua runtime evaluation
 - [ ] Completion and help system (initial first-word suggestions exist)
 

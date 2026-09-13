@@ -673,6 +673,43 @@ mod tests {
     }
 
     #[test]
+    fn inspects_and_verifies_a_local_package_manifest() {
+        let root = test_root();
+        std::fs::create_dir_all(root.join("bundle/bin")).expect("package directories created");
+        std::fs::write(root.join("bundle/bin/hello.wasm"), b"hello").expect("artifact written");
+        std::fs::write(
+            root.join("bundle/manifest.json"),
+            br#"{
+                "schema_version": 1,
+                "name": "hello-rune",
+                "version": "0.1.0",
+                "description": "A local package",
+                "files": [{
+                    "path": "bin/hello.wasm",
+                    "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+                }],
+                "commands": [{"name": "hello", "entry": "bin/hello.wasm"}]
+            }"#,
+        )
+        .expect("manifest written");
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let info = session.execute_line("pkg info bundle/manifest.json");
+        assert_eq!(info.status, 0);
+        assert!(info.stdout.contains("hello-rune 0.1.0"));
+        assert!(info.stdout.contains("command: hello -> bin/hello.wasm"));
+        let verified = session.execute_line("pkg verify bundle/manifest.json");
+        assert_eq!(verified.status, 0);
+        assert_eq!(verified.stdout, "hello-rune@0.1.0: verified 1 files\n");
+
+        std::fs::write(root.join("bundle/bin/hello.wasm"), b"tampered").expect("artifact modified");
+        let mismatch = session.execute_line("pkg verify bundle/manifest.json");
+        assert_eq!(mismatch.status, 1);
+        assert!(mismatch.stderr.contains("integrity mismatch"));
+        assert_eq!(session.execute_line("pkg install hello").status, 2);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn manages_environment_and_status_builtins() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));

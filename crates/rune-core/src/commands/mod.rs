@@ -1,6 +1,7 @@
 use crate::CommandDefinition;
 
 mod filesystem;
+mod package;
 mod shell;
 mod text;
 mod wasm;
@@ -95,6 +96,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "pwd",
         summary: "print the current directory",
         handler: shell::pwd,
+    },
+    CommandDefinition {
+        name: "pkg",
+        summary: "inspect or verify a local Rune package manifest",
+        handler: package::pkg,
     },
     CommandDefinition {
         name: "rm",
