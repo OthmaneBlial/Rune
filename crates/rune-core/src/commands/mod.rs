@@ -258,6 +258,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: utilities::md5,
     },
     CommandDefinition {
+        name: "mktemp",
+        summary: "create a unique bounded temporary file or directory",
+        handler: utilities::mktemp,
+    },
+    CommandDefinition {
         name: "mv",
         summary: "move one file or directory",
         handler: filesystem::mv,

@@ -112,6 +112,16 @@ pub trait VirtualFileSystem {
     fn write(&self, input: &str, content: &[u8], append: bool) -> Result<(), FsError>;
     fn make_directory(&self, input: &str, parents: bool) -> Result<(), FsError>;
     fn touch(&self, input: &str) -> Result<(), FsError>;
+    /// Creates a zero-length regular file only when the path does not exist.
+    /// Host-backed implementations should provide an atomic create operation
+    /// so callers can safely generate unique temporary paths.
+    fn create_file_exclusive(&self, input: &str) -> Result<(), FsError> {
+        Err(FsError::Io {
+            operation: "create file exclusively".to_string(),
+            path: input.to_string(),
+            message: "exclusive file creation is unavailable".to_string(),
+        })
+    }
     /// Creates a relative symbolic link whose resolved target stays in Rune's
     /// sandbox.
     fn make_symlink(&self, target: &str, link: &str) -> Result<(), FsError>;
@@ -900,6 +910,24 @@ impl VirtualFileSystem for SandboxedFileSystem {
             .map_err(|error| Self::io_error("touch", Path::new(input), &error))
     }
 
+    fn create_file_exclusive(&self, input: &str) -> Result<(), FsError> {
+        let path = self.resolve_path(input)?;
+        Self::parent_is_directory(&path, input)?;
+        let mut options = OpenOptions::new();
+        options.create_new(true).write(true);
+        match options.open(&path) {
+            Ok(_) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                Err(FsError::AlreadyExists(input.to_string()))
+            }
+            Err(error) => Err(Self::io_error(
+                "create file exclusively",
+                Path::new(input),
+                &error,
+            )),
+        }
+    }
+
     fn make_symlink(&self, target: &str, link: &str) -> Result<(), FsError> {
         if target.is_empty() || target.starts_with('/') || target.starts_with('~') {
             return Err(FsError::InvalidPath(format!(
@@ -1094,6 +1122,23 @@ mod tests {
         fs.change_dir("-").expect("previous directory restored");
         assert_eq!(fs.current_dir_display(), "~");
         fs.remove("work", true, false).expect("directory removed");
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn creates_files_exclusively_without_leaving_the_sandbox() {
+        let root = test_root();
+        let fs = SandboxedFileSystem::new(&root).expect("root created");
+        fs.create_file_exclusive("new.txt")
+            .expect("exclusive file created");
+        assert!(matches!(
+            fs.create_file_exclusive("new.txt"),
+            Err(FsError::AlreadyExists(path)) if path == "new.txt"
+        ));
+        assert!(matches!(
+            fs.create_file_exclusive("../outside.txt"),
+            Err(FsError::OutsideSandbox(_))
+        ));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

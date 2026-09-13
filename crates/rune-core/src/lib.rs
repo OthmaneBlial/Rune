@@ -92,6 +92,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "ln"
             | "lua"
             | "md5"
+            | "mktemp"
             | "mkdir"
             | "mv"
             | "open"
@@ -4707,6 +4708,37 @@ mod tests {
         assert_eq!(session.execute_line("unsetenv TEMP").status, 0);
         assert_eq!(session.execute_line("printenv TEMP").status, 1);
         std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn creates_bounded_exclusive_temporary_files_and_directories() {
+        let container = test_root();
+        let home = container.join("Documents");
+        let library = container.join("Library");
+        let temporary = container.join("tmp");
+        let filesystem = SandboxedFileSystem::new_with_layout(&home, &library, &temporary)
+            .expect("layout created");
+        let mut session = Session::new(filesystem);
+
+        let file = session.execute_line("mktemp");
+        assert_eq!(file.status, 0);
+        let file_path = file.stdout.trim();
+        assert!(file_path.starts_with("~/tmp/rune."));
+        assert_eq!(session.execute_line(&format!("stat {file_path}")).status, 0);
+
+        let directory = session.execute_line("mktemp -d -t rune-cache");
+        assert_eq!(directory.status, 0);
+        let directory_path = directory.stdout.trim();
+        let metadata = session.execute_line(&format!("stat {directory_path}"));
+        assert_eq!(metadata.status, 0);
+        assert!(metadata.stdout.contains("Type: directory"));
+
+        let explicit = session.execute_line("mktemp cache.XXXXXX");
+        assert_eq!(explicit.status, 0);
+        assert!(explicit.stdout.starts_with("cache."));
+        assert_eq!(session.execute_line("mktemp -u cache.XXXXXX").status, 2);
+        assert_eq!(session.execute_line("mktemp cache.no").status, 2);
+        std::fs::remove_dir_all(container).expect("test container removed");
     }
 
     #[test]

@@ -276,7 +276,7 @@ malicious or cyclic tree from turning a synchronous command into unbounded
 work.
 
 The portable utility slice adds bounded `base64`, `basename`, `bc`, `cksum`,
-`date`, `dirname`, `du`, `expr`, `md5`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`,
+`date`, `dirname`, `du`, `expr`, `md5`, `mktemp`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`,
 `unlink`, `tee`, `tr`, and `xxd` commands, plus
 `ln -s`/`readlink` and
 the `unsetenv` spelling for environment removal. They operate on Rune's virtual filesystem or pipeline
@@ -296,6 +296,9 @@ precision.
 `expr` uses a Rust-owned bounded parser for integer arithmetic, comparisons, and
 the `length`, `index`, and `substr` text forms; it rejects overflow, division by
 zero, and unsupported expression syntax rather than delegating to a host shell.
+`mktemp` uses the VFS's exclusive file-creation capability and platform entropy
+to replace bounded `X` runs, retries only collisions, and supports `-d` for
+directories. Its insecure name-only `-u` mode is intentionally unavailable.
 `cp -r` copies regular-file directory trees
 with a 10,000-entry limit and rejects symlinks; `mv` can move a directory
 without recursively traversing it. `du` reports a recursive byte total with a

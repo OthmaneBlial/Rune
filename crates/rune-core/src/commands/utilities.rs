@@ -18,6 +18,11 @@ const MAX_DATE_FORMAT_BYTES: usize = 1024;
 const MAX_DISK_USAGE_ENTRIES: usize = 10_000;
 const MAX_EXPR_ARGUMENTS: usize = 64;
 const MAX_EXPR_TEXT_BYTES: usize = 64 * 1024;
+const MAX_MKTEMP_ATTEMPTS: usize = 128;
+const MAX_MKTEMP_TEMPLATES: usize = 64;
+const MAX_MKTEMP_TEMPLATE_BYTES: usize = 1024;
+const MIN_MKTEMP_X_COUNT: usize = 3;
+const MAX_MKTEMP_X_COUNT: usize = 32;
 
 const BASE64_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -575,6 +580,194 @@ fn system_v_sum(bytes: &[u8]) -> u16 {
         .fold(0_u32, |checksum, byte| checksum + u32::from(*byte));
     u16::try_from(((checksum & 0xffff) + (checksum >> 16)) & u32::from(u16::MAX))
         .unwrap_or_default()
+}
+
+pub(super) fn mktemp(context: &mut CommandContext<'_>) -> CommandOutput {
+    let (directory, quiet, prefix, mut templates) = match parse_mktemp_args(context.args) {
+        Ok(parsed) => parsed,
+        Err(output) => return output,
+    };
+    if templates.len() > MAX_MKTEMP_TEMPLATES {
+        return usage(
+            "mktemp",
+            &format!("at most {MAX_MKTEMP_TEMPLATES} templates are supported"),
+        );
+    }
+    if let Some(prefix) = prefix {
+        if !templates.is_empty() {
+            return usage("mktemp", "-t cannot be combined with an explicit template");
+        }
+        let Some(prefix) = valid_mktemp_prefix(&prefix) else {
+            return usage(
+                "mktemp",
+                "-t prefix must be a non-empty filename component without controls or path separators",
+            );
+        };
+        templates.push(format!("~/tmp/{prefix}.XXXXXXXX"));
+    } else if templates.is_empty() {
+        templates.push("~/tmp/rune.XXXXXXXX".to_string());
+    }
+    for template in &templates {
+        if let Err(message) = split_mktemp_template(template) {
+            return usage("mktemp", &message);
+        }
+    }
+
+    let mut stdout = String::new();
+    for template in templates {
+        let path = match create_mktemp_path(context.fs, &template, directory) {
+            Ok(path) => path,
+            Err(error) => {
+                if quiet {
+                    return CommandOutput::failure(1, "");
+                }
+                return fs_failure("mktemp", &error);
+            }
+        };
+        let _ = writeln!(stdout, "{path}");
+    }
+    CommandOutput::success(stdout)
+}
+
+fn parse_mktemp_args(
+    args: &[String],
+) -> Result<(bool, bool, Option<String>, Vec<String>), CommandOutput> {
+    let mut directory = false;
+    let mut quiet = false;
+    let mut prefix = None;
+    let mut templates = Vec::new();
+    let mut parse_options = true;
+    let mut index = 0;
+    while index < args.len() {
+        let argument = &args[index];
+        if parse_options && argument == "--" {
+            parse_options = false;
+        } else if parse_options && argument == "-d" {
+            directory = true;
+        } else if parse_options && argument == "-q" {
+            quiet = true;
+        } else if parse_options && argument == "-u" {
+            return Err(CommandOutput::failure(
+                2,
+                "mktemp: insecure name-only mode (-u) is not available\n",
+            ));
+        } else if parse_options && argument == "-t" {
+            index += 1;
+            let Some(value) = args.get(index) else {
+                return Err(mktemp_usage());
+            };
+            prefix = Some(value.clone());
+        } else if parse_options && argument.starts_with("-t") {
+            let value = &argument[2..];
+            if value.is_empty() {
+                return Err(mktemp_usage());
+            }
+            prefix = Some(value.to_string());
+        } else if parse_options && argument.starts_with('-') {
+            return Err(mktemp_usage());
+        } else {
+            templates.push(argument.clone());
+            parse_options = false;
+        }
+        index += 1;
+    }
+    Ok((directory, quiet, prefix, templates))
+}
+
+fn mktemp_usage() -> CommandOutput {
+    usage(
+        "mktemp",
+        "usage: mktemp [-d] [-q] [-t prefix] [template ...]",
+    )
+}
+
+fn valid_mktemp_prefix(prefix: &str) -> Option<&str> {
+    (!prefix.is_empty()
+        && prefix.len() <= MAX_MKTEMP_TEMPLATE_BYTES
+        && prefix != "."
+        && prefix != ".."
+        && !prefix.contains('/')
+        && !prefix.contains('\\')
+        && !prefix.chars().any(char::is_control))
+    .then_some(prefix)
+}
+
+fn create_mktemp_path(
+    filesystem: &dyn rune_fs::VirtualFileSystem,
+    template: &str,
+    directory: bool,
+) -> Result<String, rune_fs::FsError> {
+    let (prefix, x_count, suffix) =
+        split_mktemp_template(template).map_err(rune_fs::FsError::InvalidPath)?;
+    for _ in 0..MAX_MKTEMP_ATTEMPTS {
+        let random = secure_mktemp_suffix(x_count).map_err(|message| rune_fs::FsError::Io {
+            operation: "randomize temporary name".to_string(),
+            path: template.to_string(),
+            message,
+        })?;
+        let candidate = format!("{prefix}{random}{suffix}");
+        let result = if directory {
+            filesystem.make_directory(&candidate, false)
+        } else {
+            filesystem.create_file_exclusive(&candidate)
+        };
+        match result {
+            Ok(()) => return Ok(candidate),
+            Err(rune_fs::FsError::AlreadyExists(_)) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Err(rune_fs::FsError::Io {
+        operation: "create temporary path".to_string(),
+        path: template.to_string(),
+        message: format!("no unused name after {MAX_MKTEMP_ATTEMPTS} attempts"),
+    })
+}
+
+fn split_mktemp_template(template: &str) -> Result<(&str, usize, &str), String> {
+    if template.is_empty() {
+        return Err("template must not be empty".to_string());
+    }
+    if template.len() > MAX_MKTEMP_TEMPLATE_BYTES {
+        return Err(format!(
+            "template exceeds the {MAX_MKTEMP_TEMPLATE_BYTES}-byte limit"
+        ));
+    }
+    if template.chars().any(char::is_control) {
+        return Err("template must not contain control characters".to_string());
+    }
+    let Some(last_x) = template.rfind('X') else {
+        return Err("template must contain at least three consecutive X characters".to_string());
+    };
+    let bytes = template.as_bytes();
+    let mut start = last_x;
+    while start > 0 && bytes[start - 1] == b'X' {
+        start -= 1;
+    }
+    let end = last_x + 1;
+    let x_count = end - start;
+    if x_count < MIN_MKTEMP_X_COUNT {
+        return Err(format!(
+            "template must contain at least {MIN_MKTEMP_X_COUNT} consecutive X characters"
+        ));
+    }
+    if x_count > MAX_MKTEMP_X_COUNT {
+        return Err(format!(
+            "template contains more than {MAX_MKTEMP_X_COUNT} consecutive X characters"
+        ));
+    }
+    Ok((&template[..start], x_count, &template[end..]))
+}
+
+fn secure_mktemp_suffix(length: usize) -> Result<String, String> {
+    const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let mut bytes = vec![0_u8; length];
+    getrandom::fill(&mut bytes)
+        .map_err(|error| format!("secure random source unavailable: {error}"))?;
+    Ok(bytes
+        .into_iter()
+        .map(|byte| ALPHABET[usize::from(byte) % ALPHABET.len()] as char)
+        .collect())
 }
 
 pub(super) fn md5(context: &mut CommandContext<'_>) -> CommandOutput {

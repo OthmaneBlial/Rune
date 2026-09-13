@@ -34,7 +34,7 @@ working iOS application or a feature-parity claim.
 
 The first Rust vertical slice is implemented and locally verified. It executes
 the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum`, `curl`, `date`, `echo`, `expr`, `jsc`, `lua`, `python3`, `md5`, `mkdir`,
-`touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
+`touch`, `mktemp`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
 `setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
 `true`, `false`, `ar`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`, `type`,
@@ -241,6 +241,9 @@ The host-backed VFS also rejects regular-file reads, appends, and copies over
 of the smaller 16 MiB native file-transfer boundary and the 1 MiB terminal
 output boundary. Directory listing and wildcard enumeration are capped at
 10,000 entries to keep large trees bounded before terminal rendering.
+`mktemp` creates files with an exclusive VFS operation, replaces a bounded
+`X` template using the platform entropy source, retries collisions, and can
+create directories with `-d`; the insecure name-only `-u` mode is rejected.
 
 The default Apple session mounts the platform's Documents directory as `~` and
 passes the app's Library and temporary directories as confined `~/Library` and
@@ -424,6 +427,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded Base64 encode/decode utility
 - [x] Bounded POSIX `cksum` utility
 - [x] Bounded MD5 compatibility utility
+- [x] Bounded exclusive `mktemp` file/directory creation
 - [x] Bounded `expr` arithmetic and text utility
 - [x] Bounded `pbcopy`/`pbpaste` through an explicit host clipboard capability
 - [x] Bounded UTF-8 `diff` with unified output and comparison limits

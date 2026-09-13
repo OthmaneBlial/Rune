@@ -66,6 +66,10 @@ portable utility tests also cover UTC `date` formatting and BSD/System V `sum`
 vectors, plus arithmetic, comments, separators, overflow, and division errors
 for the bounded `bc` surface. Date setting and locale-specific formatting remain
 outside the bounded surface.
+`mktemp` tests cover exclusive file creation, bounded template replacement,
+directory creation, and rejection of insecure `-u` mode;
+the command remains a bounded subset rather than full platform-specific
+`mktemp` compatibility.
 MD5 tests cover standard stdin/file vectors and invalid operand counts; the
 digest is compatibility evidence, not security evidence.
 `expr` tests cover precedence, comparisons, bounded text operations, division
