@@ -4814,6 +4814,13 @@ mod tests {
         assert_eq!(discovered.status, 1);
         assert_eq!(discovered.stdout, "alias ll='ls'\necho: builtin\n");
         assert_eq!(discovered.stderr, "which: missing: not found\n");
+        let typed = session.execute_line("type ll echo missing");
+        assert_eq!(typed.status, 1);
+        assert_eq!(
+            typed.stdout,
+            "ll is an alias for ls\necho is a Rune builtin\n"
+        );
+        assert_eq!(typed.stderr, "type: missing: not found\n");
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

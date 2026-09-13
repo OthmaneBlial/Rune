@@ -37,7 +37,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
 `setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
-`true`, `false`, `ar`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`,
+`true`, `false`, `ar`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`, `type`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
 `help`, `history`, `sleep`, `uname`, `which`, `whoami`, `xargs`, `pbcopy`, `pbpaste`,
 `source`, `.`, `sh`, and `dash` against a
@@ -113,6 +113,8 @@ arguments.
 `sh -c SCRIPT` and `dash -c SCRIPT` execute an inline bounded script through
 that same Rust planner, with an optional `$0` name and up to 64 positional
 arguments; they never start a host shell.
+`type` complements `which` by describing aliases, Rust built-ins, installed
+package commands, and missing names without exposing host executables.
 The Rust session and C/Swift bridge also expose cooperative cancellation at
 command, pipeline, script, and bounded traversal boundaries, returning status
 130; `sleep` polls that same cancellation flag in bounded 25 ms intervals, while
@@ -425,6 +427,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded `$(...)` command substitution with isolated shell state
 - [x] Bounded regular-expression and fixed-string `grep` modes
 - [x] Bounded numeric, reverse, and unique `sort` options
+- [x] Bounded `type` command discovery
 
 ### Phase 3 — Developer environment
 

@@ -326,10 +326,12 @@ roots. External-folder sessions use the single selected folder as their root;
 they do not gain access to the app's Library or temporary directory.
 
 The shell also provides deterministic `uname` and `whoami` identities for the
-portable session, and `which` reports aliases and registered built-ins. These
-commands never expose the host user's name or claim that arbitrary host
-executables are available; installed package commands are discovered from
-local package manifests and reported with their package and version.
+portable session. `which` reports aliases and registered built-ins, while
+`type` describes aliases, Rust built-ins, installed package commands, and
+missing names. These commands never expose the host user's name or claim that
+arbitrary host executables are available; installed package commands are
+discovered from local package manifests and reported with their package and
+version.
 
 Native completion asks the Rust session for replacement tokens. At the start
 of a line it returns built-in and installed-package command names; for

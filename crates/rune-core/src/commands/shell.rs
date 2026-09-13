@@ -135,6 +135,43 @@ pub(super) fn which(context: &mut CommandContext<'_>) -> CommandOutput {
     output
 }
 
+pub(super) fn type_command(context: &mut CommandContext<'_>) -> CommandOutput {
+    if context.args.is_empty() {
+        return usage("type", "usage: type COMMAND ...");
+    }
+    let mut output = CommandOutput::success("");
+    for name in context.args {
+        if let Some(value) = context.aliases.get(name) {
+            let _ = writeln!(output.stdout, "{name} is an alias for {value}");
+        } else if context
+            .command_definitions
+            .iter()
+            .any(|definition| definition.name == name)
+        {
+            let _ = writeln!(output.stdout, "{name} is a Rune builtin");
+        } else {
+            match crate::find_installed_command_in_filesystem(context.fs, name) {
+                Ok(Some(installed_command)) => {
+                    let _ = writeln!(
+                        output.stdout,
+                        "{name} is an installed package command ({})",
+                        installed_command.package
+                    );
+                }
+                Ok(None) => {
+                    output.status = 1;
+                    let _ = writeln!(output.stderr, "type: {name}: not found");
+                }
+                Err(error) => {
+                    output.status = 1;
+                    let _ = writeln!(output.stderr, "type: {name}: {error}");
+                }
+            }
+        }
+    }
+    output
+}
+
 pub(super) fn clear(context: &mut CommandContext<'_>) -> CommandOutput {
     if !context.args.is_empty() {
         return usage("clear", "usage: clear");

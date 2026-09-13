@@ -392,6 +392,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::true_command,
     },
     CommandDefinition {
+        name: "type",
+        summary: "describe aliases, built-ins, and installed commands",
+        handler: shell::type_command,
+    },
+    CommandDefinition {
         name: "unalias",
         summary: "remove session-local command aliases",
         handler: shell::unalias,
