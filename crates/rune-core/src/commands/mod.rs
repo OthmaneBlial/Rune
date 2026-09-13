@@ -4,6 +4,7 @@ mod archive;
 mod bookmarks;
 mod config;
 mod filesystem;
+mod network;
 mod package;
 pub(super) mod shell;
 mod text;
@@ -65,6 +66,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "config",
         summary: "inspect or change Rust-owned session settings",
         handler: config::config,
+    },
+    CommandDefinition {
+        name: "curl",
+        summary: "make a bounded HTTP request through the host network grant",
+        handler: network::curl,
     },
     CommandDefinition {
         name: "deletemark",

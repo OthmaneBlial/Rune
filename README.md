@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 72%**
+**Overall progress: 74%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -18,22 +18,22 @@ working iOS application or a feature-parity claim.
 
 | Area | Progress |
 |---|---:|
-| Rust workspace | 74% |
+| Rust workspace | 77% |
 | Shell tokenizer/parser | 65% |
-| Command runtime | 90% |
+| Command runtime | 92% |
 | Sandboxed filesystem | 70% |
 | Sessions/history | 62% |
 | Configuration | 63% |
 | WASM | 52% |
 | Native iOS UI | 68% |
-| Swift/Rust bridge | 52% |
+| Swift/Rust bridge | 56% |
 | Package manager | 52% |
-| Compatibility evidence | 2% |
+| Compatibility evidence | 3% |
 
 ## Current status
 
 The first Rust vertical slice is implemented and locally verified. It executes
-the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
+the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `curl`, `echo`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
 `setenv`, `printf`, `basename`, `dirname`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
@@ -143,6 +143,14 @@ sandbox as `/`. `pkg update MANIFEST` verifies and materializes a different
 local version before retiring the currently installed version; a failed
 verification or write keeps the old version. There is no network transport or
 remote registry yet, and `pkg search` remains an installed-manifest search.
+
+The bounded `curl` command owns HTTP request parsing in Rust and accepts GET,
+HEAD, POST, PUT, and DELETE through explicit method selection, bounded headers,
+bounded text data, HTTP failure handling, and raw response output to a confined
+VFS file. The Rust CLI has no network grant by default. The source-only Apple
+bridge supplies a synchronous, size-limited `URLSession` callback for an
+eventual native target; URLSession, ATS, transport, and device behavior remain
+unverified without an Apple runtime.
 
 The Rust core also provides bounded zip -r ARCHIVE FILE ... and unzip ARCHIVE
 [DESTINATION] commands. They use ZIP32 stored entries through the VFS, verify
@@ -333,6 +341,7 @@ git check-ignore -v base/a-shell
 - [x] Portable runtime request/output contract
 - [x] Bounded Rust-owned history, font, font-size, scrollback, theme, cursor-color, background, and foreground configuration
 - [x] Bounded stored ZIP creation/extraction with path validation
+- [x] Explicit host HTTP capability and bounded `curl` transport boundary
 - [ ] Network registry, remote search, and remote update policy
 - [ ] Python, JavaScript, and Lua runtime evaluation
 - [x] Rust-owned command/path completion and help metadata

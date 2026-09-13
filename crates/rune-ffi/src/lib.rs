@@ -13,7 +13,10 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use rune_core::{CommandEvent, CommandOutput, EventSink, Session, MAX_FILE_TRANSFER_BYTES};
+use rune_core::{
+    CommandEvent, CommandOutput, DisabledNetworkProvider, EventSink, NetworkError, NetworkProvider,
+    NetworkRequest, NetworkResponse, Session, MAX_FILE_TRANSFER_BYTES, MAX_NETWORK_BODY_BYTES,
+};
 use rune_fs::{FsError, SandboxedFileSystem};
 
 /// An owned result crossing the C ABI.
@@ -51,6 +54,108 @@ pub type RuneEventCallback =
 
 pub const RUNE_EVENT_OUTPUT: i32 = 1;
 pub const RUNE_EVENT_STATUS: i32 = 2;
+
+/// Bounded response storage exchanged with a native network callback.
+#[repr(C)]
+pub struct RuneNetworkResponse {
+    pub status_code: i32,
+    pub body_length: usize,
+    /// Zero is success; non-zero means the host rejected or could not finish
+    /// the request. The Rust side turns it into a bounded diagnostic.
+    pub error: i32,
+}
+
+/// Native transport callback for the core's explicit HTTP capability.
+pub type RuneNetworkRequestCallback = Option<
+    unsafe extern "C" fn(
+        user_data: *mut c_void,
+        method: *const c_char,
+        url: *const c_char,
+        headers: *const c_char,
+        body: *const u8,
+        body_length: usize,
+        response_buffer: *mut u8,
+        response_capacity: usize,
+        response: *mut RuneNetworkResponse,
+    ) -> bool,
+>;
+
+struct CallbackNetworkProvider {
+    callback: unsafe extern "C" fn(
+        user_data: *mut c_void,
+        method: *const c_char,
+        url: *const c_char,
+        headers: *const c_char,
+        body: *const u8,
+        body_length: usize,
+        response_buffer: *mut u8,
+        response_capacity: usize,
+        response: *mut RuneNetworkResponse,
+    ) -> bool,
+    user_data: *mut c_void,
+}
+
+impl NetworkProvider for CallbackNetworkProvider {
+    fn request(&self, request: &NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+        let method = CString::new(request.method.as_str()).map_err(|_| {
+            NetworkError::Transport("network method contains an invalid byte".to_string())
+        })?;
+        let url = CString::new(request.url.as_str()).map_err(|_| {
+            NetworkError::Transport("network URL contains an invalid byte".to_string())
+        })?;
+        let headers = request
+            .headers
+            .iter()
+            .map(|(name, value)| format!("{name}: {value}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let headers = CString::new(headers).map_err(|_| {
+            NetworkError::Transport("network headers contain an invalid byte".to_string())
+        })?;
+        let mut response_buffer = vec![0_u8; MAX_NETWORK_BODY_BYTES];
+        let mut response = RuneNetworkResponse {
+            status_code: 0,
+            body_length: 0,
+            error: 0,
+        };
+        let callback_succeeded = catch_unwind(AssertUnwindSafe(|| unsafe {
+            (self.callback)(
+                self.user_data,
+                method.as_ptr(),
+                url.as_ptr(),
+                headers.as_ptr(),
+                request.body.as_ptr(),
+                request.body.len(),
+                response_buffer.as_mut_ptr(),
+                response_buffer.len(),
+                std::ptr::addr_of_mut!(response),
+            )
+        }))
+        .unwrap_or(false);
+        if !callback_succeeded || response.error != 0 {
+            return Err(NetworkError::Transport(
+                "native network provider rejected the request".to_string(),
+            ));
+        }
+        if response.body_length > response_buffer.len() {
+            return Err(NetworkError::BodyTooLarge {
+                actual: response.body_length,
+                maximum: response_buffer.len(),
+            });
+        }
+        let status_code = u16::try_from(response.status_code).map_err(|_| {
+            NetworkError::InvalidResponse(
+                "native provider returned an invalid status code".to_string(),
+            )
+        })?;
+        let response = NetworkResponse {
+            status_code,
+            body: response_buffer[..response.body_length].to_vec(),
+        };
+        response.validate()?;
+        Ok(response)
+    }
+}
 
 struct RuneSession {
     core: Session,
@@ -296,6 +401,35 @@ pub extern "C" fn rune_session_cancel(handle: *const std::ffi::c_void) {
     // this function only touches the separately-owned atomic flag.
     let session = unsafe { &*handle.cast::<RuneSession>() };
     session.cancellation.store(true, Ordering::Release);
+}
+
+/// Installs or clears the native HTTP transport capability for one session.
+///
+/// The callback must synchronously fill the supplied response buffer and may
+/// only write up to `response_capacity` bytes. Passing `None` removes the
+/// capability. Rune never calls this callback unless a `curl` command has
+/// already passed its Rust-owned policy checks.
+#[no_mangle]
+pub extern "C" fn rune_session_set_network_callback(
+    handle: *mut c_void,
+    callback: RuneNetworkRequestCallback,
+    user_data: *mut c_void,
+) -> i32 {
+    if handle.is_null() {
+        return 1;
+    }
+    // SAFETY: Swift serializes access to the opaque session handle and keeps
+    // it alive while configuring the callback.
+    let core = unsafe { &mut (*handle.cast::<RuneSession>()).core };
+    if let Some(callback) = callback {
+        core.set_network_provider(Box::new(CallbackNetworkProvider {
+            callback,
+            user_data,
+        }));
+    } else {
+        core.set_network_provider(Box::new(DisabledNetworkProvider));
+    }
+    0
 }
 
 /// Updates one validated Rust-owned configuration value without recording a
@@ -675,11 +809,64 @@ mod tests {
         rune_session_execute_with_events, rune_session_get_file, rune_session_history,
         rune_session_new, rune_session_new_named, rune_session_new_with_layout,
         rune_session_put_file, rune_session_reset_configuration, rune_session_set_configuration,
-        rune_session_startup_output, rune_string_free, RuneEvent, RUNE_EVENT_OUTPUT,
-        RUNE_EVENT_STATUS,
+        rune_session_set_network_callback, rune_session_startup_output, rune_string_free,
+        RuneEvent, RuneNetworkResponse, RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS,
     };
     use std::ffi::{c_void, CStr, CString};
+    use std::os::raw::c_char;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    unsafe extern "C" fn test_network_callback(
+        user_data: *mut c_void,
+        method: *const c_char,
+        url: *const c_char,
+        headers: *const c_char,
+        body: *const u8,
+        body_length: usize,
+        response_buffer: *mut u8,
+        response_capacity: usize,
+        response: *mut RuneNetworkResponse,
+    ) -> bool {
+        if user_data.is_null()
+            || method.is_null()
+            || url.is_null()
+            || headers.is_null()
+            || response.is_null()
+            || response_buffer.is_null()
+        {
+            return false;
+        }
+        // SAFETY: the callback is invoked synchronously with the pointers
+        // prepared by CallbackNetworkProvider for this test.
+        let calls = unsafe { &mut *user_data.cast::<usize>() };
+        *calls += 1;
+        let method = unsafe { CStr::from_ptr(method) }
+            .to_str()
+            .unwrap_or_default();
+        let url = unsafe { CStr::from_ptr(url) }.to_str().unwrap_or_default();
+        let headers = unsafe { CStr::from_ptr(headers) }
+            .to_str()
+            .unwrap_or_default();
+        if method != "POST" || url != "https://example.test/ffi" || headers != "X-Test: yes" {
+            return false;
+        }
+        if body_length != 7 || body.is_null() {
+            return false;
+        }
+        // SAFETY: body points to the request bytes and response_buffer has
+        // the capacity advertised by Rust.
+        let body = unsafe { std::slice::from_raw_parts(body, body_length) };
+        if body != b"payload" || response_capacity < 7 {
+            return false;
+        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(b"ffi-body".as_ptr(), response_buffer, 8);
+            (*response).status_code = 201;
+            (*response).body_length = 8;
+            (*response).error = 0;
+        }
+        true
+    }
 
     #[test]
     fn c_abi_executes_and_releases_an_owned_result() {
@@ -1094,6 +1281,55 @@ mod tests {
         assert!(temporary_path.join("session.txt").is_file());
         rune_session_destroy(handle);
         std::fs::remove_dir_all(container).expect("test container removed");
+    }
+
+    #[test]
+    fn c_abi_routes_curl_through_the_native_network_callback() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rune-ffi-network-test-{suffix}"));
+        std::fs::create_dir_all(&root).expect("test root created");
+        let root_string = CString::new(root.to_string_lossy().as_bytes()).expect("valid root");
+        let handle = rune_session_new(root_string.as_ptr());
+        assert!(!handle.is_null());
+        let mut calls = 0_usize;
+        assert_eq!(
+            rune_session_set_network_callback(
+                handle,
+                Some(test_network_callback),
+                std::ptr::addr_of_mut!(calls).cast(),
+            ),
+            0
+        );
+        let command =
+            CString::new("curl -X POST -H 'X-Test: yes' -d payload https://example.test/ffi")
+                .expect("valid command");
+        let output = rune_session_execute(handle, command.as_ptr());
+        assert_eq!(output.status, 0);
+        assert_eq!(c_string(output.stdout), "ffi-body");
+        assert!(c_string(output.stderr).is_empty());
+        assert_eq!(calls, 1);
+        // SAFETY: both pointers came from rune_session_execute.
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+        assert_eq!(
+            rune_session_set_network_callback(handle, None, std::ptr::null_mut()),
+            0
+        );
+        let disabled = rune_session_execute(handle, command.as_ptr());
+        assert_eq!(disabled.status, 1);
+        assert!(c_string(disabled.stderr).contains("network provider is unavailable"));
+        // SAFETY: both pointers came from the second rune_session_execute.
+        unsafe {
+            rune_string_free(disabled.stdout);
+            rune_string_free(disabled.stderr);
+        }
+        rune_session_destroy(handle);
+        std::fs::remove_dir_all(root).expect("test root removed");
     }
 
     fn c_string(pointer: *mut std::os::raw::c_char) -> String {

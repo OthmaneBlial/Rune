@@ -68,6 +68,13 @@ them before the callback returns and the terminal model renders the ordered
 boundary events when execution returns. This is boundary-level event delivery,
 not live UI rendering or byte-level streaming from inside a WASM call.
 
+The source-only bridge also installs an explicit bounded HTTP callback backed by
+an ephemeral `URLSession`. Rust parses and validates `curl` requests, while
+Swift owns URL loading and copies the response into a Rust-provided buffer;
+there is no ambient socket access for the core or WASM. This is source/API
+evidence only: URLSession, ATS configuration, TLS, redirects, and runtime
+behavior remain unverified without an Apple build.
+
 The FFI session serializes mutable calls with a lock while allowing the atomic
 cancellation signal to arrive from the UI thread. `RuneTerminalModel` runs
 command execution in a detached task and reconnects the result to SwiftUI on

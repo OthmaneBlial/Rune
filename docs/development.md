@@ -71,6 +71,11 @@ and identifiers; VoiceOver traversal and Dynamic Type remain runtime gates.
 The source-only renderer also consumes bounded ANSI SGR foreground colors, bold, and underline
 controls; Apple text-layout and terminal-control fidelity remain unverified
 without the Apple runtime.
+The network tests use an injected provider and verify method, URL, headers,
+request data, response output, raw VFS-file output, disabled-provider behavior,
+and the C callback boundary. They do not prove internet reachability, TLS,
+ATS, redirects, or Apple URLSession behavior. The native callback enforces the
+same 8 MiB response buffer while receiving data in bounded chunks.
 
 ## Local checks
 

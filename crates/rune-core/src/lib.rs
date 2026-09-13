@@ -6,11 +6,17 @@
 
 mod commands;
 mod config;
+mod network;
 mod persistence;
 
 pub use config::{
     TerminalBackground, TerminalConfig, TerminalCursorColor, TerminalFont, TerminalForeground,
     TerminalTheme,
+};
+pub use network::{
+    DisabledNetworkProvider, NetworkError, NetworkMethod, NetworkProvider, NetworkRequest,
+    NetworkResponse, MAX_NETWORK_BODY_BYTES, MAX_NETWORK_HEADERS, MAX_NETWORK_HEADER_BYTES,
+    MAX_NETWORK_URL_BYTES,
 };
 
 use std::collections::BTreeMap;
@@ -52,6 +58,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "cd"
             | "cp"
             | "cut"
+            | "curl"
             | "du"
             | "find"
             | "grep"
@@ -245,6 +252,7 @@ pub struct CommandContext<'a> {
     pub(crate) history: &'a mut Vec<String>,
     pub(crate) command_definitions: &'a [CommandDefinition],
     pub(crate) runtime: &'a dyn Runtime,
+    pub(crate) network: &'a dyn NetworkProvider,
     pub(crate) cancellation: &'a AtomicBool,
 }
 
@@ -269,6 +277,7 @@ pub struct Session {
     last_status: i32,
     startup_output: CommandOutput,
     wasm_runner: WasmRunner,
+    network_provider: Box<dyn NetworkProvider>,
     cancellation_requested: Arc<AtomicBool>,
     state_session_id: Option<String>,
     script_parameters: Vec<String>,
@@ -297,6 +306,7 @@ impl Session {
             last_status: 0,
             startup_output: CommandOutput::success(""),
             wasm_runner: WasmRunner::default(),
+            network_provider: Box::new(DisabledNetworkProvider),
             cancellation_requested: Arc::new(AtomicBool::new(false)),
             state_session_id: None,
             script_parameters: Vec::new(),
@@ -375,6 +385,15 @@ impl Session {
     /// signals or forcefully stop a runtime.
     pub fn cancel(&self) {
         self.cancellation_requested.store(true, Ordering::Release);
+    }
+
+    /// Installs the host-owned network capability used by network commands.
+    ///
+    /// The default session has no network provider. A native adapter may
+    /// install a bounded URLSession-backed provider without moving sockets or
+    /// platform APIs into the Rust command engine.
+    pub fn set_network_provider(&mut self, provider: Box<dyn NetworkProvider>) {
+        self.network_provider = provider;
     }
 
     /// Returns the bridge handle used to request cancellation safely while
@@ -840,6 +859,7 @@ impl Session {
             history: &mut self.history,
             command_definitions: self.registry.definitions(),
             runtime: &self.wasm_runner,
+            network: self.network_provider.as_ref(),
             cancellation: &self.cancellation_requested,
         };
         handler(&mut context)
@@ -1513,6 +1533,15 @@ fn history_entry(line: &str) -> String {
                 )
         })
     });
+    let contains_network_request = plan.pipelines.iter().any(|pipeline| {
+        pipeline
+            .commands
+            .iter()
+            .any(|command| command.program.literal_value().as_deref() == Some("curl"))
+    });
+    if contains_network_request {
+        return "[redacted network command]".to_string();
+    }
     if contains_environment_setter {
         "[redacted environment assignment]".to_string()
     } else {
@@ -1560,13 +1589,15 @@ fn package_runtime_failure(command: &str, error: &rune_package::PackageError) ->
 #[cfg(test)]
 mod tests {
     use super::{
-        persistence::MAX_HISTORY_BYTES, CommandEvent, EventSink, Session, TerminalConfig,
+        persistence::MAX_HISTORY_BYTES, CommandEvent, EventSink, NetworkError, NetworkMethod,
+        NetworkProvider, NetworkRequest, NetworkResponse, Session, TerminalConfig,
         CANCELLED_STATUS, MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS, MAX_COMMAND_INPUT_BYTES,
         MAX_FILE_TRANSFER_BYTES, MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES,
         MAX_SOURCE_DEPTH, OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_root() -> std::path::PathBuf {
@@ -1597,6 +1628,21 @@ mod tests {
     impl EventSink for RecordingEventSink {
         fn emit(&mut self, event: CommandEvent) {
             self.events.push(event);
+        }
+    }
+
+    struct RecordingNetworkProvider {
+        requests: Arc<Mutex<Vec<NetworkRequest>>>,
+        response: NetworkResponse,
+    }
+
+    impl NetworkProvider for RecordingNetworkProvider {
+        fn request(&self, request: &NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+            self.requests
+                .lock()
+                .expect("request log lock")
+                .push(request.clone());
+            Ok(self.response.clone())
         }
     }
 
@@ -1730,6 +1776,54 @@ mod tests {
             restored.history().last().map(String::as_str),
             Some("cat moved/nested/value.txt")
         );
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn routes_curl_through_an_explicit_bounded_network_provider() {
+        let root = test_root();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        session.set_network_provider(Box::new(RecordingNetworkProvider {
+            requests: Arc::clone(&requests),
+            response: NetworkResponse {
+                status_code: 200,
+                body: b"response body\n".to_vec(),
+            },
+        }));
+
+        let fetched = session.execute_line("curl https://example.test/data");
+        assert_eq!(fetched.status, 0);
+        assert_eq!(fetched.stdout, "response body\n");
+        assert_eq!(
+            session.history().last().map(String::as_str),
+            Some("[redacted network command]")
+        );
+
+        let saved = session.execute_line(
+            "curl -X POST -H 'X-Test: yes' -d payload -o response.txt https://example.test/upload",
+        );
+        assert_eq!(saved.status, 0);
+        assert_eq!(
+            session.execute_line("cat response.txt").stdout,
+            "response body\n"
+        );
+        let recorded = requests.lock().expect("request log lock");
+        assert_eq!(recorded.len(), 2);
+        assert_eq!(recorded[0].method, NetworkMethod::Get);
+        assert_eq!(recorded[0].url, "https://example.test/data");
+        assert_eq!(recorded[1].method, NetworkMethod::Post);
+        assert_eq!(recorded[1].body, b"payload");
+        assert_eq!(
+            recorded[1].headers,
+            [("X-Test".to_string(), "yes".to_string())]
+        );
+        drop(recorded);
+
+        let disabled = Session::new(SandboxedFileSystem::new(&root).expect("root reopened"))
+            .execute_line("curl https://example.test");
+        assert_eq!(disabled.status, 1);
+        assert!(disabled.stderr.contains("network provider is unavailable"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
@@ -2295,6 +2389,7 @@ mod tests {
         let mut history = Vec::new();
         let registry = super::CommandRegistry::default();
         let runtime = rune_wasm::WasmRunner::default();
+        let network = super::DisabledNetworkProvider;
         let args = Vec::new();
         let cancellation = std::sync::atomic::AtomicBool::new(true);
         let cancelled = {
@@ -2309,6 +2404,7 @@ mod tests {
                 history: &mut history,
                 command_definitions: registry.definitions(),
                 runtime: &runtime,
+                network: &network,
                 cancellation: &cancellation,
             };
             context
@@ -2332,6 +2428,7 @@ mod tests {
         let mut history = Vec::new();
         let registry = super::CommandRegistry::default();
         let runtime = rune_wasm::WasmRunner::default();
+        let network = super::DisabledNetworkProvider;
         let args = vec!["1".to_string()];
         let cancellation = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let trigger = std::sync::Arc::clone(&cancellation);
@@ -2350,6 +2447,7 @@ mod tests {
             history: &mut history,
             command_definitions: registry.definitions(),
             runtime: &runtime,
+            network: &network,
             cancellation: cancellation.as_ref(),
         };
         let cancelled = super::commands::shell::sleep(&mut context);

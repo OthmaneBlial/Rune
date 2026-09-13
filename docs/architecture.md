@@ -354,6 +354,14 @@ first provider by adapting its bounded WASI result to that contract. Python,
 JavaScript, and Lua remain unimplemented rather than being represented by
 placeholder execution.
 
+HTTP is a separate explicit capability rather than an ambient core service.
+The Rust `curl` command validates the URL, method, headers, request body, HTTP
+failure policy, and output destination before invoking a `NetworkProvider`.
+Sessions default to a disabled provider; the Apple source adapter supplies a
+bounded synchronous `URLSession` callback that fills a Rust-owned response
+buffer. This keeps network and WASM capabilities separate and leaves ATS,
+TLS, redirects, and Apple runtime validation as explicit gates.
+
 Unquoted `*` and `?` are expanded by `rune-core` through the VFS `glob` method;
 quoted patterns remain literal, hidden entries require a leading `.`, and an
 unmatched pattern remains a literal argument. The VFS validates every matched

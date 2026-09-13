@@ -105,6 +105,13 @@ private func rune_session_destroy(_ handle: OpaquePointer?)
 @_silgen_name("rune_session_cancel")
 private func rune_session_cancel(_ handle: OpaquePointer?)
 
+@_silgen_name("rune_session_set_network_callback")
+private func rune_session_set_network_callback(
+    _ handle: OpaquePointer?,
+    _ callback: RuneNetworkRequestCallback?,
+    _ userData: UnsafeMutableRawPointer?
+) -> Int32
+
 @_silgen_name("rune_session_set_configuration")
 private func rune_session_set_configuration(
     _ handle: OpaquePointer?,
@@ -252,6 +259,7 @@ public final class RuneFFISession: @unchecked Sendable {
             throw RuneBridgeError.sessionInitializationFailed(rootURL)
         }
         handle = created
+        _ = rune_session_set_network_callback(created, runeNetworkRequestCallback, nil)
     }
 
     deinit {

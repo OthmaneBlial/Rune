@@ -2,6 +2,7 @@
 #define RUNE_FFI_H
 
 #include <stddef.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 typedef struct {
@@ -30,12 +31,36 @@ typedef void (*RuneEventCallback)(const RuneEvent *event, void *user_data);
 #define RUNE_EVENT_OUTPUT 1
 #define RUNE_EVENT_STATUS 2
 
+typedef struct {
+    int32_t status_code;
+    size_t body_length;
+    int32_t error;
+} RuneNetworkResponse;
+
+typedef bool (*RuneNetworkRequestCallback)(
+    void *user_data,
+    const char *method,
+    const char *url,
+    const char *headers,
+    const uint8_t *body,
+    size_t body_length,
+    uint8_t *response_buffer,
+    size_t response_capacity,
+    RuneNetworkResponse *response
+);
+
 void *rune_session_new(const char *root);
 // Create a session with an independent bounded persistence namespace.
 void *rune_session_new_named(const char *root, const char *session_id);
 void rune_session_destroy(void *handle);
 // Request cooperative cancellation at the next Rust execution boundary.
 void rune_session_cancel(const void *handle);
+// Install or clear the synchronous native URL transport capability.
+int32_t rune_session_set_network_callback(
+    void *handle,
+    RuneNetworkRequestCallback callback,
+    void *user_data
+);
 // Update one validated Rust-owned configuration value without history entry.
 RuneOutput rune_session_set_configuration(
     void *handle,

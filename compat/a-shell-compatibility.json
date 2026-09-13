@@ -114,9 +114,9 @@
       "reference_comparison": "pending"
     },
     "networking": {
-      "status": "planned",
-      "rune_evidence": [],
-      "reference_comparison": "not-started"
+      "status": "partial",
+      "rune_evidence": ["crates/rune-core/src/network.rs", "crates/rune-core/src/commands/network.rs", "apps/ios/Sources/RuneIOS/RuneNetworkBridge.swift"],
+      "reference_comparison": "pending"
     },
     "archives": {
       "status": "partial",
