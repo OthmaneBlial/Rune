@@ -179,6 +179,7 @@ pub struct Session {
     startup_output: CommandOutput,
     wasm_runner: WasmRunner,
     cancellation_requested: Arc<AtomicBool>,
+    state_session_id: Option<String>,
 }
 
 impl Session {
@@ -205,6 +206,7 @@ impl Session {
             startup_output: CommandOutput::success(""),
             wasm_runner: WasmRunner::default(),
             cancellation_requested: Arc::new(AtomicBool::new(false)),
+            state_session_id: None,
         };
         session.update_pwd();
         session
@@ -215,10 +217,45 @@ impl Session {
     /// Invalid or missing state is ignored and produces a fresh session. The
     /// environment is deliberately never restored from disk.
     pub fn restore(filesystem: impl VirtualFileSystem + 'static) -> Self {
+        Self::restore_with_namespace(filesystem, None)
+    }
+
+    /// Restores an independent session using a bounded persistence namespace.
+    ///
+    /// The namespace separates cwd, history, and bookmarks from Rune's legacy
+    /// default session state while keeping the virtual filesystem root shared.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-path error when `session_id` contains unsupported
+    /// characters or exceeds the persistence bound.
+    pub fn restore_with_id(
+        filesystem: impl VirtualFileSystem + 'static,
+        session_id: &str,
+    ) -> Result<Self, FsError> {
+        if !persistence::is_valid_session_id(session_id) {
+            return Err(FsError::InvalidPath(format!(
+                "invalid Rune session id: {session_id}"
+            )));
+        }
+        Ok(Self::restore_with_namespace(
+            filesystem,
+            Some(session_id.to_string()),
+        ))
+    }
+
+    fn restore_with_namespace(
+        filesystem: impl VirtualFileSystem + 'static,
+        state_session_id: Option<String>,
+    ) -> Self {
         let mut session = Self::new(filesystem);
+        session.state_session_id = state_session_id;
         session.config = TerminalConfig::load(session.filesystem.as_ref());
         session.history_limit = session.config.history_limit();
-        let state = persistence::load(session.filesystem.as_ref());
+        let state = persistence::load(
+            session.filesystem.as_ref(),
+            session.state_session_id.as_deref(),
+        );
         session.load_startup_profile();
         session.history = state.history;
         session.apply_history_limit();
@@ -267,6 +304,7 @@ impl Session {
             &directory,
             &self.history,
             &self.bookmarks,
+            self.state_session_id.as_deref(),
         )?;
         self.config.save(self.filesystem.as_mut())
     }
@@ -1135,6 +1173,50 @@ mod tests {
             restored.history().last().map(String::as_str),
             Some("cat moved/nested/value.txt")
         );
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn keeps_named_session_state_independent_and_bounded() {
+        let root = test_root();
+        let mut first = Session::restore_with_id(
+            SandboxedFileSystem::new(&root).expect("root created"),
+            "first",
+        )
+        .expect("valid session id");
+        assert_eq!(first.execute_line("mkdir first-dir").status, 0);
+        assert_eq!(first.execute_line("cd first-dir").status, 0);
+        assert_eq!(first.execute_line("echo first-session").status, 0);
+        first.persist().expect("first session persisted");
+
+        let mut second = Session::restore_with_id(
+            SandboxedFileSystem::new(&root).expect("root reopened"),
+            "second",
+        )
+        .expect("valid session id");
+        assert_eq!(second.current_directory(), "~");
+        assert!(!second
+            .history()
+            .iter()
+            .any(|command| command.contains("first-session")));
+        assert_eq!(second.execute_line("echo second-session").status, 0);
+        second.persist().expect("second session persisted");
+
+        let restored_first = Session::restore_with_id(
+            SandboxedFileSystem::new(&root).expect("root reopened again"),
+            "first",
+        )
+        .expect("first session restored");
+        assert_eq!(restored_first.current_directory(), "~/first-dir");
+        assert!(restored_first
+            .history()
+            .iter()
+            .any(|command| command.contains("first-session")));
+        assert!(Session::restore_with_id(
+            SandboxedFileSystem::new(&root).expect("root reopened for invalid id"),
+            "../escape",
+        )
+        .is_err());
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

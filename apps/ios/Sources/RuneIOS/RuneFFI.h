@@ -10,6 +10,8 @@ typedef struct {
 } RuneOutput;
 
 void *rune_session_new(const char *root);
+// Create a session with an independent bounded persistence namespace.
+void *rune_session_new_named(const char *root, const char *session_id);
 void rune_session_destroy(void *handle);
 // Request cooperative cancellation at the next Rust execution boundary.
 void rune_session_cancel(const void *handle);

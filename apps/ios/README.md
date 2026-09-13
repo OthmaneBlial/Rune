@@ -59,6 +59,13 @@ surfaces the resulting output through the FFI. Profile commands, including
 bounded one-command aliases, are not added to history; the persisted working
 directory is restored after the profile.
 
+`RuneWorkspaceView.swift` provides a source-only tab container. The first tab
+uses the legacy default state file; additional tabs receive bounded opaque Rust
+session IDs and persist their cwd/history/bookmarks below
+`~/.rune/sessions/{id}/session.state`. This keeps tab state separate without
+duplicating shell behavior in Swift. Tab rendering, lifecycle behavior, iPad
+multi-window support, and Apple runtime integration remain unverified.
+
 ## Current evidence
 
 - `Package.swift` is a source/package boundary.
@@ -67,8 +74,10 @@ directory is restored after the profile.
 - `RuneExternalFolderAccess.swift` owns bounded security-scoped bookmark
   storage and keeps approved folder access alive for a Rust session.
 - `RuneShortcuts.swift` declares Rust-backed command and script App Intents.
+- `RuneWorkspaceView.swift` declares the source-only independent-session tab
+  container.
 - `RuneTerminalView.swift` includes the `@main` SwiftUI application entry point
-  and launches the real terminal view.
+  and launches the source-only workspace view.
 - The bridge asks Rust for bounded command/path replacement candidates; it does
   not maintain a second command registry or filesystem listing in Swift.
 - `RuneTerminalView.swift` renders stdout, stderr, and non-zero exit status

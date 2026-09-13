@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 41%**
+**Overall progress: 44%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -22,11 +22,11 @@ working iOS application or a feature-parity claim.
 | Shell tokenizer/parser | 63% |
 | Command runtime | 82% |
 | Sandboxed filesystem | 58% |
-| Sessions/history | 50% |
+| Sessions/history | 60% |
 | Configuration | 23% |
 | WASM | 23% |
-| Native iOS UI | 23% |
-| Swift/Rust bridge | 19% |
+| Native iOS UI | 30% |
+| Swift/Rust bridge | 27% |
 | Package manager | 33% |
 | Compatibility evidence | 2% |
 
@@ -116,6 +116,15 @@ bounded security-scoped bookmarks. Full entitlement, picker, and device/runtime
 behavior remain unverified without the Apple toolchain.
 Bookmark names are limited to 64 characters, a session holds at most 256
 bookmarks, and serialized bookmark data is limited to 256 KiB.
+
+Named Rust sessions keep their virtual working directory, history, and
+bookmarks independent under `~/.rune/sessions/{id}/session.state`. IDs are
+validated as bounded opaque names (up to 64 ASCII characters from `A-Z`,
+`a-z`, `0-9`, `_`, `-`, and `.`); they are never interpreted as shell paths.
+The source-only Swift workspace uses this FFI boundary for independent
+terminal tabs. Tab persistence and the Rust/FFI behavior are locally tested;
+SwiftUI rendering, iPad multi-window behavior, and Apple runtime behavior
+remain unverified without an Apple build toolchain.
 
 Directory changes update the Rust-owned `PWD` and `OLDPWD` values. `cd -`
 returns to the previous directory and prints the resulting virtual path, while
@@ -232,8 +241,9 @@ git check-ignore -v base/a-shell
 ### Phase 4 — Apple integration
 
 - [ ] Fast native terminal rendering
-- [ ] External folders and security-scoped bookmarks
-- [ ] Multiple sessions and iPad multi-window behavior
+- [x] Source-only external folders and bounded security-scoped bookmarks
+- [x] Rust-namespaced sessions and source-only terminal tabs
+- [ ] iPad multi-window behavior
 - [x] Source-only command/script App Intent declarations
 - [ ] Apple Shortcuts actions
 - [ ] Accessibility and VoiceOver validation

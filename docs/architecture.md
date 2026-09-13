@@ -66,10 +66,14 @@ comment and stops lexing the remainder of that line. Hashes inside a word,
 inside quotes, or escaped remain literal, so startup profiles can use ordinary
 comments without weakening argument handling.
 
-Session persistence is explicit and intentionally narrow: `~/.rune/session.state`
-stores the virtual working directory, command history, and bounded bookmarks,
-while environment variables are reconstructed for every session and are never
-serialized. The
+Session persistence is explicit and intentionally narrow: the legacy/default
+session stores the virtual working directory, command history, and bounded
+bookmarks in `~/.rune/session.state`. Named sessions use
+`~/.rune/sessions/{id}/session.state` instead, so tabs can restore independent
+cwd/history/bookmark state without sharing records. Session IDs are opaque,
+validated names of at most 64 ASCII alphanumeric, `_`, `-`, or `.` characters;
+they are never resolved as filesystem input. Environment variables are
+reconstructed for every session and are never serialized. The
 current shell environment can be changed by the Rust `export`, `unset`, and
 `setenv` built-ins, or by leading `NAME=value` assignments. Directory changes
 maintain `PWD` and `OLDPWD`; `cd -` returns to the previous virtual directory
@@ -127,6 +131,12 @@ normal `RuneFFISession` rooted at the app Documents directory and return the
 Rust result without reimplementing command behavior in Swift. This is a real
 automation boundary, but App Intent registration, entitlements, and Shortcuts
 runtime execution remain unverified until an Apple target can be built.
+
+The source-only workspace tab layer creates the default session for the first
+tab and named Rust sessions for additional tabs. Swift owns tab selection and
+presentation; Rust owns each tab's shell state and persistence. This does not
+yet prove SwiftUI lifecycle behavior, iPad multi-window support, or device
+runtime behavior.
 
 The filesystem starts with a host-backed root for local development. The root
 is a policy boundary: paths are resolved relative to it, `~` maps to the root,

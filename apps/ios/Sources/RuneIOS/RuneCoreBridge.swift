@@ -9,6 +9,12 @@ private struct RuneFFIOutput {
 @_silgen_name("rune_session_new")
 private func rune_session_new(_ root: UnsafePointer<CChar>) -> OpaquePointer?
 
+@_silgen_name("rune_session_new_named")
+private func rune_session_new_named(
+    _ root: UnsafePointer<CChar>,
+    _ sessionID: UnsafePointer<CChar>
+) -> OpaquePointer?
+
 @_silgen_name("rune_session_destroy")
 private func rune_session_destroy(_ handle: OpaquePointer?)
 
@@ -77,8 +83,17 @@ public enum RuneBridgeError: LocalizedError {
 public final class RuneFFISession {
     private var handle: OpaquePointer?
 
-    public init(rootURL: URL) throws {
-        let created = rootURL.path.withCString { rune_session_new($0) }
+    public init(rootURL: URL, sessionID: String? = nil) throws {
+        let created: OpaquePointer?
+        if let sessionID {
+            created = rootURL.path.withCString { path in
+                sessionID.withCString { identifier in
+                    rune_session_new_named(path, identifier)
+                }
+            }
+        } else {
+            created = rootURL.path.withCString { rune_session_new($0) }
+        }
         guard let created else {
             throw RuneBridgeError.sessionInitializationFailed(rootURL)
         }

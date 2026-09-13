@@ -34,10 +34,12 @@ public final class RuneTerminalModel: ObservableObject {
 
     private var session: RuneFFISession?
     private var scopedFolder: RuneScopedFolder?
+    private let sessionID: String?
     private var history: [String] = []
     private var historyCursor: Int?
 
-    public init(rootURL: URL? = nil) {
+    public init(rootURL: URL? = nil, sessionID: String? = nil) {
+        self.sessionID = sessionID
         let root = rootURL ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
         let folderAccess = RuneExternalFolderAccess.shared
         session = nil
@@ -46,7 +48,7 @@ public final class RuneTerminalModel: ObservableObject {
             initializationError = "Rune could not locate the app Documents directory."
             return
         }
-        if rootURL == nil, let name = folderAccess.lastActiveName,
+        if rootURL == nil, sessionID == nil, let name = folderAccess.lastActiveName,
            let scope = try? folderAccess.open(named: name) {
             do {
                 let restoredSession = try RuneFFISession(rootURL: scope.url)
@@ -64,7 +66,7 @@ public final class RuneTerminalModel: ObservableObject {
             }
         }
         do {
-            session = try RuneFFISession(rootURL: root)
+            session = try RuneFFISession(rootURL: root, sessionID: sessionID)
             initializationError = nil
             workspaceName = root.lastPathComponent.isEmpty ? "Documents" : root.lastPathComponent
             currentDirectory = session?.currentDirectory ?? "~"
@@ -95,7 +97,7 @@ public final class RuneTerminalModel: ObservableObject {
             let name = access.suggestedName(for: url)
             try access.save(url: url, as: name)
             let scope = try access.open(url: url)
-            let nextSession = try RuneFFISession(rootURL: scope.url)
+            let nextSession = try RuneFFISession(rootURL: scope.url, sessionID: sessionID)
             let previousScope = scopedFolder
             session = nextSession
             scopedFolder = scope
@@ -208,8 +210,8 @@ public struct RuneTerminalView: View {
     @FocusState private var inputFocused: Bool
     @State private var isImportingFolder = false
 
-    public init(rootURL: URL? = nil) {
-        _model = StateObject(wrappedValue: RuneTerminalModel(rootURL: rootURL))
+    public init(rootURL: URL? = nil, sessionID: String? = nil) {
+        _model = StateObject(wrappedValue: RuneTerminalModel(rootURL: rootURL, sessionID: sessionID))
     }
 
     public var body: some View {
@@ -478,7 +480,7 @@ public struct RuneIOSApp: App {
 
     public var body: some Scene {
         WindowGroup {
-            RuneTerminalView()
+            RuneWorkspaceView()
         }
     }
 }

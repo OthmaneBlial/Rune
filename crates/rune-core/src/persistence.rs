@@ -6,12 +6,14 @@ use super::{MAX_BOOKMARKS, MAX_BOOKMARK_BYTES};
 
 const STATE_DIRECTORY: &str = "~/.rune";
 const STATE_PATH: &str = "~/.rune/session.state";
+const SESSION_DIRECTORY: &str = "~/.rune/sessions";
 const STATE_HEADER: &str = "RUNE_SESSION_STATE_V1";
 pub(super) const MAX_HISTORY_ENTRIES: usize = 10_000;
 pub(super) const MAX_HISTORY_BYTES: usize = 4 * 1024 * 1024;
 const MAX_SESSION_STATE_BYTES: usize = MAX_HISTORY_BYTES + MAX_BOOKMARK_BYTES + 1_024;
 pub(super) const PROFILE_PATH: &str = "~/.rune_profile";
 const PROFILE_LIMIT: usize = 64 * 1024;
+pub(super) const MAX_SESSION_ID_CHARS: usize = 64;
 
 #[derive(Debug, Default)]
 pub(super) struct SessionState {
@@ -20,8 +22,9 @@ pub(super) struct SessionState {
     pub bookmarks: BTreeMap<String, String>,
 }
 
-pub(super) fn load(filesystem: &dyn VirtualFileSystem) -> SessionState {
-    let Ok(bytes) = filesystem.read(STATE_PATH) else {
+pub(super) fn load(filesystem: &dyn VirtualFileSystem, session_id: Option<&str>) -> SessionState {
+    let (_, state_path) = state_paths(session_id);
+    let Ok(bytes) = filesystem.read(&state_path) else {
         return SessionState::default();
     };
     if bytes.len() > MAX_SESSION_STATE_BYTES {
@@ -38,8 +41,10 @@ pub(super) fn save(
     current_directory: &str,
     history: &[String],
     bookmarks: &BTreeMap<String, String>,
+    session_id: Option<&str>,
 ) -> Result<(), FsError> {
-    match filesystem.make_directory(STATE_DIRECTORY, false) {
+    let (state_directory, state_path) = state_paths(session_id);
+    match filesystem.make_directory(&state_directory, true) {
         Ok(()) | Err(FsError::AlreadyExists(_)) => {}
         Err(error) => return Err(error),
     }
@@ -47,11 +52,29 @@ pub(super) fn save(
     if content.len() > MAX_SESSION_STATE_BYTES {
         return Err(FsError::Io {
             operation: "serialize session".to_string(),
-            path: STATE_PATH.to_string(),
+            path: state_path,
             message: format!("session state exceeds the {MAX_SESSION_STATE_BYTES}-byte limit"),
         });
     }
-    filesystem.write(STATE_PATH, content.as_bytes(), false)
+    filesystem.write(&state_path, content.as_bytes(), false)
+}
+
+pub(super) fn is_valid_session_id(session_id: &str) -> bool {
+    !session_id.is_empty()
+        && session_id.chars().count() <= MAX_SESSION_ID_CHARS
+        && session_id.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
+        })
+}
+
+fn state_paths(session_id: Option<&str>) -> (String, String) {
+    match session_id {
+        Some(session_id) => (
+            format!("{SESSION_DIRECTORY}/{session_id}"),
+            format!("{SESSION_DIRECTORY}/{session_id}/session.state"),
+        ),
+        None => (STATE_DIRECTORY.to_string(), STATE_PATH.to_string()),
+    }
 }
 
 pub(super) fn load_profile(filesystem: &dyn VirtualFileSystem) -> Result<Vec<String>, FsError> {

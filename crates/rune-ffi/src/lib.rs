@@ -63,6 +63,22 @@ fn persist_after_execution(core: &mut Session, mut output: CommandOutput) -> Com
     output
 }
 
+fn create_session(root: &str, session_id: Option<&str>) -> *mut std::ffi::c_void {
+    let Ok(filesystem) = SandboxedFileSystem::new(root) else {
+        return std::ptr::null_mut();
+    };
+    let core = match session_id {
+        Some(session_id) => match Session::restore_with_id(filesystem, session_id) {
+            Ok(core) => core,
+            Err(_) => return std::ptr::null_mut(),
+        },
+        None => Session::restore(filesystem),
+    };
+    let cancellation = core.cancellation_handle();
+    let session = Box::new(RuneSession { core, cancellation });
+    Box::into_raw(session).cast()
+}
+
 /// Creates a session rooted at the supplied physical sandbox directory.
 ///
 /// A null return means the pointer was null/invalid or the root could not be
@@ -72,13 +88,20 @@ pub extern "C" fn rune_session_new(root: *const c_char) -> *mut std::ffi::c_void
     let Some(root) = read_string(root) else {
         return std::ptr::null_mut();
     };
-    let Ok(filesystem) = SandboxedFileSystem::new(root) else {
+    create_session(&root, None)
+}
+
+/// Creates a session whose cwd, history, and bookmarks are persisted in a
+/// bounded namespace below the supplied root. Session IDs are not shell paths.
+#[no_mangle]
+pub extern "C" fn rune_session_new_named(
+    root: *const c_char,
+    session_id: *const c_char,
+) -> *mut std::ffi::c_void {
+    let (Some(root), Some(session_id)) = (read_string(root), read_string(session_id)) else {
         return std::ptr::null_mut();
     };
-    let core = Session::restore(filesystem);
-    let cancellation = core.cancellation_handle();
-    let session = Box::new(RuneSession { core, cancellation });
-    Box::into_raw(session).cast()
+    create_session(&root, Some(&session_id))
 }
 
 /// Destroys a handle created by [`rune_session_new`].
@@ -279,7 +302,7 @@ mod tests {
         rune_session_cancel, rune_session_commands, rune_session_complete,
         rune_session_configuration, rune_session_current_directory, rune_session_destroy,
         rune_session_execute, rune_session_execute_script, rune_session_new,
-        rune_session_startup_output, rune_string_free,
+        rune_session_new_named, rune_session_startup_output, rune_string_free,
     };
     use std::ffi::{CStr, CString};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -406,6 +429,51 @@ mod tests {
             rune_string_free(output.stderr);
         }
         rune_session_destroy(handle);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn c_abi_named_sessions_persist_independent_working_directories() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rune-ffi-named-test-{suffix}"));
+        std::fs::create_dir_all(&root).expect("test root created");
+        let root_string = CString::new(root.to_string_lossy().as_bytes()).expect("valid root");
+        let first_id = CString::new("first").expect("valid session id");
+        let second_id = CString::new("second").expect("valid session id");
+
+        let first = rune_session_new_named(root_string.as_ptr(), first_id.as_ptr());
+        assert!(!first.is_null());
+        let command = CString::new("mkdir first-dir && cd first-dir").expect("valid command");
+        let output = rune_session_execute(first, command.as_ptr());
+        assert_eq!(output.status, 0);
+        // SAFETY: both pointers were returned by rune_session_execute.
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+        rune_session_destroy(first);
+
+        let second = rune_session_new_named(root_string.as_ptr(), second_id.as_ptr());
+        assert!(!second.is_null());
+        let directory = rune_session_current_directory(second);
+        assert_eq!(c_string(directory), "~");
+        // SAFETY: directory was returned by rune_session_current_directory.
+        unsafe { rune_string_free(directory) };
+        rune_session_destroy(second);
+
+        let reopened = rune_session_new_named(root_string.as_ptr(), first_id.as_ptr());
+        assert!(!reopened.is_null());
+        let directory = rune_session_current_directory(reopened);
+        assert_eq!(c_string(directory), "~/first-dir");
+        // SAFETY: directory was returned by rune_session_current_directory.
+        unsafe { rune_string_free(directory) };
+        rune_session_destroy(reopened);
+
+        let invalid_id = CString::new("../escape").expect("valid bytes");
+        assert!(rune_session_new_named(root_string.as_ptr(), invalid_id.as_ptr()).is_null());
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
