@@ -19,7 +19,7 @@ working iOS application or a feature-parity claim.
 | Area | Progress |
 |---|---:|
 | Rust workspace | 80% |
-| Shell tokenizer/parser | 70% |
+| Shell tokenizer/parser | 75% |
 | Command runtime | 99% |
 | Sandboxed filesystem | 70% |
 | Sessions/history | 66% |
@@ -44,7 +44,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 bounded filesystem,
 including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
-with quotes, variables, leading `NAME=value` assignments, pipes, redirections,
+with quotes, variables, bounded `$(...)` command substitutions, leading `NAME=value` assignments, pipes, redirections,
 word-boundary comments, sequencing, `&&`/`||` short-circuiting, separate
 stdout/stderr, and exit status.
 `ls` also provides a bounded metadata view with `-l`, human-readable sizes with
@@ -69,6 +69,9 @@ separators, `$0`/`$1...`, `NF`/`NR`/`FNR`, `print`, `FS`/`OFS` assignments,
 `BEGIN`/`END`, literal `/text/` filters, simple equality, and literal
 contains/not-contains predicates. It accepts UTF-8 stdin or confined files,
 and does not execute arbitrary awk code or regular expressions.
+Command substitutions execute through the same Rust planner with a bounded
+nesting depth; their stdout loses trailing newlines, shell state is isolated,
+and filesystem writes remain real VFS writes.
 Redirections also support bounded stream duplication with `2>&1`, `1>&2`,
 `>&2`, and `&>`/`&>>`; the Rust plan preserves their left-to-right target
 semantics for pipelines and captured stdout/stderr.
@@ -409,6 +412,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded UTF-8 `diff` with unified output and comparison limits
 - [x] Bounded Rust-owned `awk` field processing subset
 - [x] Bounded Rust-owned `xargs` batching over stdin
+- [x] Bounded `$(...)` command substitution with isolated shell state
 
 ### Phase 3 — Developer environment
 

@@ -77,6 +77,11 @@ duplication order, and carrying merged stderr through a pipeline.
 Script tests also cover bounded positional arguments (`$0`, `$1...`, `$#`, and
 `$@`), preservation of pipeline stdin, and restoration of outer parameters
 after nested source calls.
+Shell parser tests cover quoted and nested `$(...)` forms and unclosed
+substitution rejection. The core integration test covers stdout capture,
+trailing-newline removal, nested substitutions, redirection targets, and
+restoration of cwd/environment state; substitution depth and input size remain
+bounded.
 Completion tests also cover simple separated redirection targets, use only the
 confined VFS, and do not require an Apple runtime.
 Named-session tests use separate temporary VFS state namespaces and verify that

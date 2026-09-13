@@ -12,6 +12,8 @@ pub enum WordPart {
     Literal(String),
     /// An environment variable reference such as `$HOME` or `${HOME}`.
     Variable(String),
+    /// A bounded command substitution such as `$(pwd)`.
+    CommandSubstitution(String),
     /// An unquoted pathname wildcard. Quoted `*` and `?` remain literals.
     Wildcard(char),
 }
@@ -40,7 +42,9 @@ impl Word {
         for part in &self.parts {
             match part {
                 WordPart::Literal(text) => value.push_str(text),
-                WordPart::Variable(_) | WordPart::Wildcard(_) => return None,
+                WordPart::Variable(_)
+                | WordPart::CommandSubstitution(_)
+                | WordPart::Wildcard(_) => return None,
             }
         }
         Some(value)
@@ -129,6 +133,7 @@ pub enum ParseError {
     UnclosedDoubleQuote,
     TrailingEscape,
     InvalidVariable(String),
+    UnclosedCommandSubstitution,
     UnexpectedToken(String),
     MissingRedirectionTarget,
     EmptyPipeline,
@@ -141,6 +146,9 @@ impl Display for ParseError {
             Self::UnclosedDoubleQuote => formatter.write_str("unclosed double quote"),
             Self::TrailingEscape => formatter.write_str("trailing escape"),
             Self::InvalidVariable(name) => write!(formatter, "invalid variable reference: ${name}"),
+            Self::UnclosedCommandSubstitution => {
+                formatter.write_str("unclosed command substitution")
+            }
             Self::UnexpectedToken(token) => write!(formatter, "unexpected token {token}"),
             Self::MissingRedirectionTarget => {
                 formatter.write_str("redirection is missing a target")
@@ -285,6 +293,59 @@ fn parse_variable(input: &[char], index: &mut usize) -> Result<Option<String>, P
     }
 }
 
+fn parse_command_substitution(input: &[char], index: &mut usize) -> Result<String, ParseError> {
+    let content_start = *index + 2;
+    let mut cursor = content_start;
+    let mut depth = 1;
+    let mut mode = QuoteMode::Normal;
+    while cursor < input.len() {
+        let character = input[cursor];
+        match mode {
+            QuoteMode::Single => {
+                if character == '\'' {
+                    mode = QuoteMode::Normal;
+                }
+                cursor += 1;
+            }
+            QuoteMode::Double => {
+                if character == '"' {
+                    mode = QuoteMode::Normal;
+                    cursor += 1;
+                } else if character == '\\' {
+                    cursor = cursor.saturating_add(2);
+                } else {
+                    cursor += 1;
+                }
+            }
+            QuoteMode::Normal => {
+                if character == '\'' {
+                    mode = QuoteMode::Single;
+                    cursor += 1;
+                } else if character == '"' {
+                    mode = QuoteMode::Double;
+                    cursor += 1;
+                } else if character == '\\' {
+                    cursor = cursor.saturating_add(2);
+                } else if character == '$' && input.get(cursor + 1) == Some(&'(') {
+                    depth += 1;
+                    cursor += 2;
+                } else if character == ')' {
+                    depth -= 1;
+                    if depth == 0 {
+                        let command = input[content_start..cursor].iter().collect();
+                        *index = cursor;
+                        return Ok(command);
+                    }
+                    cursor += 1;
+                } else {
+                    cursor += 1;
+                }
+            }
+        }
+    }
+    Err(ParseError::UnclosedCommandSubstitution)
+}
+
 /// Tokenizes a command line while respecting quotes, escapes, variables, and
 /// the supported operators.
 ///
@@ -335,7 +396,10 @@ pub fn tokenize(input: &str) -> Result<Vec<(Token, Option<Word>)>, ParseError> {
                     started = true;
                     index += 2;
                 } else if character == '$' {
-                    if let Some(name) = parse_variable(&characters, &mut index)? {
+                    if characters.get(index + 1) == Some(&'(') {
+                        let command = parse_command_substitution(&characters, &mut index)?;
+                        parts.push(WordPart::CommandSubstitution(command));
+                    } else if let Some(name) = parse_variable(&characters, &mut index)? {
                         push_variable(&mut parts, name);
                     } else {
                         append_literal(&mut parts, "$".to_string());
@@ -374,7 +438,10 @@ pub fn tokenize(input: &str) -> Result<Vec<(Token, Option<Word>)>, ParseError> {
                     started = true;
                     index += 2;
                 } else if character == '$' {
-                    if let Some(name) = parse_variable(&characters, &mut index)? {
+                    if characters.get(index + 1) == Some(&'(') {
+                        let command = parse_command_substitution(&characters, &mut index)?;
+                        parts.push(WordPart::CommandSubstitution(command));
+                    } else if let Some(name) = parse_variable(&characters, &mut index)? {
                         push_variable(&mut parts, name);
                     } else {
                         append_literal(&mut parts, "$".to_string());
@@ -690,6 +757,42 @@ mod tests {
                 vec![WordPart::Variable("#".to_string())],
                 vec![WordPart::Variable("@".to_string())],
             ]
+        );
+
+        let substitution =
+            tokenize("echo $(pwd) \"$(echo nested)\" '$()'").expect("valid command substitution");
+        assert_eq!(
+            substitution[1].1.as_ref().expect("substitution").parts(),
+            &[WordPart::CommandSubstitution("pwd".to_string())]
+        );
+        assert_eq!(
+            substitution[2]
+                .1
+                .as_ref()
+                .expect("quoted substitution")
+                .parts(),
+            &[WordPart::CommandSubstitution("echo nested".to_string())]
+        );
+        assert_eq!(
+            substitution[3]
+                .1
+                .as_ref()
+                .expect("literal substitution")
+                .parts(),
+            &[WordPart::Literal("$()".to_string())]
+        );
+    }
+
+    #[test]
+    fn parses_nested_and_rejects_unclosed_command_substitutions() {
+        let nested = tokenize("echo $(echo $(pwd))").expect("nested substitution");
+        assert_eq!(
+            nested[1].1.as_ref().expect("nested word").parts(),
+            &[WordPart::CommandSubstitution("echo $(pwd)".to_string())]
+        );
+        assert_eq!(
+            tokenize("echo $(pwd").expect_err("missing closing parenthesis"),
+            super::ParseError::UnclosedCommandSubstitution
         );
     }
 

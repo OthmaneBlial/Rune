@@ -75,6 +75,14 @@ comment and stops lexing the remainder of that line. Hashes inside a word,
 inside quotes, or escaped remain literal, so startup profiles can use ordinary
 comments without weakening argument handling.
 
+The tokenizer also records bounded `$(...)` command substitutions, including
+nested parentheses outside quoted inner text. `rune-core` executes each
+substitution through its ordinary parsed plan with no history record, removes
+trailing newlines from captured stdout, and restores the inherited shell state
+afterward. VFS writes made by the substitution are intentionally not rolled
+back; the isolation applies to cwd, environment, aliases, bookmarks,
+configuration, history, status, and script parameters.
+
 Session persistence is explicit and intentionally narrow: the legacy/default
 session stores the virtual working directory, command history, and bounded
 bookmarks in `~/.rune/session.state`. Named sessions use

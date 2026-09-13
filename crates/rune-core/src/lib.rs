@@ -47,6 +47,7 @@ const MAX_SCRIPT_BYTES: usize = 256 * 1024;
 const MAX_SCRIPT_LINES: usize = 1_024;
 const MAX_SOURCE_DEPTH: usize = 16;
 const MAX_SOURCE_ARGUMENTS: usize = 64;
+const MAX_COMMAND_SUBSTITUTION_DEPTH: usize = 16;
 pub(crate) const CANCELLED_STATUS: i32 = 130;
 const MAX_BOOKMARKS: usize = 256;
 const MAX_BOOKMARK_NAME_CHARS: usize = 64;
@@ -348,6 +349,7 @@ pub struct Session {
     network_provider: Box<dyn NetworkProvider>,
     clipboard_provider: Box<dyn ClipboardProvider>,
     cancellation_requested: Arc<AtomicBool>,
+    command_substitution_depth: usize,
     state_session_id: Option<String>,
     script_parameters: Vec<String>,
 }
@@ -381,6 +383,7 @@ impl Session {
             network_provider: Box::new(DisabledNetworkProvider),
             clipboard_provider: Box::new(DisabledClipboardProvider),
             cancellation_requested: Arc::new(AtomicBool::new(false)),
+            command_substitution_depth: 0,
             state_session_id: None,
             script_parameters: Vec::new(),
         };
@@ -1109,24 +1112,28 @@ impl Session {
             );
         }
 
+        let mut expansion_stderr = String::new();
         for assignment in &command.assignments {
-            let value = expand_word(
-                &assignment.value,
-                &self.environment,
-                self.last_status,
-                &self.script_parameters,
-            )
-            .value;
+            let expanded = match self.expand_word(&assignment.value, source_depth) {
+                Ok(expanded) => expanded,
+                Err(output) => return output,
+            };
+            expansion_stderr.push_str(&expanded.stderr);
+            let value = expanded.value;
             self.environment.insert(assignment.name.clone(), value);
         }
-        let (program, arguments) = match self.expand_command_words(command) {
-            Ok(expanded) => expanded,
-            Err(output) => return output,
-        };
-        let redirections = match self.apply_redirections(command, &program, external_stdin) {
-            Ok(redirections) => redirections,
-            Err(output) => return output,
-        };
+        let (program, arguments, command_stderr) =
+            match self.expand_command_words(command, source_depth) {
+                Ok(expanded) => expanded,
+                Err(output) => return output,
+            };
+        expansion_stderr.push_str(&command_stderr);
+        let (redirections, redirection_stderr) =
+            match self.apply_redirections(command, &program, external_stdin, source_depth) {
+                Ok(redirections) => redirections,
+                Err(output) => return output,
+            };
+        expansion_stderr.push_str(&redirection_stderr);
 
         let source_command = matches!(program.as_str(), "source" | ".");
         let xargs_command = program == "xargs";
@@ -1171,6 +1178,10 @@ impl Session {
         } else {
             CommandOutput::failure(127, format!("{program}: command not found\n"))
         };
+        if !expansion_stderr.is_empty() {
+            expansion_stderr.push_str(&output.stderr);
+            output.stderr = expansion_stderr;
+        }
         self.apply_history_limit();
         self.update_directory_environment(previous_directory);
         self.apply_output_redirections(&program, &mut output, redirections);
@@ -1215,25 +1226,126 @@ impl Session {
         output
     }
 
+    fn expand_word(
+        &mut self,
+        word: &Word,
+        source_depth: usize,
+    ) -> Result<ExpandedWord, CommandOutput> {
+        let environment = self.environment.clone();
+        let last_status = self.last_status;
+        let script_parameters = self.script_parameters.clone();
+        let mut value = String::new();
+        let mut stderr = String::new();
+        let mut has_wildcard = false;
+        for part in word.parts() {
+            match part {
+                WordPart::Literal(text) => value.push_str(text),
+                WordPart::Variable(name) if name == "?" => value.push_str(&last_status.to_string()),
+                WordPart::Variable(name) if name == "#" => {
+                    value.push_str(&script_parameters.len().saturating_sub(1).to_string());
+                }
+                WordPart::Variable(name) if name == "@" => {
+                    if script_parameters.len() > 1 {
+                        value.push_str(&script_parameters[1..].join(" "));
+                    }
+                }
+                WordPart::Variable(name) if let Ok(index) = name.parse::<usize>() => {
+                    if let Some(parameter) = script_parameters.get(index) {
+                        value.push_str(parameter);
+                    }
+                }
+                WordPart::Variable(name) => {
+                    if let Some(variable_value) = environment.get(name) {
+                        value.push_str(variable_value);
+                    }
+                }
+                WordPart::CommandSubstitution(command) => {
+                    let output = self.execute_command_substitution(command, source_depth)?;
+                    value.push_str(output.stdout.trim_end_matches('\n'));
+                    stderr.push_str(&output.stderr);
+                }
+                WordPart::Wildcard(wildcard) => {
+                    value.push(*wildcard);
+                    has_wildcard = true;
+                }
+            }
+        }
+        Ok(ExpandedWord {
+            value,
+            has_wildcard,
+            stderr,
+        })
+    }
+
+    fn execute_command_substitution(
+        &mut self,
+        command: &str,
+        source_depth: usize,
+    ) -> Result<CommandOutput, CommandOutput> {
+        if command.len() > MAX_COMMAND_INPUT_BYTES {
+            return Err(CommandOutput::failure(
+                2,
+                format!(
+                    "rune: command substitution exceeds the {MAX_COMMAND_INPUT_BYTES}-byte input limit\n"
+                ),
+            ));
+        }
+        if self.command_substitution_depth >= MAX_COMMAND_SUBSTITUTION_DEPTH {
+            return Err(CommandOutput::failure(
+                2,
+                format!(
+                    "rune: command substitution nesting exceeds the {MAX_COMMAND_SUBSTITUTION_DEPTH}-level limit\n"
+                ),
+            ));
+        }
+        let plan = parse(command).map_err(|error| {
+            CommandOutput::failure(2, format!("rune: command substitution: {error}\n"))
+        })?;
+        if plan.is_empty() {
+            return Ok(CommandOutput::success(""));
+        }
+
+        let previous_directory = self.filesystem.current_dir_display();
+        let previous_environment = self.environment.clone();
+        let previous_aliases = self.aliases.clone();
+        let previous_bookmarks = self.bookmarks.clone();
+        let previous_config = self.config.clone();
+        let previous_history = self.history.clone();
+        let previous_history_limit = self.history_limit;
+        let previous_status = self.last_status;
+        let previous_parameters = self.script_parameters.clone();
+        let previous_depth = self.command_substitution_depth;
+
+        self.command_substitution_depth += 1;
+        let mut sink = NoopEventSink;
+        let mut output = self.execute_plan(&plan, false, source_depth, "", &mut sink);
+        self.command_substitution_depth = previous_depth;
+        let _ = self.filesystem.change_dir(&previous_directory);
+        self.environment = previous_environment;
+        self.aliases = previous_aliases;
+        self.bookmarks = previous_bookmarks;
+        self.config = previous_config;
+        self.history = previous_history;
+        self.history_limit = previous_history_limit;
+        self.last_status = previous_status;
+        self.script_parameters = previous_parameters;
+        output.stdout = output.stdout.trim_end_matches('\n').to_string();
+        limit_output(&mut output);
+        Ok(output)
+    }
+
     fn expand_command_words(
-        &self,
+        &mut self,
         command: &CommandPlan,
-    ) -> Result<(String, Vec<String>), CommandOutput> {
-        let program = expand_word(
-            &command.program,
-            &self.environment,
-            self.last_status,
-            &self.script_parameters,
-        )
-        .value;
+        source_depth: usize,
+    ) -> Result<(String, Vec<String>, String), CommandOutput> {
+        let program_expanded = self.expand_word(&command.program, source_depth)?;
+        let program = program_expanded.value;
+        let mut stderr = program_expanded.stderr;
         let mut arguments = Vec::new();
         for word in &command.arguments {
-            let expanded = expand_word(
-                word,
-                &self.environment,
-                self.last_status,
-                &self.script_parameters,
-            );
+            let expanded = self.expand_word(word, source_depth)?;
+            stderr.push_str(&expanded.stderr);
             if expanded.has_wildcard {
                 match self.filesystem.glob(&expanded.value) {
                     Ok(matches) => arguments.extend(matches),
@@ -1243,7 +1355,7 @@ impl Session {
                 arguments.push(expanded.value);
             }
         }
-        Ok((program, arguments))
+        Ok((program, arguments, stderr))
     }
 
     fn execute_source(
@@ -1301,33 +1413,27 @@ impl Session {
         command: &CommandPlan,
         program: &str,
         external_stdin: &str,
-    ) -> Result<AppliedRedirections, CommandOutput> {
+        source_depth: usize,
+    ) -> Result<(AppliedRedirections, String), CommandOutput> {
         let mut stdin = external_stdin.to_string();
         let mut stdout = OutputTarget::Stdout;
         let mut stderr = OutputTarget::Stderr;
+        let mut expansion_stderr = String::new();
         for (descriptor, redirection) in command.redirections.iter().enumerate() {
             match redirection {
                 Redirection::Stdin { path } => {
-                    let path = expand_word(
-                        path,
-                        &self.environment,
-                        self.last_status,
-                        &self.script_parameters,
-                    )
-                    .value;
+                    let expanded = self.expand_word(path, source_depth)?;
+                    expansion_stderr.push_str(&expanded.stderr);
+                    let path = expanded.value;
                     match self.filesystem.read(&path) {
                         Ok(content) => stdin = String::from_utf8_lossy(&content).into_owned(),
                         Err(error) => return Err(fs_failure(program, &error)),
                     }
                 }
                 Redirection::Stdout { path, append } => {
-                    let path = expand_word(
-                        path,
-                        &self.environment,
-                        self.last_status,
-                        &self.script_parameters,
-                    )
-                    .value;
+                    let expanded = self.expand_word(path, source_depth)?;
+                    expansion_stderr.push_str(&expanded.stderr);
+                    let path = expanded.value;
                     if let Err(error) = self.filesystem.write(&path, &[], *append) {
                         return Err(fs_failure(program, &error));
                     }
@@ -1338,13 +1444,9 @@ impl Session {
                     };
                 }
                 Redirection::Stderr { path, append } => {
-                    let path = expand_word(
-                        path,
-                        &self.environment,
-                        self.last_status,
-                        &self.script_parameters,
-                    )
-                    .value;
+                    let expanded = self.expand_word(path, source_depth)?;
+                    expansion_stderr.push_str(&expanded.stderr);
+                    let path = expanded.value;
                     if let Err(error) = self.filesystem.write(&path, &[], *append) {
                         return Err(fs_failure(program, &error));
                     }
@@ -1355,13 +1457,9 @@ impl Session {
                     };
                 }
                 Redirection::Both { path, append } => {
-                    let path = expand_word(
-                        path,
-                        &self.environment,
-                        self.last_status,
-                        &self.script_parameters,
-                    )
-                    .value;
+                    let expanded = self.expand_word(path, source_depth)?;
+                    expansion_stderr.push_str(&expanded.stderr);
+                    let path = expanded.value;
                     if let Err(error) = self.filesystem.write(&path, &[], *append) {
                         return Err(fs_failure(program, &error));
                     }
@@ -1377,11 +1475,14 @@ impl Session {
                 Redirection::StderrToStdout => stderr = stdout.clone(),
             }
         }
-        Ok(AppliedRedirections {
-            stdin,
-            stdout,
-            stderr,
-        })
+        Ok((
+            AppliedRedirections {
+                stdin,
+                stdout,
+                stderr,
+            },
+            expansion_stderr,
+        ))
     }
 
     fn apply_output_redirections(
@@ -1810,48 +1911,7 @@ fn installed_commands_in_filesystem(
 struct ExpandedWord {
     value: String,
     has_wildcard: bool,
-}
-
-fn expand_word(
-    word: &Word,
-    environment: &BTreeMap<String, String>,
-    last_status: i32,
-    script_parameters: &[String],
-) -> ExpandedWord {
-    let mut value = String::new();
-    let mut has_wildcard = false;
-    for part in word.parts() {
-        match part {
-            WordPart::Literal(text) => value.push_str(text),
-            WordPart::Variable(name) if name == "?" => value.push_str(&last_status.to_string()),
-            WordPart::Variable(name) if name == "#" => {
-                value.push_str(&script_parameters.len().saturating_sub(1).to_string());
-            }
-            WordPart::Variable(name) if name == "@" => {
-                if script_parameters.len() > 1 {
-                    value.push_str(&script_parameters[1..].join(" "));
-                }
-            }
-            WordPart::Variable(name) if let Ok(index) = name.parse::<usize>() => {
-                if let Some(parameter) = script_parameters.get(index) {
-                    value.push_str(parameter);
-                }
-            }
-            WordPart::Variable(name) => {
-                if let Some(variable_value) = environment.get(name) {
-                    value.push_str(variable_value);
-                }
-            }
-            WordPart::Wildcard(wildcard) => {
-                value.push(*wildcard);
-                has_wildcard = true;
-            }
-        }
-    }
-    ExpandedWord {
-        value,
-        has_wildcard,
-    }
+    stderr: String,
 }
 
 fn history_entry(line: &str) -> String {
@@ -2681,6 +2741,40 @@ mod tests {
         let null_delimited = session.execute_line("cat null-items | xargs -0 -n 2 echo");
         assert_eq!(null_delimited.status, 0);
         assert_eq!(null_delimited.stdout, "one two\nthree\n");
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn evaluates_bounded_command_substitutions_in_an_isolated_shell_state() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(
+            session.execute_line("echo value=$(echo nested)").stdout,
+            "value=nested\n"
+        );
+        assert_eq!(
+            session.execute_line("echo nested=$(echo $(pwd))").stdout,
+            "nested=~\n"
+        );
+        assert_eq!(session.execute_line("mkdir child").status, 0);
+        assert_eq!(
+            session.execute_line("echo inside=$(cd child; pwd)").stdout,
+            "inside=~/child\n"
+        );
+        assert_eq!(session.execute_line("pwd").stdout, "~\n");
+        assert_eq!(
+            session
+                .execute_line("VALUE=$(printf result); echo $VALUE")
+                .stdout,
+            "result\n"
+        );
+        assert_eq!(
+            session
+                .execute_line("echo data > $(echo output.txt)")
+                .status,
+            0
+        );
+        assert_eq!(session.execute_line("cat output.txt").stdout, "data\n");
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
