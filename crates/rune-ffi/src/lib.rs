@@ -204,8 +204,10 @@ pub extern "C" fn rune_session_commands(handle: *const std::ffi::c_void) -> *mut
     into_owned_c_string(&commands.join("\n"))
 }
 
-/// Returns bounded Rust-owned first-word completion candidates as a
+/// Returns bounded Rust-owned command/path completion candidates as a
 /// newline-separated string. An invalid input or null handle returns null.
+/// Command names and supported sandbox paths are returned as replacement
+/// tokens; ambiguous quoted or compound fragments return an empty string.
 #[no_mangle]
 pub extern "C" fn rune_session_complete(
     handle: *const std::ffi::c_void,
@@ -273,6 +275,8 @@ mod tests {
         std::fs::create_dir_all(&root).expect("test root created");
         std::fs::write(root.join(".rune_profile"), b"echo profile-start\n")
             .expect("profile written");
+        std::fs::write(root.join("readme.txt"), b"readme\n").expect("completion file written");
+        std::fs::create_dir(root.join("docs")).expect("completion directory created");
         let root_string = CString::new(root.to_string_lossy().as_bytes()).expect("valid root");
         let handle = rune_session_new(root_string.as_ptr());
         assert!(!handle.is_null());
@@ -313,6 +317,11 @@ mod tests {
         assert_eq!(c_string(completions), "echo");
         // SAFETY: completions was returned by rune_session_complete.
         unsafe { rune_string_free(completions) };
+        let path_prefix = CString::new("cat re").expect("valid path completion prefix");
+        let path_completions = rune_session_complete(handle, path_prefix.as_ptr());
+        assert_eq!(c_string(path_completions), "readme.txt");
+        // SAFETY: path_completions was returned by rune_session_complete.
+        unsafe { rune_string_free(path_completions) };
         let configuration = rune_session_configuration(handle);
         assert_eq!(
             c_string(configuration),

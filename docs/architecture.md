@@ -17,8 +17,8 @@ constraints. It is not a source dependency or an implementation template.
 - `rune-fs`: path resolution and filesystem policy. Commands receive this
   abstraction rather than reaching into Apple APIs directly.
 - `rune-core`: command registry, command context, session state, execution
-  results, and the bounded first-word completion query used by native
-  frontends.
+  results, and the bounded command/path completion query used by native
+ frontends.
 - `rune-wasm`: bounded WASI preview1 execution with no host-directory
   preopens in the initial slice.
 - `rune-package`: bounded versioned manifest parsing and SHA-256 artifact
@@ -138,6 +138,13 @@ portable session, and `which` reports aliases and registered built-ins. These
 commands never expose the host user's name or claim that arbitrary host
 executables are available; installed package discovery will be added when the
 package command index is defined.
+
+Native completion asks the Rust session for replacement tokens. At the start
+of a line it returns built-in command names; for supported path-oriented
+commands it lists only entries in the bounded VFS, preserves virtual prefixes
+such as `~/` and `../`, marks directories with `/`, and caps results at eight.
+Quoted, escaped, option, and compound-shell fragments are intentionally
+deferred until the completion grammar has structured replacement ranges.
 
 The Rust shell includes a bounded `printf` formatter for `%s`, `%c`, `%d`,
 `%i`, `%%`, and the `\\n`, `\\r`, `\\t`, and `\\\\` escapes. It deliberately

@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 28%**
+**Overall progress: 29%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -25,8 +25,8 @@ working iOS application or a feature-parity claim.
 | Sessions/history | 42% |
 | Configuration | 23% |
 | WASM | 23% |
-| Native iOS UI | 18% |
-| Swift/Rust bridge | 14% |
+| Native iOS UI | 20% |
+| Swift/Rust bridge | 15% |
 | Package manager | 25% |
 | Compatibility evidence | 2% |
 
@@ -57,9 +57,9 @@ on restore; its supported Rust built-ins can update the session environment and
 define aliases, with output surfaced to the CLI/native boundary without
 polluting history. Alias expansion is bounded and currently accepts one
 command per alias value; compound alias values are rejected explicitly. The
-native source UI now asks Rust for bounded first-word command completion; the
-registry remains Rust-owned and the bridge exposes only the resulting
-candidates.
+native source UI now asks Rust for bounded command and sandbox-path completion;
+the registry and filesystem lookup remain Rust-owned and the bridge exposes only
+replacement tokens.
 It also has a focused command bar, keyboard-aware history controls, an
 ink/cyan/ember console palette, accessible completion controls, and native
 handling for the Rust `clear` screen-control sequence.
@@ -195,7 +195,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded Rust-owned history, font-size, and theme configuration
 - [ ] Network registry, search, and update policy
 - [ ] Python, JavaScript, and Lua runtime evaluation
-- [x] Rust-owned first-word command completion and help metadata
+- [x] Rust-owned command/path completion and help metadata
 
 ### Phase 4 — Apple integration
 

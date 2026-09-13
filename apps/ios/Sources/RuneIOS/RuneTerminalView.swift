@@ -135,8 +135,14 @@ public final class RuneTerminalModel: ObservableObject {
     }
 
     public func applyCompletion(_ candidate: String) {
-        let leadingWhitespace = String(command.prefix(while: { $0.isWhitespace }))
-        command = "\(leadingWhitespace)\(candidate) "
+        let tokenStart = command
+            .indices
+            .reversed()
+            .first(where: { command[$0].isWhitespace })
+            .map { command.index(after: $0) } ?? command.startIndex
+        let prefix = String(command[..<tokenStart])
+        let suffix = candidate.hasSuffix("/") ? "" : " "
+        command = "\(prefix)\(candidate)\(suffix)"
     }
 }
 

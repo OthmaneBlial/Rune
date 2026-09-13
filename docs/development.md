@@ -13,6 +13,8 @@ registry or download is needed to validate the manifest, digest, and bounded
 package-tree boundaries.
 Configuration tests are local-only as well and verify bounded history, font
 size, and theme settings without requiring an Apple runtime.
+Completion tests also use only the confined VFS and do not require an Apple
+runtime.
 
 ## Local checks
 

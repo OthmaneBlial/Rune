@@ -42,10 +42,10 @@ directory is restored after the profile.
 - `RuneCoreBridge.swift` owns and frees Rust session handles/strings.
 - `RuneTerminalView.swift` includes the `@main` SwiftUI application entry point
   and launches the real terminal view.
-- The bridge asks Rust for bounded first-word completion candidates; it does
-  not advertise arbitrary host executables.
+- The bridge asks Rust for bounded command/path replacement candidates; it does
+  not maintain a second command registry or filesystem listing in Swift.
 - `RuneTerminalView.swift` renders stdout, stderr, and non-zero exit status
-  separately, applies the Rust-backed first-word suggestions, and provides the
+  separately, applies Rust-backed command/path suggestions, and provides the
   native focused command bar/history controls. It consumes Rune's clear-screen
   control sequence as a display action instead of showing escape bytes.
 - `swiftc -parse` and `swift package dump-package` pass with the already

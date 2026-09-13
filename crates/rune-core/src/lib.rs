@@ -26,6 +26,39 @@ const MAX_COMPLETION_INPUT_BYTES: usize = 64 * 1024;
 const OUTPUT_TRUNCATION_MARKER: &str = "\n[rune: output truncated at 1048576 bytes]\n";
 pub(crate) const PACKAGE_INSTALL_ROOT: &str = "~/.rune/packages";
 
+fn supports_path_completion(command: &str) -> bool {
+    matches!(
+        command,
+        "basename"
+            | "cat"
+            | "cd"
+            | "cp"
+            | "du"
+            | "find"
+            | "grep"
+            | "head"
+            | "ls"
+            | "ln"
+            | "mkdir"
+            | "mv"
+            | "readlink"
+            | "rm"
+            | "rmdir"
+            | "sed"
+            | "stat"
+            | "tail"
+            | "tee"
+            | "touch"
+            | "unlink"
+            | "wasm"
+            | "xxd"
+    )
+}
+
+fn directories_only_for_completion(command: &str) -> bool {
+    matches!(command, "cd" | "mkdir" | "rmdir")
+}
+
 struct InstalledCommand {
     package: String,
     manifest_path: String,
@@ -248,34 +281,95 @@ impl Session {
         self.registry.definitions()
     }
 
-    /// Returns bounded first-word completion candidates owned by Rust.
+    /// Returns bounded command or path completion candidates owned by Rust.
     ///
-    /// The initial completion contract intentionally handles only a command
-    /// name at the beginning of a line. Arguments, paths, quoted fragments,
-    /// and shell operators are left untouched until the completion grammar
-    /// can return a structured replacement range instead of replacing the
-    /// entire native text field.
+    /// Candidates are replacement tokens rather than complete command lines.
+    /// The native frontend can therefore preserve the already-entered command
+    /// and arguments while applying the selected token. Quoted fragments,
+    /// escaped text, and shell operators are left untouched until the
+    /// completion grammar can return a structured replacement range.
     #[must_use]
     pub fn completion_candidates(&self, input: &str) -> Vec<String> {
         if input.len() > MAX_COMPLETION_INPUT_BYTES {
             return Vec::new();
         }
-        let prefix = input.trim_start();
-        if prefix.is_empty()
-            || prefix
+        if input.is_empty()
+            || input
                 .chars()
-                .any(|character| character.is_whitespace() || "|;&<>".contains(character))
+                .any(|character| "|;&<>\\\"'#".contains(character))
         {
             return Vec::new();
         }
 
-        let mut candidates = self
-            .registry
-            .definitions()
-            .iter()
-            .map(|definition| definition.name)
-            .filter(|name| *name != prefix && name.starts_with(prefix))
-            .map(str::to_owned)
+        let prefix = input.trim_start();
+        if !prefix.chars().any(char::is_whitespace) {
+            let mut candidates = self
+                .registry
+                .definitions()
+                .iter()
+                .map(|definition| definition.name)
+                .filter(|name| *name != prefix && name.starts_with(prefix))
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            candidates.sort_unstable();
+            candidates.dedup();
+            candidates.truncate(MAX_COMPLETION_CANDIDATES);
+            return candidates;
+        }
+
+        self.path_completion_candidates(input)
+    }
+
+    fn path_completion_candidates(&self, input: &str) -> Vec<String> {
+        let leading = input.len() - input.trim_start().len();
+        let command_end = input[leading..]
+            .find(char::is_whitespace)
+            .map_or(input.len(), |offset| leading + offset);
+        let command = &input[leading..command_end];
+        if !supports_path_completion(command) {
+            return Vec::new();
+        }
+
+        let token_start = input
+            .char_indices()
+            .rev()
+            .find(|(_, character)| character.is_whitespace())
+            .map_or(0, |(offset, character)| offset + character.len_utf8());
+        let token = &input[token_start..];
+        if token.starts_with('-') {
+            return Vec::new();
+        }
+
+        let (directory, path_prefix, name_prefix) = match token.rfind('/') {
+            Some(slash) => {
+                let directory = if slash == 0 { "/" } else { &token[..slash] };
+                (directory, &token[..=slash], &token[slash + 1..])
+            }
+            None => (".", "", token),
+        };
+        let entries = self.filesystem.list(if path_prefix.is_empty() {
+            None
+        } else {
+            Some(directory)
+        });
+        let Ok(entries) = entries else {
+            return Vec::new();
+        };
+        let directories_only = directories_only_for_completion(command);
+        let mut candidates = entries
+            .into_iter()
+            .filter(|entry| {
+                (!directories_only || entry.is_directory)
+                    && entry.name.starts_with(name_prefix)
+                    && entry.name != name_prefix
+                    && entry.name.chars().all(|character| {
+                        !character.is_whitespace() && !"|;&<>\\\"'#$*?".contains(character)
+                    })
+            })
+            .map(|entry| {
+                let suffix = if entry.is_directory { "/" } else { "" };
+                format!("{path_prefix}{}{suffix}", entry.name)
+            })
             .collect::<Vec<_>>();
         candidates.sort_unstable();
         candidates.dedup();
@@ -838,9 +932,9 @@ mod tests {
     }
 
     #[test]
-    fn provides_bounded_rust_owned_first_word_completion() {
+    fn provides_bounded_rust_owned_command_and_path_completion() {
         let root = test_root();
-        let session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
         assert_eq!(session.completion_candidates("ec"), vec!["echo"]);
         assert_eq!(
             session.completion_candidates("  pr"),
@@ -851,6 +945,28 @@ mod tests {
         assert!(session
             .completion_candidates(&"e".repeat(64 * 1024 + 1))
             .is_empty());
+        assert_eq!(session.execute_line("mkdir docs").status, 0);
+        assert_eq!(session.execute_line("echo notes > docs/notes.md").status, 0);
+        assert_eq!(session.completion_candidates("cat do"), vec!["docs/"]);
+        assert_eq!(
+            session.completion_candidates("cat docs/n"),
+            vec!["docs/notes.md"]
+        );
+        assert_eq!(
+            session.completion_candidates("cat docs/"),
+            vec!["docs/notes.md"]
+        );
+        assert_eq!(session.completion_candidates("cat ~/do"), vec!["~/docs/"]);
+        assert_eq!(session.completion_candidates("cat ./do"), vec!["./docs/"]);
+        assert_eq!(session.completion_candidates("cd do"), vec!["docs/"]);
+        assert_eq!(session.completion_candidates("cat -"), Vec::<String>::new());
+        assert!(session.completion_candidates("echo no").is_empty());
+        assert!(session.completion_candidates("cat \"no").is_empty());
+        for index in 0..10 {
+            std::fs::write(root.join(format!("candidate-{index:02}.txt")), b"candidate")
+                .expect("completion candidate written");
+        }
+        assert_eq!(session.completion_candidates("cat ").len(), 8);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

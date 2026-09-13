@@ -19,6 +19,7 @@ char *rune_session_current_directory(const void *handle);
 char *rune_session_history(const void *handle);
 char *rune_session_configuration(const void *handle);
 char *rune_session_commands(const void *handle);
+// Returns bounded command or sandbox-path replacement tokens.
 char *rune_session_complete(const void *handle, const char *input);
 RuneOutput rune_session_startup_output(void *handle);
 void rune_string_free(char *value);
