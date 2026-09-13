@@ -39,7 +39,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
 `true`, `false`, `ar`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
-`help`, `history`, `sleep`, `uname`, `which`, `whoami`, `pbcopy`, `pbpaste`,
+`help`, `history`, `sleep`, `uname`, `which`, `whoami`, `xargs`, `pbcopy`, `pbpaste`,
 `source`, and `.` against a
 bounded filesystem,
 including basic `*`/`?` pathname
@@ -211,6 +211,11 @@ parent-traversal archive names, links, unsupported entry types, and archives
 above 64 MiB or 10,000 entries. ZIP compression methods, ZIP64, PAX
 extensions, encrypted archives, and compatibility with every external
 producer remain unsupported until separately tested.
+
+The bounded `xargs` command consumes whitespace- or NUL-delimited stdin and
+invokes the normal Rust command planner in batches. `-n` limits each batch,
+`-r` skips an empty input, and generated arguments are quoted before parsing;
+there is no shell interpolation or host-process execution.
 
 The host-backed VFS also rejects regular-file reads, appends, and copies over
 64 MiB before allocating or copying their contents. This limit is independent
@@ -403,6 +408,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded `pbcopy`/`pbpaste` through an explicit host clipboard capability
 - [x] Bounded UTF-8 `diff` with unified output and comparison limits
 - [x] Bounded Rust-owned `awk` field processing subset
+- [x] Bounded Rust-owned `xargs` batching over stdin
 
 ### Phase 3 — Developer environment
 

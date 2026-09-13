@@ -104,6 +104,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "uncompress"
             | "unlink"
             | "wasm"
+            | "xargs"
             | "xxd"
             | "zip"
             | "."
@@ -1128,7 +1129,9 @@ impl Session {
         };
 
         let source_command = matches!(program.as_str(), "source" | ".");
+        let xargs_command = program == "xargs";
         let installed_command = if source_command
+            || xargs_command
             || command.program.parts().is_empty()
             || self.registry.find(&program).is_some()
         {
@@ -1150,6 +1153,8 @@ impl Session {
                 &redirections.stdin,
                 sink,
             )
+        } else if xargs_command {
+            self.execute_xargs(&arguments, &redirections.stdin, source_depth, sink)
         } else if let Some(handler) = self.registry.find(&program) {
             self.execute_builtin(&arguments, &redirections.stdin, handler)
         } else if let Some(installed_command) = installed_command {
@@ -1170,6 +1175,43 @@ impl Session {
         self.update_directory_environment(previous_directory);
         self.apply_output_redirections(&program, &mut output, redirections);
         self.last_status = output.status;
+        output
+    }
+
+    fn execute_xargs(
+        &mut self,
+        arguments: &[String],
+        stdin: &str,
+        source_depth: usize,
+        _sink: &mut dyn EventSink,
+    ) -> CommandOutput {
+        let plan = match commands::parse_xargs_plan(arguments, stdin) {
+            Ok(plan) => plan,
+            Err(error) => return usage("xargs", &error),
+        };
+        let mut output = CommandOutput::success("");
+        let mut inner_sink = NoopEventSink;
+        for batch in &plan.batches {
+            if let Some(cancellation) = self.take_cancellation() {
+                output.stderr.push_str(&cancellation.stderr);
+                output.status = cancellation.status;
+                break;
+            }
+            let line = commands::xargs_command_line(&plan, batch);
+            let parsed = match parse(&line) {
+                Ok(parsed) => parsed,
+                Err(error) => {
+                    output.status = 2;
+                    let _ = writeln!(output.stderr, "xargs: generated command: {error}");
+                    break;
+                }
+            };
+            let invocation = self.execute_plan(&parsed, false, source_depth, "", &mut inner_sink);
+            output.stdout.push_str(&invocation.stdout);
+            output.stderr.push_str(&invocation.stderr);
+            output.status = invocation.status;
+            limit_output(&mut output);
+        }
         output
     }
 
@@ -2616,6 +2658,29 @@ mod tests {
             second
         );
         assert_eq!(session.execute_line("ar x bundle.a").status, 1);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn executes_bounded_xargs_batches_through_the_rust_planner() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let batched = session.execute_line("printf 'one two three' | xargs -n 2 echo item");
+        assert_eq!(batched.status, 0);
+        assert_eq!(batched.stdout, "item one two\nitem three\n");
+
+        let skipped = session.execute_line("printf '' | xargs -r echo should-not-run");
+        assert_eq!(skipped.status, 0);
+        assert!(skipped.stdout.is_empty());
+
+        let quoted = session.execute_line("printf 'safe;value' | xargs echo");
+        assert_eq!(quoted.status, 0);
+        assert_eq!(quoted.stdout, "safe;value\n");
+        std::fs::write(root.join("null-items"), b"one\0two\0three\0")
+            .expect("null-delimited input written");
+        let null_delimited = session.execute_line("cat null-items | xargs -0 -n 2 echo");
+        assert_eq!(null_delimited.status, 0);
+        assert_eq!(null_delimited.stdout, "one two\nthree\n");
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

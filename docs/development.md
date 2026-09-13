@@ -106,6 +106,9 @@ verifies `.Z` round-trip bytes. These tests do not establish full gzip or
 The `ar` integration test verifies binary-safe regular-file members, `-rcs`
 creation, listing, extraction, and refusal to overwrite existing members;
 symbol-table, long-name-table, and linker compatibility remain unverified.
+The `xargs` tests verify bounded whitespace and NUL splitting, batch sizing,
+empty-input suppression, safe quoting, and execution through the ordinary Rust
+command planner; full platform-specific xargs compatibility remains unverified.
 The filesystem resource test uses a sparse file to verify the 64 MiB read,
 append, and copy guards without allocating a large in-memory fixture.
 The directory resource test creates 10,001 small entries and verifies that

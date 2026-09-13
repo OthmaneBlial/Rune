@@ -384,6 +384,12 @@ regular files. `ar -rcs` rebuilds or replaces members, `ar t` lists them, and
 `ar x` extracts them through the VFS. Member payloads remain binary-safe, but
 symbol tables, long-name tables, directories, and linker semantics are outside
 the profile.
+
+The `xargs` layer is coordinated by `rune-core` because it must invoke the
+existing parser and execution planner for each bounded batch. Its Rust-owned
+argument reader supports whitespace or NUL delimiters, a bounded `-n` batch
+size, and `-r` empty-input suppression. It quotes generated values before
+parsing, so input cannot introduce shell operators or host-process execution.
 The `pkg info` and `pkg verify` built-ins expose only local manifest inspection
 and verification through the VFS. `pkg info NAME [VERSION]` can also resolve
 an installed manifest, but refuses an unversioned lookup when multiple

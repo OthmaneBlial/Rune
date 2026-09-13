@@ -16,6 +16,9 @@ pub(super) mod shell;
 mod text;
 mod utilities;
 mod wasm;
+mod xargs;
+
+pub(crate) use xargs::{command_line as xargs_command_line, parse_plan as parse_xargs_plan};
 
 pub(super) const DEFINITIONS: &[CommandDefinition] = &[
     CommandDefinition {
@@ -412,6 +415,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "wasm",
         summary: "run a bounded WASI preview1 module",
         handler: wasm::wasm,
+    },
+    CommandDefinition {
+        name: "xargs",
+        summary: "run bounded command batches from standard input",
+        handler: xargs::xargs,
     },
     CommandDefinition {
         name: "uname",
