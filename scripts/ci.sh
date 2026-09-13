@@ -17,6 +17,13 @@ echo "==> cargo build"
 cargo build --workspace
 
 if command -v swiftc >/dev/null 2>&1; then
+  echo "==> swift package dump-package (source-only manifest check)"
+  rune_swiftpm_scratch="$(mktemp -d /tmp/rune-swiftpm.XXXXXX)"
+  trap 'find "$rune_swiftpm_scratch" -depth -delete' EXIT
+  (cd apps/ios && swift package --scratch-path "$rune_swiftpm_scratch" dump-package >/dev/null)
+  find "$rune_swiftpm_scratch" -depth -delete
+  trap - EXIT
+
   echo "==> swiftc -parse (source-only Apple check)"
   swiftc -parse \
     apps/ios/Sources/RuneIOS/RuneCoreBridge.swift \
