@@ -5,7 +5,10 @@
 //! semantics into Swift.
 
 mod commands;
+mod config;
 mod persistence;
+
+pub use config::TerminalConfig;
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -103,6 +106,7 @@ pub struct CommandContext<'a> {
     pub(crate) env: &'a mut BTreeMap<String, String>,
     pub(crate) aliases: &'a mut BTreeMap<String, String>,
     pub(crate) bookmarks: &'a mut BTreeMap<String, String>,
+    pub(crate) config: &'a mut TerminalConfig,
     pub(crate) history: &'a [String],
     pub(crate) command_definitions: &'a [CommandDefinition],
     pub(crate) runtime: &'a dyn Runtime,
@@ -114,6 +118,7 @@ pub struct Session {
     environment: BTreeMap<String, String>,
     aliases: BTreeMap<String, String>,
     bookmarks: BTreeMap<String, String>,
+    config: TerminalConfig,
     history: Vec<String>,
     history_limit: usize,
     registry: CommandRegistry,
@@ -138,6 +143,7 @@ impl Session {
             environment,
             aliases: BTreeMap::new(),
             bookmarks: BTreeMap::new(),
+            config: TerminalConfig::default(),
             history: Vec::new(),
             history_limit: 1_000,
             registry: CommandRegistry::default(),
@@ -155,6 +161,8 @@ impl Session {
     /// environment is deliberately never restored from disk.
     pub fn restore(filesystem: impl VirtualFileSystem + 'static) -> Self {
         let mut session = Self::new(filesystem);
+        session.config = TerminalConfig::load(session.filesystem.as_ref());
+        session.history_limit = session.config.history_limit();
         let state = persistence::load(session.filesystem.as_ref());
         session.load_startup_profile();
         session.history = state.history;
@@ -186,7 +194,8 @@ impl Session {
             &directory,
             &self.history,
             &self.bookmarks,
-        )
+        )?;
+        self.config.save(self.filesystem.as_mut())
     }
 
     /// Returns the current virtual directory, useful to native frontends.
@@ -211,6 +220,12 @@ impl Session {
     #[must_use]
     pub fn bookmarks(&self) -> &BTreeMap<String, String> {
         &self.bookmarks
+    }
+
+    /// Returns the current portable Rust-owned terminal configuration.
+    #[must_use]
+    pub fn configuration(&self) -> &TerminalConfig {
+        &self.config
     }
 
     /// Returns the command history in execution order.
@@ -436,6 +451,7 @@ impl Session {
                 env: &mut self.environment,
                 aliases: &mut self.aliases,
                 bookmarks: &mut self.bookmarks,
+                config: &mut self.config,
                 history: &self.history,
                 command_definitions: self.registry.definitions(),
                 runtime: &self.wasm_runner,
@@ -446,6 +462,7 @@ impl Session {
         } else {
             CommandOutput::failure(127, format!("{program}: command not found\n"))
         };
+        self.apply_history_limit();
         self.update_pwd();
 
         if let Some((path, append)) = stdout_redirect {
@@ -464,6 +481,15 @@ impl Session {
         }
         self.last_status = output.status;
         output
+    }
+
+    fn apply_history_limit(&mut self) {
+        self.history_limit = self.config.history_limit();
+        if self.history.len() <= self.history_limit {
+            return;
+        }
+        let excess = self.history.len() - self.history_limit;
+        self.history.drain(0..excess);
     }
 
     fn find_installed_command(&self, name: &str) -> Result<Option<InstalledCommand>, FsError> {
@@ -741,6 +767,31 @@ mod tests {
         assert_eq!(restored.current_directory(), "~/work");
         assert!(restored.history().contains(&"cat note.txt".to_string()));
         assert_eq!(restored.history().last().map(String::as_str), Some("pwd"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn persists_and_applies_a_bounded_history_configuration() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.configuration().history_limit(), 1_000);
+        assert_eq!(session.execute_line("config set history-limit 3").status, 0);
+        assert_eq!(
+            session.execute_line("config get history-limit").stdout,
+            "history-limit=3\n"
+        );
+        assert_eq!(session.execute_line("echo one").status, 0);
+        assert_eq!(session.execute_line("echo two").status, 0);
+        assert!(session.history().len() <= 3);
+        assert_eq!(session.execute_line("config set history-limit 0").status, 2);
+        assert_eq!(session.configuration().history_limit(), 3);
+        session.persist().expect("configuration persisted");
+        let mut restored =
+            Session::restore(SandboxedFileSystem::new(&root).expect("root reopened"));
+        assert_eq!(restored.configuration().history_limit(), 3);
+        assert!(restored.history().len() <= 3);
+        assert_eq!(restored.execute_line("config reset").status, 0);
+        assert_eq!(restored.configuration().history_limit(), 1_000);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

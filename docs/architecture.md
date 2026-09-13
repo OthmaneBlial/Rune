@@ -64,6 +64,13 @@ with its real value in memory. This is only a narrow first defense; configurable
 redaction is still required before Rune handles workflows where users type
 credentials into arbitrary commands.
 
+Configuration is a separate, versioned Rust-owned file at
+`~/.rune/config.state`. The current schema contains only a validated
+`history_limit` between 1 and 10,000; `config get`, `config set`, and
+`config reset` update it and the session applies the limit immediately. Visual
+preferences are intentionally not serialized until the native UI consumes a
+defined configuration contract.
+
 Aliases live in the same session boundary but are not serialized. `alias` and
 `unalias` mutate the Rust-owned alias map, so profile commands can establish
 repeatable local shortcuts without Swift-specific state. Before command lookup,

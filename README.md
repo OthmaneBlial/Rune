@@ -22,7 +22,8 @@ working iOS application or a feature-parity claim.
 | Shell tokenizer/parser | 60% |
 | Command runtime | 71% |
 | Sandboxed filesystem | 55% |
-| Sessions/history | 38% |
+| Sessions/history | 40% |
+| Configuration | 12% |
 | WASM | 23% |
 | Native iOS UI | 9% |
 | Swift/Rust bridge | 8% |
@@ -36,8 +37,8 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `printenv`, `setenv`,
 `alias`, `unalias`, `find`, `sed`,
 `true`, `false`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `pkg`,
-`bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `help`,
-and `history` against a bounded filesystem, including basic `*`/`?` pathname
+`bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
+`help`, and `history` against a bounded filesystem, including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
 with quotes, variables, leading `NAME=value` assignments, pipes, redirections,
 sequencing, `&&`/`||` short-circuiting, separate stdout/stderr, and exit status.
@@ -63,9 +64,9 @@ a complete secret management policy.
 The iOS app is represented by
 source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
 and runtime gates remain unverified. Bounded current-directory/history
-persistence now exists in Rust; configuration/redaction and broader session
-recovery remain planned. Package transport and non-WASM language runtimes
-remain planned work.
+persistence now exists in Rust; bounded history configuration is available,
+while configurable redaction and broader session recovery remain planned.
+Visual preferences and non-WASM language runtimes remain planned work.
 
 The Rust package boundary now validates a bounded, versioned JSON manifest and
 checks declared file bytes with SHA-256. There is deliberately no network
@@ -94,6 +95,11 @@ work.
 The FFI and Swift source boundary also exposes a newline-delimited automation
 script method for a future Shortcuts adapter. It is Rust-executed and locally
 tested, but native Shortcuts registration remains unverified.
+
+The portable configuration boundary currently supports the bounded
+`history-limit` setting through `config get`, `config set`, and `config reset`.
+It persists in `~/.rune/config.state`; fonts, themes, cursor styling, and
+toolbar preferences are not yet consumed by the source-only Swift UI.
 
 Runtime providers use a small Rust-owned request/output contract. WASM is the
 first provider; Python, JavaScript, and Lua are named extension points only and
@@ -173,6 +179,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded WASI preview1 runtime boundary and resource limits
 - [x] Bounded package metadata, integrity, and local WASM installation
 - [x] Portable runtime request/output contract
+- [x] Bounded Rust-owned history configuration
 - [ ] Network registry, search, and update policy
 - [ ] Python, JavaScript, and Lua runtime evaluation
 - [ ] Completion and help system (initial first-word suggestions exist)

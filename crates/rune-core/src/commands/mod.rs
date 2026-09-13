@@ -1,6 +1,7 @@
 use crate::CommandDefinition;
 
 mod bookmarks;
+mod config;
 mod filesystem;
 mod package;
 mod shell;
@@ -37,6 +38,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "cp",
         summary: "copy one file",
         handler: filesystem::cp,
+    },
+    CommandDefinition {
+        name: "config",
+        summary: "inspect or change Rust-owned session settings",
+        handler: config::config,
     },
     CommandDefinition {
         name: "deletemark",

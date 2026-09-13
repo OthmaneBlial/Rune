@@ -150,6 +150,22 @@ pub extern "C" fn rune_session_history(handle: *const std::ffi::c_void) -> *mut 
     into_owned_c_string(&history)
 }
 
+/// Returns the portable Rust-owned session configuration as newline-delimited
+/// key/value text.
+#[no_mangle]
+pub extern "C" fn rune_session_configuration(handle: *const std::ffi::c_void) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the pointer is read-only and owned by the Swift session.
+    let session = unsafe { &*handle.cast::<RuneSession>() };
+    let configuration = format!(
+        "history-limit={}\n",
+        session.core.configuration().history_limit()
+    );
+    into_owned_c_string(&configuration)
+}
+
 /// Returns the registered built-in command names as a newline-separated owned
 /// string. The names are metadata for native completion and do not imply that
 /// Rune can execute arbitrary host commands.
@@ -202,8 +218,8 @@ pub unsafe extern "C" fn rune_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::{
-        rune_session_commands, rune_session_current_directory, rune_session_destroy,
-        rune_session_execute, rune_session_execute_script, rune_session_new,
+        rune_session_commands, rune_session_configuration, rune_session_current_directory,
+        rune_session_destroy, rune_session_execute, rune_session_execute_script, rune_session_new,
         rune_session_startup_output, rune_string_free,
     };
     use std::ffi::{CStr, CString};
@@ -254,6 +270,10 @@ mod tests {
         assert!(command_names.lines().any(|name| name == "export"));
         // SAFETY: commands was returned by rune_session_commands.
         unsafe { rune_string_free(commands) };
+        let configuration = rune_session_configuration(handle);
+        assert_eq!(c_string(configuration), "history-limit=1000\n");
+        // SAFETY: configuration was returned by rune_session_configuration.
+        unsafe { rune_string_free(configuration) };
         let change_directory = CString::new("mkdir sub && cd sub").expect("valid command");
         let output = rune_session_execute(handle, change_directory.as_ptr());
         assert_eq!(output.status, 0);

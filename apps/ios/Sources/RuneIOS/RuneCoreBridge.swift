@@ -30,6 +30,9 @@ private func rune_session_current_directory(_ handle: OpaquePointer?) -> UnsafeM
 @_silgen_name("rune_session_history")
 private func rune_session_history(_ handle: OpaquePointer?) -> UnsafeMutablePointer<CChar>?
 
+@_silgen_name("rune_session_configuration")
+private func rune_session_configuration(_ handle: OpaquePointer?) -> UnsafeMutablePointer<CChar>?
+
 @_silgen_name("rune_session_commands")
 private func rune_session_commands(_ handle: OpaquePointer?) -> UnsafeMutablePointer<CChar>?
 
@@ -107,6 +110,14 @@ public final class RuneFFISession {
         let value = String(cString: pointer)
         guard !value.isEmpty else { return [] }
         return value.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    }
+
+    public var configuration: String {
+        guard let pointer = rune_session_configuration(handle) else {
+            return ""
+        }
+        defer { rune_string_free(pointer) }
+        return String(cString: pointer)
     }
 
     public func commands() -> [String] {
