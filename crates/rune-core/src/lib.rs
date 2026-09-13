@@ -1056,6 +1056,35 @@ mod tests {
     }
 
     #[test]
+    fn searches_history_case_insensitively_with_original_entry_numbers() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("echo Alpha").status, 0);
+        assert_eq!(session.execute_line("pwd").status, 0);
+
+        let search = session.execute_line("history search ALPHA");
+        assert_eq!(search.status, 0);
+        assert_eq!(
+            search.stdout,
+            "    1  echo Alpha\n    3  history search ALPHA\n"
+        );
+
+        let joined_query = session.execute_line("history search echo Alpha");
+        assert_eq!(joined_query.status, 0);
+        assert_eq!(
+            joined_query.stdout,
+            "    1  echo Alpha\n    4  history search echo Alpha\n"
+        );
+
+        let empty_query = session.execute_line("history search \"\"");
+        assert_eq!(empty_query.status, 2);
+        assert!(empty_query
+            .stderr
+            .contains("history: search query must contain"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn formats_bounded_printf_arguments() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));

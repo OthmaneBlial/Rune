@@ -277,14 +277,21 @@ pub(super) fn history(context: &mut CommandContext<'_>) -> CommandOutput {
             context.history.clear();
             CommandOutput::success("")
         }
+        [subcommand, query] if subcommand == "search" => history_search(context.history, query),
+        [subcommand, query, rest @ ..] if subcommand == "search" => {
+            let mut terms = Vec::with_capacity(rest.len() + 1);
+            terms.push(query.as_str());
+            terms.extend(rest.iter().map(String::as_str));
+            history_search(context.history, &terms.join(" "))
+        }
         [count] => {
             let Ok(count) = count.parse::<usize>() else {
-                return usage("history", "usage: history [-c|COUNT]");
+                return usage("history", "usage: history [-c|COUNT|search QUERY ...]");
             };
             let start = context.history.len().saturating_sub(count);
             history_output(context.history, start)
         }
-        _ => usage("history", "usage: history [-c|COUNT]"),
+        _ => usage("history", "usage: history [-c|COUNT|search QUERY ...]"),
     }
 }
 
@@ -292,6 +299,24 @@ fn history_output(history: &[String], start: usize) -> CommandOutput {
     let mut stdout = String::new();
     for (index, command) in history.iter().enumerate().skip(start) {
         let _ = writeln!(stdout, "{:>5}  {command}", index + 1);
+    }
+    CommandOutput::success(stdout)
+}
+
+fn history_search(history: &[String], query: &str) -> CommandOutput {
+    const MAX_QUERY_CHARS: usize = 256;
+    if query.is_empty() || query.chars().count() > MAX_QUERY_CHARS {
+        return CommandOutput::failure(
+            2,
+            format!("history: search query must contain 1-{MAX_QUERY_CHARS} characters\n"),
+        );
+    }
+    let query = query.to_lowercase();
+    let mut stdout = String::new();
+    for (index, command) in history.iter().enumerate() {
+        if command.to_lowercase().contains(&query) {
+            let _ = writeln!(stdout, "{:>5}  {command}", index + 1);
+        }
     }
     CommandOutput::success(stdout)
 }

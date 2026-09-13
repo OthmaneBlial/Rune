@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 33%**
+**Overall progress: 34%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -22,7 +22,7 @@ working iOS application or a feature-parity claim.
 | Shell tokenizer/parser | 63% |
 | Command runtime | 80% |
 | Sandboxed filesystem | 58% |
-| Sessions/history | 42% |
+| Sessions/history | 45% |
 | Configuration | 23% |
 | WASM | 23% |
 | Native iOS UI | 20% |
@@ -113,8 +113,10 @@ The portable configuration boundary currently supports bounded `history-limit`,
 `font-size` plus the `ink`, `light`, and `ember` palettes; cursor styling and
 toolbar preferences are not yet wired through.
 
-The `history` built-in also supports `history N` for a bounded recent view and
-`history -c` to clear the current session history.
+The `history` built-in also supports `history N` for a bounded recent view,
+`history search QUERY ...` for a case-insensitive substring search that keeps
+original history numbers, and `history -c` to clear the current session
+history.
 
 Runtime providers use a small Rust-owned request/output contract. WASM is the
 first provider; Python, JavaScript, and Lua are named extension points only and

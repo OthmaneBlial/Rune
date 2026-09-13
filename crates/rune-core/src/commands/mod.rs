@@ -112,7 +112,7 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
     },
     CommandDefinition {
         name: "history",
-        summary: "print command history",
+        summary: "print or search command history",
         handler: shell::history,
     },
     CommandDefinition {
