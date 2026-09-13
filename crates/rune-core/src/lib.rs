@@ -15,7 +15,6 @@ pub use config::{
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -244,7 +243,6 @@ pub struct CommandContext<'a> {
     pub(crate) history: &'a mut Vec<String>,
     pub(crate) command_definitions: &'a [CommandDefinition],
     pub(crate) runtime: &'a dyn Runtime,
-    pub(crate) filesystem_root: Option<PathBuf>,
     pub(crate) cancellation: &'a AtomicBool,
 }
 
@@ -829,7 +827,6 @@ impl Session {
         stdin: &str,
         handler: CommandHandler,
     ) -> CommandOutput {
-        let filesystem_root = self.filesystem.host_root().map(PathBuf::from);
         let mut context = CommandContext {
             args: arguments,
             stdin,
@@ -841,7 +838,6 @@ impl Session {
             history: &mut self.history,
             command_definitions: self.registry.definitions(),
             runtime: &self.wasm_runner,
-            filesystem_root,
             cancellation: &self.cancellation_requested,
         };
         handler(&mut context)
@@ -1228,6 +1224,12 @@ impl Session {
             Ok(module) => module,
             Err(output) => return output,
         };
+        let host_preopens = self.filesystem.host_preopens();
+        let runtime_preopens = host_preopens
+            .iter()
+            .skip(1)
+            .map(|(host_path, guest_path)| rune_runtime::RuntimePreopen::new(host_path, guest_path))
+            .collect::<Vec<_>>();
         let request = RuntimeRequest::new(
             RuntimeKind::Wasm,
             program,
@@ -1239,9 +1241,14 @@ impl Session {
         .with_preopened_root(
             installed_command
                 .filesystem_access
-                .then(|| self.filesystem.host_root())
+                .then(|| host_preopens.first().map(|(host_path, _)| *host_path))
                 .flatten(),
         )
+        .with_additional_preopens(if installed_command.filesystem_access {
+            runtime_preopens.as_slice()
+        } else {
+            &[]
+        })
         .with_cancellation(Some(&self.cancellation_requested));
         match Runtime::execute(&self.wasm_runner, &request) {
             Ok(execution) => CommandOutput {
@@ -2273,27 +2280,27 @@ mod tests {
         let runtime = rune_wasm::WasmRunner::default();
         let args = Vec::new();
         let cancellation = std::sync::atomic::AtomicBool::new(true);
-        let context = super::CommandContext {
-            args: &args,
-            stdin: "",
-            fs: &mut filesystem,
-            env: &mut environment,
-            aliases: &mut aliases,
-            bookmarks: &mut bookmarks,
-            config: &mut config,
-            history: &mut history,
-            command_definitions: registry.definitions(),
-            runtime: &runtime,
-            filesystem_root: None,
-            cancellation: &cancellation,
+        let cancelled = {
+            let context = super::CommandContext {
+                args: &args,
+                stdin: "",
+                fs: &mut filesystem,
+                env: &mut environment,
+                aliases: &mut aliases,
+                bookmarks: &mut bookmarks,
+                config: &mut config,
+                history: &mut history,
+                command_definitions: registry.definitions(),
+                runtime: &runtime,
+                cancellation: &cancellation,
+            };
+            context
+                .take_cancellation()
+                .expect("cancellation should be observed")
         };
-        let cancelled = context
-            .take_cancellation()
-            .expect("cancellation should be observed");
         assert_eq!(cancelled.status, CANCELLED_STATUS);
         assert_eq!(cancelled.stderr, "rune: command cancelled\n");
-        assert!(context.take_cancellation().is_none());
-        drop(context);
+        assert!(!cancellation.load(Ordering::Acquire));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
@@ -2326,7 +2333,6 @@ mod tests {
             history: &mut history,
             command_definitions: registry.definitions(),
             runtime: &runtime,
-            filesystem_root: None,
             cancellation: cancellation.as_ref(),
         };
         let cancelled = super::commands::shell::sleep(&mut context);
@@ -2598,6 +2604,63 @@ mod tests {
         assert_eq!(output.status, 0);
         assert_eq!(output.stdout, "preopen available\n");
         std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn passes_named_layout_mounts_to_the_wasm_builtin() {
+        let container = test_root();
+        let home = container.join("Documents");
+        let library = container.join("Library");
+        let temporary = container.join("tmp");
+        let wasm = wat::parse_str(
+            r#"
+                (module
+                  (import "wasi_snapshot_preview1" "fd_prestat_get"
+                    (func $fd_prestat_get (param i32 i32) (result i32)))
+                  (import "wasi_snapshot_preview1" "fd_write"
+                    (func $fd_write (param i32 i32 i32 i32) (result i32)))
+                  (memory (export "memory") 1)
+                  (data (i32.const 0) "\40\00\00\00\08\00\00\00")
+                  (data (i32.const 32) "\64\00\00\00\04\00\00\00")
+                  (data (i32.const 64) "library\n")
+                  (data (i32.const 100) "tmp\n")
+                  (func (export "_start")
+                    (i32.const 4)
+                    (i32.const 48)
+                    (call $fd_prestat_get)
+                    (i32.eqz)
+                    (if
+                      (then
+                        (i32.const 1)
+                        (i32.const 0)
+                        (i32.const 1)
+                        (i32.const 24)
+                        (call $fd_write)
+                        (drop)))
+                    (i32.const 5)
+                    (i32.const 48)
+                    (call $fd_prestat_get)
+                    (i32.eqz)
+                    (if
+                      (then
+                        (i32.const 1)
+                        (i32.const 32)
+                        (i32.const 1)
+                        (i32.const 24)
+                        (call $fd_write)
+                        (drop)))))
+            "#,
+        )
+        .expect("valid layout preopen WAT");
+        let filesystem = SandboxedFileSystem::new_with_layout(&home, &library, &temporary)
+            .expect("layout created");
+        std::fs::write(home.join("mounts.wasm"), wasm).expect("module written");
+        let mut session = Session::new(filesystem);
+        let output = session.execute_line("wasm mounts.wasm");
+        assert_eq!(output.status, 0, "{output:?}");
+        assert_eq!(output.stdout, "library\ntmp\n", "{output:?}");
+        assert!(output.stderr.is_empty());
+        std::fs::remove_dir_all(container).expect("test container removed");
     }
 
     #[test]

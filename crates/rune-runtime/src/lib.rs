@@ -41,6 +41,26 @@ impl Display for RuntimeKind {
     }
 }
 
+/// One explicitly approved host directory and its guest-visible WASI path.
+#[derive(Debug, Clone, Copy)]
+pub struct RuntimePreopen<'a> {
+    /// Host directory opened by the provider through its capability API.
+    pub host_path: &'a Path,
+    /// Absolute guest path at which the directory is mounted.
+    pub guest_path: &'a str,
+}
+
+impl<'a> RuntimePreopen<'a> {
+    /// Creates one runtime preopen descriptor.
+    #[must_use]
+    pub const fn new(host_path: &'a Path, guest_path: &'a str) -> Self {
+        Self {
+            host_path,
+            guest_path,
+        }
+    }
+}
+
 /// Immutable input passed to one runtime provider.
 #[derive(Debug, Clone, Copy)]
 pub struct RuntimeRequest<'a> {
@@ -55,9 +75,11 @@ pub struct RuntimeRequest<'a> {
     pub environment: &'a BTreeMap<String, String>,
     /// Input connected to the runtime's standard input.
     pub stdin: &'a str,
-    /// Optional approved host directory exposed as the runtime's filesystem
-    /// capability. `None` means that filesystem access is unavailable.
+    /// Optional primary approved host directory exposed at guest `/`.
+    /// `None` means that this primary filesystem capability is unavailable.
     pub preopened_root: Option<&'a Path>,
+    /// Additional explicitly approved host directories and their guest paths.
+    pub additional_preopens: &'a [RuntimePreopen<'a>],
     /// Optional cooperative cancellation flag checked at provider-defined
     /// execution boundaries.
     pub cancellation: Option<&'a AtomicBool>,
@@ -82,6 +104,7 @@ impl<'a> RuntimeRequest<'a> {
             environment,
             stdin,
             preopened_root: None,
+            additional_preopens: &[],
             cancellation: None,
         }
     }
@@ -90,6 +113,13 @@ impl<'a> RuntimeRequest<'a> {
     #[must_use]
     pub const fn with_preopened_root(mut self, root: Option<&'a Path>) -> Self {
         self.preopened_root = root;
+        self
+    }
+
+    /// Adds additional explicitly approved host directories to the request.
+    #[must_use]
+    pub const fn with_additional_preopens(mut self, preopens: &'a [RuntimePreopen<'a>]) -> Self {
+        self.additional_preopens = preopens;
         self
     }
 
@@ -168,7 +198,9 @@ pub trait Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::{Runtime, RuntimeError, RuntimeKind, RuntimeOutput, RuntimeRequest};
+    use super::{
+        Runtime, RuntimeError, RuntimeKind, RuntimeOutput, RuntimePreopen, RuntimeRequest,
+    };
     use std::collections::BTreeMap;
 
     struct EchoRuntime;
@@ -219,6 +251,29 @@ mod tests {
         assert_eq!(RuntimeKind::Wasm.name(), "wasm");
         assert_eq!(RuntimeKind::JavaScript.to_string(), "javascript");
         assert_eq!(RuntimeKind::Lua.to_string(), "lua");
+    }
+
+    #[test]
+    fn runtime_request_preserves_named_preopens() {
+        let root = std::path::Path::new("/sandbox/Documents");
+        let library = std::path::Path::new("/sandbox/Library");
+        let preopens = [RuntimePreopen::new(library, "/Library")];
+        let environment = BTreeMap::new();
+        let request = RuntimeRequest::new(
+            RuntimeKind::Wasm,
+            "module.wasm",
+            b"module",
+            &[],
+            &environment,
+            "",
+        )
+        .with_preopened_root(Some(root))
+        .with_additional_preopens(&preopens);
+
+        assert_eq!(request.preopened_root, Some(root));
+        assert_eq!(request.additional_preopens.len(), 1);
+        assert_eq!(request.additional_preopens[0].host_path, library);
+        assert_eq!(request.additional_preopens[0].guest_path, "/Library");
     }
 
     #[test]

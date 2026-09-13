@@ -1,5 +1,5 @@
 use crate::{fs_failure, usage, CommandContext, CommandOutput};
-use rune_runtime::{RuntimeKind, RuntimeRequest};
+use rune_runtime::{RuntimeKind, RuntimePreopen, RuntimeRequest};
 
 pub(super) fn wasm(context: &mut CommandContext<'_>) -> CommandOutput {
     let Some(module_path) = context.args.first() else {
@@ -9,6 +9,12 @@ pub(super) fn wasm(context: &mut CommandContext<'_>) -> CommandOutput {
         Ok(module) => module,
         Err(error) => return fs_failure("wasm", &error),
     };
+    let host_preopens = context.fs.host_preopens();
+    let runtime_preopens = host_preopens
+        .iter()
+        .skip(1)
+        .map(|(host_path, guest_path)| RuntimePreopen::new(host_path, guest_path))
+        .collect::<Vec<_>>();
     let request = RuntimeRequest::new(
         RuntimeKind::Wasm,
         module_path,
@@ -17,7 +23,8 @@ pub(super) fn wasm(context: &mut CommandContext<'_>) -> CommandOutput {
         context.env,
         context.stdin,
     )
-    .with_preopened_root(context.filesystem_root.as_deref())
+    .with_preopened_root(host_preopens.first().map(|(host_path, _)| *host_path))
+    .with_additional_preopens(&runtime_preopens)
     .with_cancellation(Some(context.cancellation));
     let execution = match context.runtime.execute(&request) {
         Ok(execution) => execution,

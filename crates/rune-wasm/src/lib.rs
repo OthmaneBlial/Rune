@@ -1,16 +1,18 @@
 //! Bounded WASI preview1 execution for Rune.
 //!
 //! The runtime exposes process-like channels and, only when the caller passes
-//! an approved root, one capability-scoped WASI preopen. No ambient process
-//! execution, network, or directory outside that root is inherited.
+//! approved roots, explicit capability-scoped WASI preopens. No ambient
+//! process execution, network, or directory outside those roots is inherited.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
 use std::io::{self, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use rune_runtime::{Runtime, RuntimeError, RuntimeKind, RuntimeOutput, RuntimeRequest};
+use rune_runtime::{
+    Runtime, RuntimeError, RuntimeKind, RuntimeOutput, RuntimePreopen, RuntimeRequest,
+};
 use wasi_common::pipe::{ReadPipe, WritePipe};
 use wasi_common::WasiCtx;
 use wasmi::{
@@ -196,6 +198,7 @@ impl WasmRunner {
             stdin,
             WasmExecutionOptions {
                 preopened_root,
+                additional_preopens: &[],
                 cancellation: None,
             },
         )
@@ -226,15 +229,16 @@ impl WasmRunner {
 
         let stdout_pipe = WritePipe::new(BoundedOutput::new(self.limits.max_output_bytes));
         let stderr_pipe = WritePipe::new(BoundedOutput::new(self.limits.max_output_bytes));
-        let wasi_context = build_wasi_context(
+        let wasi_context = build_wasi_context(WasiInvocation {
             argv0,
             args,
             environment,
             stdin,
-            stdout_pipe.clone(),
-            stderr_pipe.clone(),
-            options.preopened_root,
-        )?;
+            stdout: stdout_pipe.clone(),
+            stderr: stderr_pipe.clone(),
+            preopened_root: options.preopened_root,
+            additional_preopens: options.additional_preopens,
+        })?;
 
         let limits = StoreLimitsBuilder::new()
             .memory_size(self.limits.memory_bytes)
@@ -290,6 +294,7 @@ impl WasmRunner {
 #[derive(Debug, Clone, Copy, Default)]
 struct WasmExecutionOptions<'a> {
     preopened_root: Option<&'a Path>,
+    additional_preopens: &'a [RuntimePreopen<'a>],
     cancellation: Option<&'a AtomicBool>,
 }
 
@@ -339,16 +344,30 @@ fn is_out_of_fuel(error: &wasmi::Error) -> bool {
     matches!(error.kind(), ErrorKind::Fuel(FuelError::OutOfFuel))
 }
 
-fn build_wasi_context(
-    argv0: &str,
-    args: &[String],
-    environment: &BTreeMap<String, String>,
-    stdin: &str,
+struct WasiInvocation<'a> {
+    argv0: &'a str,
+    args: &'a [String],
+    environment: &'a BTreeMap<String, String>,
+    stdin: &'a str,
     stdout: WritePipe<BoundedOutput>,
     stderr: WritePipe<BoundedOutput>,
-    preopened_root: Option<&Path>,
-) -> Result<WasiCtx, WasmError> {
+    preopened_root: Option<&'a Path>,
+    additional_preopens: &'a [RuntimePreopen<'a>],
+}
+
+fn build_wasi_context(invocation: WasiInvocation<'_>) -> Result<WasiCtx, WasmError> {
+    let WasiInvocation {
+        argv0,
+        args,
+        environment,
+        stdin,
+        stdout,
+        stderr,
+        preopened_root,
+        additional_preopens,
+    } = invocation;
     let mut wasi_builder = WasiCtxBuilder::new();
+    let mut guest_paths = BTreeSet::new();
     wasi_builder = wasi_builder
         .arg(argv0)
         .map_err(|error| WasmError::WasiSetup(error.to_string()))?;
@@ -363,10 +382,30 @@ fn build_wasi_context(
         .envs(&environment_entries)
         .map_err(|error| WasmError::WasiSetup(error.to_string()))?;
     if let Some(root) = preopened_root {
+        guest_paths.insert("/");
         let directory = Dir::open_ambient_dir(root, ambient_authority())
             .map_err(|error| WasmError::WasiSetup(format!("open preopened root: {error}")))?;
         wasi_builder = wasi_builder
             .preopened_dir(directory, "/")
+            .map_err(|error| WasmError::WasiSetup(error.to_string()))?;
+    }
+    for preopen in additional_preopens {
+        validate_guest_preopen_path(preopen.guest_path)?;
+        if !guest_paths.insert(preopen.guest_path) {
+            return Err(WasmError::WasiSetup(format!(
+                "duplicate guest preopen path: {}",
+                preopen.guest_path
+            )));
+        }
+        let directory =
+            Dir::open_ambient_dir(preopen.host_path, ambient_authority()).map_err(|error| {
+                WasmError::WasiSetup(format!(
+                    "open preopened root {}: {error}",
+                    preopen.guest_path
+                ))
+            })?;
+        wasi_builder = wasi_builder
+            .preopened_dir(directory, preopen.guest_path)
             .map_err(|error| WasmError::WasiSetup(error.to_string()))?;
     }
     Ok(wasi_builder
@@ -374,6 +413,20 @@ fn build_wasi_context(
         .stdout(Box::new(stdout))
         .stderr(Box::new(stderr))
         .build())
+}
+
+fn validate_guest_preopen_path(path: &str) -> Result<(), WasmError> {
+    let components = Path::new(path).components().collect::<Vec<_>>();
+    if !Path::new(path).is_absolute()
+        || components
+            .iter()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(WasmError::WasiSetup(format!(
+            "invalid guest preopen path: {path}"
+        )));
+    }
+    Ok(())
 }
 
 impl Runtime for WasmRunner {
@@ -397,6 +450,7 @@ impl Runtime for WasmRunner {
             request.stdin,
             WasmExecutionOptions {
                 preopened_root: request.preopened_root,
+                additional_preopens: request.additional_preopens,
                 cancellation: request.cancellation,
             },
         )
@@ -517,6 +571,7 @@ fn output_to_string(output: &mut BoundedOutput) -> String {
 #[cfg(test)]
 mod tests {
     use super::{WasmError, WasmLimits, WasmRunner};
+    use rune_runtime::{Runtime, RuntimeKind, RuntimePreopen, RuntimeRequest};
     use std::collections::BTreeMap;
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -654,6 +709,7 @@ mod tests {
                 "",
                 super::WasmExecutionOptions {
                     preopened_root: None,
+                    additional_preopens: &[],
                     cancellation: Some(&cancellation),
                 },
             )
@@ -898,6 +954,82 @@ mod tests {
         assert_eq!(execution.stdout, "hello from preopen\n", "{execution:?}");
         assert_eq!(execution.status, 0);
         std::fs::remove_dir_all(root).expect("preopen root removed");
+    }
+
+    #[test]
+    fn wasi_guest_receives_additional_named_preopens() {
+        let root = std::env::temp_dir().join(format!(
+            "rune-wasm-multi-preopen-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock is after epoch")
+                .as_nanos()
+        ));
+        let library = root.join("Library");
+        let temporary = root.join("tmp");
+        std::fs::create_dir_all(&library).expect("preopen roots created");
+        std::fs::create_dir_all(&temporary).expect("second preopen root created");
+        let wasm = wat::parse_str(
+            r#"
+                (module
+                  (import "wasi_snapshot_preview1" "fd_prestat_get"
+                    (func $fd_prestat_get (param i32 i32) (result i32)))
+                  (import "wasi_snapshot_preview1" "fd_write"
+                    (func $fd_write (param i32 i32 i32 i32) (result i32)))
+                  (memory (export "memory") 1)
+                  (data (i32.const 0) "\80\00\00\00\05\00\00\00")
+                  (data (i32.const 32) "\90\00\00\00\06\00\00\00")
+                  (data (i32.const 128) "root\n")
+                  (data (i32.const 144) "extra\n")
+                  (func (export "_start")
+                    (i32.const 3)
+                    (i32.const 48)
+                    (call $fd_prestat_get)
+                    (i32.eqz)
+                    (if
+                      (then
+                        (i32.const 1)
+                        (i32.const 0)
+                        (i32.const 1)
+                        (i32.const 24)
+                        (call $fd_write)
+                        (drop)))
+                    (i32.const 4)
+                    (i32.const 48)
+                    (call $fd_prestat_get)
+                    (i32.eqz)
+                    (if
+                      (then
+                        (i32.const 1)
+                        (i32.const 32)
+                        (i32.const 1)
+                        (i32.const 24)
+                        (call $fd_write)
+                        (drop)))
+                    ))
+            "#,
+        )
+        .expect("valid multi-preopen WAT");
+        let preopens = [
+            RuntimePreopen::new(&library, "/Library"),
+            RuntimePreopen::new(&temporary, "/tmp"),
+        ];
+        let environment = BTreeMap::new();
+        let request = RuntimeRequest::new(
+            RuntimeKind::Wasm,
+            "multi.wasm",
+            &wasm,
+            &[],
+            &environment,
+            "",
+        )
+        .with_additional_preopens(&preopens);
+        let execution =
+            Runtime::execute(&WasmRunner::default(), &request).expect("module should execute");
+        assert_eq!(execution.stdout, "root\nextra\n", "{execution:?}");
+        assert_eq!(execution.status, 0);
+        std::fs::remove_dir_all(root).expect("preopen roots removed");
     }
 
     #[test]

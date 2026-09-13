@@ -19,8 +19,8 @@ constraints. It is not a source dependency or an implementation template.
 - `rune-core`: command registry, command context, session state, execution
   results, and the bounded command/path completion query used by native
  frontends.
-- `rune-wasm`: bounded WASI preview1 execution with an optional explicit
-  capability-scoped preopen supplied by the session VFS.
+- `rune-wasm`: bounded WASI preview1 execution with optional explicit
+  capability-scoped preopens supplied by the session VFS.
 - `rune-package`: bounded versioned manifest parsing and SHA-256 artifact
   verification; transport and installation are intentionally outside this
   first boundary.
@@ -282,18 +282,17 @@ VFS.
 
 The `wasm MODULE [arg ...]` built-in reads the module through the virtual
 filesystem and invokes WASI preview1 `_start` in the Rust runtime. The guest
-receives argv, the session environment, stdin, stdout, and stderr, plus one
-explicit preopen at `/` when the VFS exposes an approved host root. That
-preopen is opened through capability-based APIs and cannot grant access beyond
-Rune's sandbox; host process and network APIs are not linked. Each invocation
+receives argv, the session environment, stdin, and stderr, plus explicit
+preopens when the VFS exposes approved host roots. Each preopen is opened
+through capability-based APIs and cannot grant access beyond Rune's sandbox;
+host process and network APIs are not linked. Each invocation
 bounds module bytes, interpreter fuel, linear memory, tables, arguments,
 environment, stdin, and captured output before guest setup. Guest traps become
 a failed command while preserving captured output;
 explicit WASI exits preserve their exit status. Fine-grained per-operation
 WASI rights and additional runtime families remain planned. Session-backed
-multi-root Apple layouts currently expose only their Documents/home root to
-the single WASI preopen; additional guest preopens require an explicit runtime
-policy and ABI extension.
+multi-root Apple layouts expose Documents/home at `/`, Library at `/Library`,
+and tmp at `/tmp`; single-root and external-folder sessions expose only `/`.
 requests pass the atomic cancellation boundary to the provider; WASM consumes
 it before execution or when a fuel stop is observed and returns status 130 with
 a diagnostic. A call that finishes before an observation may complete

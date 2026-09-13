@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 70%**
+**Overall progress: 71%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -18,13 +18,13 @@ working iOS application or a feature-parity claim.
 
 | Area | Progress |
 |---|---:|
-| Rust workspace | 72% |
+| Rust workspace | 74% |
 | Shell tokenizer/parser | 65% |
 | Command runtime | 90% |
 | Sandboxed filesystem | 70% |
 | Sessions/history | 62% |
 | Configuration | 63% |
-| WASM | 45% |
+| WASM | 52% |
 | Native iOS UI | 66% |
 | Swift/Rust bridge | 52% |
 | Package manager | 52% |
@@ -115,17 +115,17 @@ registry or transport.
 
 The `wasm MODULE [arg ...]` built-in loads a module through the bounded virtual
 filesystem and executes WASI preview1 `_start` in Rust. It exposes
-stdin/stdout/stderr, arguments, and the session environment, plus one explicit
-WASI preopen at `/` mapped to Rune's approved sandbox root. Capability-based
-opening keeps guest filesystem calls inside that root; arguments, environment
+stdin/stdout/stderr, arguments, and the session environment, plus explicit
+WASI preopens mapped to Rune's approved sandbox roots. Capability-based
+opening keeps guest filesystem calls inside those roots; arguments, environment
 entries, and stdin are bounded before WASI setup. No host process or network
 capability is inherited. Session executions consume cancellation at runtime
 boundaries and return status 130 when it is observed. A WASM call may
 finish before a cancellation callback is observed. Module bytes,
 interpreter fuel, linear memory, tables, and captured output are bounded.
-For the three-root Apple layout, the current WASI preopen remains the
-Documents/home root; exposing Library and tmp as additional guest preopens is
-still a separate runtime-policy task.
+For the three-root Apple layout, WASI receives `/` for Documents/home and
+explicit `/Library` and `/tmp` preopens; single-root and external-folder
+sessions receive only `/`. No arbitrary guest preopen is inherited.
 Compression, broader WASI resource policy, and non-WASM language runtimes
 remain planned.
 

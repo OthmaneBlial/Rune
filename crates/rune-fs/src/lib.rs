@@ -75,13 +75,23 @@ impl std::error::Error for FsError {}
 
 /// Filesystem operations required by the portable command engine.
 pub trait VirtualFileSystem {
-    /// Returns the approved host root when this VFS is backed by a directory.
+    /// Returns the primary approved host root when this VFS is backed by a
+    /// directory.
     ///
     /// Runtime providers may use this only to install an explicit capability
     /// such as a WASI preopen. A VFS without a host representation returns
     /// `None`, which keeps runtime filesystem access disabled.
     fn host_root(&self) -> Option<&Path> {
         None
+    }
+    /// Returns approved host directories and their guest paths for runtimes
+    /// that support more than one explicit capability. The default keeps
+    /// legacy VFS implementations compatible with one `/` preopen.
+    fn host_preopens(&self) -> Vec<(&Path, &str)> {
+        self.host_root()
+            .into_iter()
+            .map(|root| (root, "/"))
+            .collect()
     }
     fn current_dir_display(&self) -> String;
     fn change_dir(&mut self, input: &str) -> Result<(), FsError>;
@@ -609,6 +619,19 @@ impl SandboxedFileSystem {
 impl VirtualFileSystem for SandboxedFileSystem {
     fn host_root(&self) -> Option<&Path> {
         Some(&self.root)
+    }
+
+    fn host_preopens(&self) -> Vec<(&Path, &str)> {
+        let mut preopens = vec![(self.root.as_path(), "/")];
+        preopens.extend(self.mounts.iter().map(|mount| {
+            let guest_path = match mount.name {
+                "Library" => "/Library",
+                "tmp" => "/tmp",
+                _ => unreachable!("unknown Rune mount"),
+            };
+            (mount.physical.as_path(), guest_path)
+        }));
+        preopens
     }
 
     fn current_dir_display(&self) -> String {
