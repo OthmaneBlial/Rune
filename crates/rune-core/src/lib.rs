@@ -13,6 +13,8 @@ use std::fmt::Write as _;
 use rune_fs::{FsError, VirtualFileSystem};
 use rune_shell::{parse, CommandPlan, Connector, ExecutionPlan, Redirection, Word, WordPart};
 
+const MAX_ALIAS_EXPANSIONS: usize = 32;
+
 /// The result of one command or complete command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandOutput {
@@ -86,6 +88,7 @@ pub struct CommandContext<'a> {
     pub(crate) stdin: &'a str,
     pub(crate) fs: &'a mut dyn VirtualFileSystem,
     pub(crate) env: &'a mut BTreeMap<String, String>,
+    pub(crate) aliases: &'a mut BTreeMap<String, String>,
     pub(crate) history: &'a [String],
     pub(crate) command_definitions: &'a [CommandDefinition],
 }
@@ -94,6 +97,7 @@ pub struct CommandContext<'a> {
 pub struct Session {
     filesystem: Box<dyn VirtualFileSystem>,
     environment: BTreeMap<String, String>,
+    aliases: BTreeMap<String, String>,
     history: Vec<String>,
     history_limit: usize,
     registry: CommandRegistry,
@@ -115,6 +119,7 @@ impl Session {
         let mut session = Self {
             filesystem: Box::new(filesystem),
             environment,
+            aliases: BTreeMap::new(),
             history: Vec::new(),
             history_limit: 1_000,
             registry: CommandRegistry::default(),
@@ -169,6 +174,12 @@ impl Session {
     #[must_use]
     pub fn environment(&self) -> &BTreeMap<String, String> {
         &self.environment
+    }
+
+    /// Returns the session-local command aliases.
+    #[must_use]
+    pub fn aliases(&self) -> &BTreeMap<String, String> {
+        &self.aliases
     }
 
     /// Returns the command history in execution order.
@@ -279,6 +290,23 @@ impl Session {
     }
 
     fn execute_command(&mut self, command: &CommandPlan, external_stdin: &str) -> CommandOutput {
+        self.execute_command_with_aliases(command, external_stdin, 0)
+    }
+
+    fn execute_command_with_aliases(
+        &mut self,
+        command: &CommandPlan,
+        external_stdin: &str,
+        depth: usize,
+    ) -> CommandOutput {
+        let expanded_command = match self.expand_alias(command, depth) {
+            Ok(expanded) => expanded,
+            Err(error) => return CommandOutput::failure(2, format!("rune: alias: {error}\n")),
+        };
+        if let Some(expanded_command) = expanded_command {
+            return self.execute_command_with_aliases(&expanded_command, external_stdin, depth + 1);
+        }
+
         for assignment in &command.assignments {
             let value = expand_word(&assignment.value, &self.environment, self.last_status).value;
             self.environment.insert(assignment.name.clone(), value);
@@ -335,6 +363,7 @@ impl Session {
                 stdin: &stdin,
                 fs: self.filesystem.as_mut(),
                 env: &mut self.environment,
+                aliases: &mut self.aliases,
                 history: &self.history,
                 command_definitions: self.registry.definitions(),
             };
@@ -358,6 +387,52 @@ impl Session {
         }
         self.last_status = output.status;
         output
+    }
+
+    fn expand_alias(
+        &self,
+        command: &CommandPlan,
+        depth: usize,
+    ) -> Result<Option<CommandPlan>, String> {
+        let Some(name) = command.program.literal_value() else {
+            return Ok(None);
+        };
+        let Some(alias) = self.aliases.get(&name) else {
+            return Ok(None);
+        };
+        if depth >= MAX_ALIAS_EXPANSIONS {
+            return Err(format!(
+                "alias expansion exceeded {MAX_ALIAS_EXPANSIONS} levels"
+            ));
+        }
+
+        let plan = parse(alias).map_err(|error| format!("{name}: {error}"))?;
+        if plan.pipelines.len() != 1 || !plan.connectors.is_empty() {
+            return Err(format!("{name}: only one command is allowed in an alias"));
+        }
+        let Some(pipeline) = plan.pipelines.into_iter().next() else {
+            return Err(format!("{name}: alias value is empty"));
+        };
+        if pipeline.commands.len() != 1 {
+            return Err(format!("{name}: only one command is allowed in an alias"));
+        }
+        let Some(mut replacement) = pipeline.commands.into_iter().next() else {
+            return Err(format!("{name}: alias value is empty"));
+        };
+        if replacement.program.parts().is_empty() {
+            return Err(format!("{name}: alias value must contain one command"));
+        }
+
+        let mut assignments = command.assignments.clone();
+        assignments.append(&mut replacement.assignments);
+        let mut arguments = replacement.arguments;
+        arguments.extend(command.arguments.clone());
+        let mut redirections = replacement.redirections;
+        redirections.extend(command.redirections.clone());
+        replacement.assignments = assignments;
+        replacement.arguments = arguments;
+        replacement.redirections = redirections;
+        Ok(Some(replacement))
     }
 
     fn update_pwd(&mut self) {
@@ -527,12 +602,46 @@ mod tests {
     }
 
     #[test]
+    fn expands_bounded_session_aliases_and_rejects_compound_values() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("alias greet='echo hello'").status, 0);
+        assert_eq!(session.execute_line("greet Rune").stdout, "hello Rune\n");
+        assert_eq!(
+            session.execute_line("alias greet").stdout,
+            "alias greet=echo hello\n"
+        );
+        assert_eq!(session.execute_line("alias nested=greet").status, 0);
+        assert_eq!(session.execute_line("nested").stdout, "hello\n");
+
+        assert_eq!(
+            session
+                .execute_line("alias compound='echo one; echo two'")
+                .status,
+            0
+        );
+        let compound = session.execute_line("compound");
+        assert_eq!(compound.status, 2);
+        assert!(compound.stderr.contains("only one command"));
+
+        assert_eq!(session.execute_line("alias loop=loop").status, 0);
+        let recursive = session.execute_line("loop");
+        assert_eq!(recursive.status, 2);
+        assert!(recursive.stderr.contains("expansion exceeded"));
+
+        assert_eq!(session.execute_line("unalias nested greet loop").status, 0);
+        assert_eq!(session.execute_line("unalias -a").status, 0);
+        assert!(session.aliases().is_empty());
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn loads_bounded_profile_before_restoring_directory_without_history_pollution() {
         let root = test_root();
         std::fs::create_dir_all(&root).expect("root created");
         std::fs::write(
             root.join(".rune_profile"),
-            b"# comments are ignored\nexport PROFILE_GREETING=from-profile\necho \"$PROFILE_GREETING\"\nmkdir profile-dir\n",
+            b"# comments are ignored\nexport PROFILE_GREETING=from-profile\nalias profile-greeting='echo from-alias'\necho \"$PROFILE_GREETING\"\nmkdir profile-dir\n",
         )
         .expect("profile written");
         let mut session = Session::restore(SandboxedFileSystem::new(&root).expect("root opened"));
@@ -555,6 +664,10 @@ mod tests {
             .iter()
             .any(|line| line.contains("PROFILE_GREETING")));
         assert_eq!(session.execute_line("ls").stdout, "profile-dir/\n");
+        assert_eq!(
+            session.execute_line("profile-greeting").stdout,
+            "from-alias\n"
+        );
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

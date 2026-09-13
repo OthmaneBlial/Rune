@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 16%**
+**Overall progress: 17%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -20,7 +20,7 @@ working iOS application or a feature-parity claim.
 |---|---:|
 | Rust workspace | 70% |
 | Shell tokenizer/parser | 58% |
-| Command runtime | 57% |
+| Command runtime | 61% |
 | Sandboxed filesystem | 43% |
 | Sessions/history | 32% |
 | WASM | 0% |
@@ -34,15 +34,19 @@ working iOS application or a feature-parity claim.
 The first Rust vertical slice is implemented and locally verified. It executes
 the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `printenv`, `setenv`,
+`alias`, `unalias`,
 `true`, `false`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `clear`, `help`,
 and `history` against a bounded filesystem, including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
 with quotes, variables, leading `NAME=value` assignments, pipes, redirections,
 sequencing, separate stdout/stderr, and exit status. Assignments are expanded
 left-to-right, remain session-local, and can also be issued without a command.
-Environment changes are not serialized. A bounded `~/.rune_profile` is loaded on restore; its supported
-Rust built-ins can update the session environment and its output is surfaced to
-the CLI/native boundary without polluting history. The native source UI now
+Environment changes are not serialized. A bounded `~/.rune_profile` is loaded
+on restore; its supported Rust built-ins can update the session environment and
+define aliases, with output surfaced to the CLI/native boundary without
+polluting history. Alias expansion is bounded and currently accepts one
+command per alias value; compound alias values are rejected explicitly. The
+native source UI now
 receives the Rust command registry and offers first-word command suggestions.
 It also has a focused command bar, keyboard-aware history controls, an
 ink/cyan/ember console palette, and accessible completion controls.
@@ -114,6 +118,7 @@ git check-ignore -v base/a-shell
 - [x] Pipes and redirections
 - [x] Basic bounded pathname expansion
 - [x] Leading environment assignments
+- [x] Bounded session-local command aliases
 
 ### Phase 3 — Developer environment
 

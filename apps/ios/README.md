@@ -12,15 +12,17 @@ application project.
 
 The Rust handle restores and persists only the virtual working directory and
 typed command history in `~/.rune/session.state` inside the configured sandbox.
-Environment variables are not serialized. History persistence is intentionally
-visible in the local state boundary. Interactive `export` and `setenv` command
-lines are currently replaced by a redaction marker before history is stored;
-arbitrary credential-bearing commands still require a configurable policy.
+Environment variables and aliases are not serialized. History persistence is
+intentionally visible in the local state boundary. Interactive `export`,
+`setenv`, and assignment command lines are currently replaced by a redaction
+marker before history is stored; arbitrary credential-bearing commands still
+require a configurable policy.
 
 On restore, the Rust core reads a maximum of 64 KiB from `~/.rune_profile`,
 skips blank/full-line comment entries, runs only registered Rune built-ins, and
-surfaces the resulting output through the FFI. Profile commands are not added
-to history; the persisted working directory is restored after the profile.
+surfaces the resulting output through the FFI. Profile commands, including
+bounded one-command aliases, are not added to history; the persisted working
+directory is restored after the profile.
 
 ## Current evidence
 

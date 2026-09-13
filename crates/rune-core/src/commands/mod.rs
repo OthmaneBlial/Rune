@@ -6,6 +6,11 @@ mod text;
 
 pub(super) const DEFINITIONS: &[CommandDefinition] = &[
     CommandDefinition {
+        name: "alias",
+        summary: "define or print session-local command aliases",
+        handler: shell::alias,
+    },
+    CommandDefinition {
         name: "cat",
         summary: "write file contents to stdout",
         handler: filesystem::cat,
@@ -119,6 +124,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "true",
         summary: "return a success status",
         handler: shell::true_command,
+    },
+    CommandDefinition {
+        name: "unalias",
+        summary: "remove session-local command aliases",
+        handler: shell::unalias,
     },
     CommandDefinition {
         name: "unset",

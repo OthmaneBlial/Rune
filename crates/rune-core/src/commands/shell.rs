@@ -29,6 +29,49 @@ pub(super) fn env(context: &mut CommandContext<'_>) -> CommandOutput {
     environment_output(context)
 }
 
+pub(super) fn alias(context: &mut CommandContext<'_>) -> CommandOutput {
+    match context.args {
+        [] => aliases_output(context),
+        [definition] => {
+            if let Some((name, value)) = definition.split_once('=') {
+                if !is_valid_alias_name(name) || value.is_empty() {
+                    return usage("alias", "usage: alias [NAME[=VALUE]]");
+                }
+                context.aliases.insert(name.to_string(), value.to_string());
+                CommandOutput::success("")
+            } else {
+                context.aliases.get(definition).map_or_else(
+                    || CommandOutput::failure(1, format!("alias: {definition}: not found\n")),
+                    |value| CommandOutput::success(alias_line(definition, value)),
+                )
+            }
+        }
+        _ => usage("alias", "usage: alias [NAME[=VALUE]]"),
+    }
+}
+
+pub(super) fn unalias(context: &mut CommandContext<'_>) -> CommandOutput {
+    if context.args.is_empty() {
+        return usage("unalias", "usage: unalias [-a] NAME ...");
+    }
+    if context.args == ["-a"] {
+        context.aliases.clear();
+        return CommandOutput::success("");
+    }
+    for name in context.args {
+        if !is_valid_alias_name(name) {
+            return usage(
+                "unalias",
+                "alias names may contain letters, digits, '_', '-', or '.'",
+            );
+        }
+        if context.aliases.remove(name).is_none() {
+            return CommandOutput::failure(1, format!("unalias: {name}: not found\n"));
+        }
+    }
+    CommandOutput::success("")
+}
+
 pub(super) fn export(context: &mut CommandContext<'_>) -> CommandOutput {
     if context.args.is_empty() {
         return environment_output(context);
@@ -167,6 +210,25 @@ fn environment_output(context: &CommandContext<'_>) -> CommandOutput {
         stdout.push('\n');
     }
     CommandOutput::success(stdout)
+}
+
+fn aliases_output(context: &CommandContext<'_>) -> CommandOutput {
+    let mut stdout = String::new();
+    for (name, value) in context.aliases.iter() {
+        stdout.push_str(&alias_line(name, value));
+    }
+    CommandOutput::success(stdout)
+}
+
+fn alias_line(name: &str, value: &str) -> String {
+    format!("alias {name}={value}\n")
+}
+
+fn is_valid_alias_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
+        })
 }
 
 fn is_valid_variable_name(name: &str) -> bool {

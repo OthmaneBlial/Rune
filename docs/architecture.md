@@ -47,6 +47,14 @@ with its real value in memory. This is only a narrow first defense; configurable
 redaction is still required before Rune handles workflows where users type
 credentials into arbitrary commands.
 
+Aliases live in the same session boundary but are not serialized. `alias` and
+`unalias` mutate the Rust-owned alias map, so profile commands can establish
+repeatable local shortcuts without Swift-specific state. Before command lookup,
+Rune parses a matching alias value and merges its assignments, arguments, and
+redirections with the invocation. Each alias value is limited to one command;
+recursive expansion is capped at 32 levels and compound values fail with a
+normal shell error instead of recursing indefinitely.
+
 On restore, Rune reads at most 64 KiB from `~/.rune_profile`. It skips blank and
 full-line comment entries, executes each remaining line through the same Rust
 parser/registry, and returns profile stdout/stderr through the CLI or FFI. The
