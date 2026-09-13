@@ -630,7 +630,7 @@ impl Session {
     /// Executes one parsed command line and returns separate output channels.
     pub fn execute_line(&mut self, input: &str) -> CommandOutput {
         let mut sink = NoopEventSink;
-        self.execute_line_internal(input, true, 0, &mut sink)
+        self.execute_line_internal(input, true, 0, "", &mut sink)
     }
 
     /// Executes one command line and emits bounded output/status events.
@@ -639,7 +639,7 @@ impl Session {
         input: &str,
         sink: &mut dyn EventSink,
     ) -> CommandOutput {
-        self.execute_line_internal(input, true, 0, sink)
+        self.execute_line_internal(input, true, 0, "", sink)
     }
 
     /// Executes a bounded newline-delimited automation script.
@@ -650,7 +650,7 @@ impl Session {
     /// output. The returned status is the status of the last executed line.
     pub fn execute_script(&mut self, script: &str) -> CommandOutput {
         let mut sink = NoopEventSink;
-        self.execute_script_internal(script, true, 0, &mut sink)
+        self.execute_script_internal(script, true, 0, "", &mut sink)
     }
 
     /// Executes a bounded script and emits events for each executed line.
@@ -659,7 +659,7 @@ impl Session {
         script: &str,
         sink: &mut dyn EventSink,
     ) -> CommandOutput {
-        self.execute_script_internal(script, true, 0, sink)
+        self.execute_script_internal(script, true, 0, "", sink)
     }
 
     fn execute_script_internal(
@@ -667,10 +667,17 @@ impl Session {
         script: &str,
         record_history: bool,
         source_depth: usize,
+        external_stdin: &str,
         sink: &mut dyn EventSink,
     ) -> CommandOutput {
         let mut tracking = TrackingEventSink::new(sink);
-        let output = self.execute_script_body(script, record_history, source_depth, &mut tracking);
+        let output = self.execute_script_body(
+            script,
+            record_history,
+            source_depth,
+            external_stdin,
+            &mut tracking,
+        );
         if !tracking.output_emitted && (!output.stdout.is_empty() || !output.stderr.is_empty()) {
             tracking.emit(CommandEvent::Output {
                 stdout: output.stdout.clone(),
@@ -689,6 +696,7 @@ impl Session {
         script: &str,
         record_history: bool,
         source_depth: usize,
+        external_stdin: &str,
         sink: &mut dyn EventSink,
     ) -> CommandOutput {
         if script.len() > MAX_SCRIPT_BYTES {
@@ -717,7 +725,13 @@ impl Session {
                 output.status = cancellation.status;
                 break;
             }
-            let line_output = self.execute_line_internal(line, record_history, source_depth, sink);
+            let line_output = self.execute_line_internal(
+                line,
+                record_history,
+                source_depth,
+                external_stdin,
+                sink,
+            );
             output.stdout.push_str(&line_output.stdout);
             output.stderr.push_str(&line_output.stderr);
             output.status = line_output.status;
@@ -731,10 +745,17 @@ impl Session {
         input: &str,
         record_history: bool,
         source_depth: usize,
+        external_stdin: &str,
         sink: &mut dyn EventSink,
     ) -> CommandOutput {
         let mut tracking = TrackingEventSink::new(sink);
-        let output = self.execute_line_body(input, record_history, source_depth, &mut tracking);
+        let output = self.execute_line_body(
+            input,
+            record_history,
+            source_depth,
+            external_stdin,
+            &mut tracking,
+        );
         if !tracking.output_emitted && (!output.stdout.is_empty() || !output.stderr.is_empty()) {
             tracking.emit(CommandEvent::Output {
                 stdout: output.stdout.clone(),
@@ -753,6 +774,7 @@ impl Session {
         input: &str,
         record_history: bool,
         source_depth: usize,
+        external_stdin: &str,
         sink: &mut dyn EventSink,
     ) -> CommandOutput {
         if input.len() > MAX_COMMAND_INPUT_BYTES {
@@ -792,9 +814,34 @@ impl Session {
         if plan.is_empty() {
             return CommandOutput::success("");
         }
-        let mut output = self.execute_plan(&plan, record_history, source_depth, sink);
+        let mut output =
+            self.execute_plan(&plan, record_history, source_depth, external_stdin, sink);
         limit_output(&mut output);
         output
+    }
+
+    fn execute_builtin(
+        &mut self,
+        arguments: &[String],
+        stdin: &str,
+        handler: CommandHandler,
+    ) -> CommandOutput {
+        let filesystem_root = self.filesystem.host_root().map(PathBuf::from);
+        let mut context = CommandContext {
+            args: arguments,
+            stdin,
+            fs: self.filesystem.as_mut(),
+            env: &mut self.environment,
+            aliases: &mut self.aliases,
+            bookmarks: &mut self.bookmarks,
+            config: &mut self.config,
+            history: &mut self.history,
+            command_definitions: self.registry.definitions(),
+            runtime: &self.wasm_runner,
+            filesystem_root,
+            cancellation: &self.cancellation_requested,
+        };
+        handler(&mut context)
     }
 
     fn load_startup_profile(&mut self) {
@@ -808,7 +855,7 @@ impl Session {
         };
         let mut sink = NoopEventSink;
         for (index, line) in lines.iter().enumerate() {
-            let output = self.execute_line_internal(line, false, 0, &mut sink);
+            let output = self.execute_line_internal(line, false, 0, "", &mut sink);
             self.startup_output.stdout.push_str(&output.stdout);
             self.startup_output.stderr.push_str(&output.stderr);
             if output.status != 0 {
@@ -828,6 +875,7 @@ impl Session {
         plan: &ExecutionPlan,
         record_history: bool,
         source_depth: usize,
+        external_stdin: &str,
         sink: &mut dyn EventSink,
     ) -> CommandOutput {
         let mut output = CommandOutput::success("");
@@ -849,7 +897,7 @@ impl Session {
                 }
             }
             let pipeline_output =
-                self.execute_pipeline(pipeline, record_history, source_depth, sink);
+                self.execute_pipeline(pipeline, record_history, source_depth, external_stdin, sink);
             let mut event_output = pipeline_output.clone();
             limit_output(&mut event_output);
             sink.emit(CommandEvent::Output {
@@ -869,9 +917,10 @@ impl Session {
         pipeline: &rune_shell::PipelinePlan,
         record_history: bool,
         source_depth: usize,
+        external_stdin: &str,
         sink: &mut dyn EventSink,
     ) -> CommandOutput {
-        let mut stdin = String::new();
+        let mut stdin = external_stdin.to_string();
         let mut stderr = String::new();
         let mut status = 0;
         for command in &pipeline.commands {
@@ -970,24 +1019,16 @@ impl Session {
         let mut output = if command.program.parts().is_empty() && !command.assignments.is_empty() {
             CommandOutput::success("")
         } else if source_command {
-            self.execute_source(&program, &arguments, record_history, source_depth, sink)
+            self.execute_source(
+                &program,
+                &arguments,
+                record_history,
+                source_depth,
+                &stdin,
+                sink,
+            )
         } else if let Some(handler) = self.registry.find(&program) {
-            let filesystem_root = self.filesystem.host_root().map(PathBuf::from);
-            let mut context = CommandContext {
-                args: &arguments,
-                stdin: &stdin,
-                fs: self.filesystem.as_mut(),
-                env: &mut self.environment,
-                aliases: &mut self.aliases,
-                bookmarks: &mut self.bookmarks,
-                config: &mut self.config,
-                history: &mut self.history,
-                command_definitions: self.registry.definitions(),
-                runtime: &self.wasm_runner,
-                filesystem_root,
-                cancellation: &self.cancellation_requested,
-            };
-            handler(&mut context)
+            self.execute_builtin(&arguments, &stdin, handler)
         } else if let Some(installed_command) = installed_command {
             let mut invocation = InstalledInvocation {
                 program: &program,
@@ -1060,6 +1101,7 @@ impl Session {
         arguments: &[String],
         record_history: bool,
         source_depth: usize,
+        external_stdin: &str,
         sink: &mut dyn EventSink,
     ) -> CommandOutput {
         if arguments.is_empty() || arguments.len() > MAX_SOURCE_ARGUMENTS + 1 {
@@ -1092,7 +1134,13 @@ impl Session {
         };
         let previous_parameters =
             std::mem::replace(&mut self.script_parameters, arguments.to_vec());
-        let output = self.execute_script_internal(&script, record_history, source_depth + 1, sink);
+        let output = self.execute_script_internal(
+            &script,
+            record_history,
+            source_depth + 1,
+            external_stdin,
+            sink,
+        );
         self.script_parameters = previous_parameters;
         output
     }
@@ -1207,14 +1255,7 @@ impl Session {
 
     fn execute_installed(&mut self, invocation: &mut InstalledInvocation<'_>) -> CommandOutput {
         if is_rune_script_entry(invocation.command.entry.as_str()) {
-            self.execute_installed_script(
-                invocation.program,
-                invocation.arguments,
-                invocation.record_history,
-                invocation.source_depth,
-                invocation.sink,
-                invocation.command,
-            )
+            self.execute_installed_script(invocation)
         } else {
             self.execute_installed_wasm(
                 invocation.program,
@@ -1227,36 +1268,41 @@ impl Session {
 
     fn execute_installed_script(
         &mut self,
-        program: &str,
-        arguments: &[String],
-        record_history: bool,
-        source_depth: usize,
-        sink: &mut dyn EventSink,
-        installed_command: &InstalledCommand,
+        invocation: &mut InstalledInvocation<'_>,
     ) -> CommandOutput {
-        if source_depth >= MAX_SOURCE_DEPTH {
+        if invocation.source_depth >= MAX_SOURCE_DEPTH {
             return CommandOutput::failure(
                 2,
                 format!(
-                    "{program}: package script nesting exceeds the {MAX_SOURCE_DEPTH}-level limit\n"
+                    "{}: package script nesting exceeds the {MAX_SOURCE_DEPTH}-level limit\n",
+                    invocation.program
                 ),
             );
         }
-        let module = match self.verified_installed_entry(program, installed_command) {
+        let module = match self.verified_installed_entry(invocation.program, invocation.command) {
             Ok(module) => module,
             Err(output) => return output,
         };
         let Ok(script) = String::from_utf8(module) else {
             return CommandOutput::failure(
                 126,
-                format!("{program}: installed package script is not valid UTF-8\n"),
+                format!(
+                    "{}: installed package script is not valid UTF-8\n",
+                    invocation.program
+                ),
             );
         };
-        let mut parameters = Vec::with_capacity(arguments.len() + 1);
-        parameters.push(program.to_string());
-        parameters.extend(arguments.iter().cloned());
+        let mut parameters = Vec::with_capacity(invocation.arguments.len() + 1);
+        parameters.push(invocation.program.to_string());
+        parameters.extend(invocation.arguments.iter().cloned());
         let previous_parameters = std::mem::replace(&mut self.script_parameters, parameters);
-        let output = self.execute_script_internal(&script, record_history, source_depth + 1, sink);
+        let output = self.execute_script_internal(
+            &script,
+            invocation.record_history,
+            invocation.source_depth + 1,
+            invocation.stdin,
+            invocation.sink,
+        );
         self.script_parameters = previous_parameters;
         output
     }
@@ -2726,7 +2772,7 @@ mod tests {
         let root = test_root();
         let package_root = root.join("script-bundle/bin");
         std::fs::create_dir_all(&package_root).expect("package directories created");
-        let script = b"echo \"$0|$1|$2|$#\"\n";
+        let script = b"cat -\necho \"$0|$1|$2|$#\"\n";
         let digest = rune_package::sha256_hex(script);
         std::fs::write(package_root.join("hello.rune"), script).expect("script written");
         let manifest = format!(
@@ -2748,6 +2794,9 @@ mod tests {
         let output = session.execute_line("local-script one two");
         assert_eq!(output.status, 0, "{output:?}");
         assert_eq!(output.stdout, "local-script|one|two|2\n");
+        let piped = session.execute_line("echo input | local-script one two");
+        assert_eq!(piped.status, 0, "{piped:?}");
+        assert_eq!(piped.stdout, "input\nlocal-script|one|two|2\n");
 
         std::fs::write(
             root.join(".rune/packages/local-script/0.1.0/bin/hello.rune"),
