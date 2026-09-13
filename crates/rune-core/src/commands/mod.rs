@@ -46,6 +46,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: filesystem::cp,
     },
     CommandDefinition {
+        name: "cut",
+        summary: "select bounded fields or characters from text",
+        handler: text::cut,
+    },
+    CommandDefinition {
         name: "config",
         summary: "inspect or change Rust-owned session settings",
         handler: config::config,

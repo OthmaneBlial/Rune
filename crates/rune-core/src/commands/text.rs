@@ -1,6 +1,271 @@
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use crate::{fs_failure, usage, CommandContext, CommandOutput};
+
+const MAX_CUT_RANGES: usize = 256;
+const MAX_CUT_POSITION: usize = 1_000_000;
+
+#[derive(Debug, Clone, Copy)]
+struct CutRange {
+    start: usize,
+    end: Option<usize>,
+}
+
+enum CutMode {
+    Fields {
+        delimiter: char,
+        suppress_without_delimiter: bool,
+        ranges: Vec<CutRange>,
+    },
+    Characters {
+        ranges: Vec<CutRange>,
+    },
+}
+
+pub(super) fn cut(context: &mut CommandContext<'_>) -> CommandOutput {
+    let (mode, paths) = match parse_cut_args(context.args) {
+        Ok(parsed) => parsed,
+        Err(output) => return output,
+    };
+    let text = match read_cut_inputs(context, &paths) {
+        Ok(text) => text,
+        Err(output) => return output,
+    };
+    let mut stdout = String::new();
+    for line in lines_with_endings(&text) {
+        let (body, ending) = line.strip_suffix('\n').map_or((line, ""), |line| {
+            line.strip_suffix('\r')
+                .map_or((line, "\n"), |line| (line, "\r\n"))
+        });
+        match &mode {
+            CutMode::Fields {
+                delimiter,
+                suppress_without_delimiter,
+                ranges,
+            } => {
+                if !body.contains(*delimiter) {
+                    if !suppress_without_delimiter {
+                        stdout.push_str(body);
+                        stdout.push_str(ending);
+                    }
+                    continue;
+                }
+                let fields = body.split(*delimiter).collect::<Vec<_>>();
+                let selected = selected_positions(fields.len(), ranges);
+                for (index, position) in selected.into_iter().enumerate() {
+                    if index > 0 {
+                        stdout.push(*delimiter);
+                    }
+                    stdout.push_str(fields[position]);
+                }
+                stdout.push_str(ending);
+            }
+            CutMode::Characters { ranges } => {
+                let characters = body.chars().collect::<Vec<_>>();
+                for position in selected_positions(characters.len(), ranges) {
+                    stdout.push(characters[position]);
+                }
+                stdout.push_str(ending);
+            }
+        }
+    }
+    CommandOutput::success(stdout)
+}
+
+fn parse_cut_args(args: &[String]) -> Result<(CutMode, Vec<String>), CommandOutput> {
+    let mut delimiter = '\t';
+    let mut delimiter_set = false;
+    let mut field_spec = None;
+    let mut character_spec = None;
+    let mut suppress_without_delimiter = false;
+    let mut paths = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        let argument = &args[index];
+        if argument == "--" {
+            paths.extend(args[index + 1..].iter().cloned());
+            break;
+        } else if argument == "-s" {
+            suppress_without_delimiter = true;
+        } else if argument == "-d" {
+            index += 1;
+            let Some(value) = args.get(index) else {
+                return Err(usage(
+                    "cut",
+                    "usage: cut (-f LIST | -c LIST) [-d CHAR] [-s] [file ...]",
+                ));
+            };
+            delimiter = parse_delimiter(value)?;
+            delimiter_set = true;
+        } else if let Some(value) = argument.strip_prefix("-d") {
+            if value.is_empty() {
+                return Err(usage(
+                    "cut",
+                    "usage: cut (-f LIST | -c LIST) [-d CHAR] [-s] [file ...]",
+                ));
+            }
+            delimiter = parse_delimiter(value)?;
+            delimiter_set = true;
+        } else if argument == "-f" {
+            index += 1;
+            let Some(value) = args.get(index) else {
+                return Err(usage(
+                    "cut",
+                    "usage: cut (-f LIST | -c LIST) [-d CHAR] [-s] [file ...]",
+                ));
+            };
+            field_spec = Some(value.clone());
+        } else if let Some(value) = argument.strip_prefix("-f") {
+            if value.is_empty() {
+                return Err(usage(
+                    "cut",
+                    "usage: cut (-f LIST | -c LIST) [-d CHAR] [-s] [file ...]",
+                ));
+            }
+            field_spec = Some(value.to_string());
+        } else if argument == "-c" {
+            index += 1;
+            let Some(value) = args.get(index) else {
+                return Err(usage(
+                    "cut",
+                    "usage: cut (-f LIST | -c LIST) [-d CHAR] [-s] [file ...]",
+                ));
+            };
+            character_spec = Some(value.clone());
+        } else if let Some(value) = argument.strip_prefix("-c") {
+            if value.is_empty() {
+                return Err(usage(
+                    "cut",
+                    "usage: cut (-f LIST | -c LIST) [-d CHAR] [-s] [file ...]",
+                ));
+            }
+            character_spec = Some(value.to_string());
+        } else if argument.starts_with('-') {
+            return Err(usage(
+                "cut",
+                "usage: cut (-f LIST | -c LIST) [-d CHAR] [-s] [file ...]",
+            ));
+        } else {
+            paths.push(argument.clone());
+        }
+        index += 1;
+    }
+
+    match (field_spec, character_spec) {
+        (Some(spec), None) => Ok((
+            CutMode::Fields {
+                delimiter,
+                suppress_without_delimiter,
+                ranges: parse_cut_ranges(&spec)?,
+            },
+            paths,
+        )),
+        (None, Some(spec)) if !delimiter_set && !suppress_without_delimiter => Ok((
+            CutMode::Characters {
+                ranges: parse_cut_ranges(&spec)?,
+            },
+            paths,
+        )),
+        (None, Some(_)) => Err(usage("cut", "character mode does not accept -d or -s")),
+        (Some(_), Some(_)) | (None, None) => Err(usage("cut", "choose exactly one of -f or -c")),
+    }
+}
+
+fn parse_delimiter(value: &str) -> Result<char, CommandOutput> {
+    let mut characters = value.chars();
+    let Some(delimiter) = characters.next() else {
+        return Err(usage("cut", "-d requires exactly one character"));
+    };
+    if characters.next().is_some() {
+        return Err(usage("cut", "-d requires exactly one character"));
+    }
+    Ok(delimiter)
+}
+
+fn parse_cut_ranges(spec: &str) -> Result<Vec<CutRange>, CommandOutput> {
+    if spec.is_empty() {
+        return Err(usage("cut", "LIST must contain positions such as 1,3-5"));
+    }
+    let pieces = spec.split(',').collect::<Vec<_>>();
+    if pieces.len() > MAX_CUT_RANGES {
+        return Err(usage("cut", "LIST contains too many ranges"));
+    }
+    let mut ranges = Vec::with_capacity(pieces.len());
+    for piece in pieces {
+        let range = if let Some((start, end)) = piece.split_once('-') {
+            let start = if start.is_empty() {
+                1
+            } else {
+                parse_cut_position(start)?
+            };
+            let end = if end.is_empty() {
+                None
+            } else {
+                Some(parse_cut_position(end)?)
+            };
+            if end.is_some_and(|end| end < start) {
+                return Err(usage("cut", "range end must not be before its start"));
+            }
+            CutRange { start, end }
+        } else {
+            let position = parse_cut_position(piece)?;
+            CutRange {
+                start: position,
+                end: Some(position),
+            }
+        };
+        ranges.push(range);
+    }
+    Ok(ranges)
+}
+
+fn parse_cut_position(value: &str) -> Result<usize, CommandOutput> {
+    let Ok(position) = value.parse::<usize>() else {
+        return Err(usage("cut", "LIST positions must be positive integers"));
+    };
+    if position == 0 || position > MAX_CUT_POSITION {
+        return Err(usage("cut", "LIST positions must be between 1 and 1000000"));
+    }
+    Ok(position)
+}
+
+fn selected_positions(length: usize, ranges: &[CutRange]) -> Vec<usize> {
+    let mut positions = BTreeSet::new();
+    for range in ranges {
+        let end = range
+            .end
+            .unwrap_or(length)
+            .min(length)
+            .min(MAX_CUT_POSITION);
+        if range.start <= end {
+            positions.extend(range.start..=end);
+        }
+    }
+    positions.into_iter().map(|position| position - 1).collect()
+}
+
+fn read_cut_inputs(
+    context: &mut CommandContext<'_>,
+    paths: &[String],
+) -> Result<String, CommandOutput> {
+    if paths.is_empty() {
+        return Ok(context.stdin.to_string());
+    }
+    let mut text = String::new();
+    for path in paths {
+        if path == "-" {
+            text.push_str(context.stdin);
+            continue;
+        }
+        let bytes = context
+            .fs
+            .read(path)
+            .map_err(|error| fs_failure("cut", &error))?;
+        text.push_str(&String::from_utf8_lossy(&bytes));
+    }
+    Ok(text)
+}
 
 pub(super) fn head(context: &mut CommandContext<'_>) -> CommandOutput {
     let (count, paths) = match parse_count("head", context.args) {

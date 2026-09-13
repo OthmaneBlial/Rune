@@ -34,6 +34,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "cat"
             | "cd"
             | "cp"
+            | "cut"
             | "du"
             | "find"
             | "grep"
@@ -1544,9 +1545,27 @@ mod tests {
                 .stdout,
             "two two\n"
         );
+        assert_eq!(
+            session
+                .execute_line("printf 'name,age,city\nA,30,Paris\n' | cut -d , -f 1,3")
+                .stdout,
+            "name,city\nA,Paris\n"
+        );
+        assert_eq!(
+            session.execute_line("printf abcdef | cut -c 2-4").stdout,
+            "bcd"
+        );
+        assert_eq!(
+            session
+                .execute_line("printf 'header\nvalue,ok\n' | cut -d , -f 1 -s")
+                .stdout,
+            "value\n"
+        );
         let invalid_sed = session.execute_line("sed 's/beta/Rune/z' lines.txt");
         assert_eq!(invalid_sed.status, 2);
         assert!(invalid_sed.stderr.contains("unsupported substitution flag"));
+        assert_eq!(session.execute_line("cut -f 0").status, 2);
+        assert_eq!(session.execute_line("cut -c 1 -d ,").status, 2);
         assert_eq!(
             session.execute_line("uniq -c lines.txt").stdout,
             "      1 beta\n      1 alpha\n      1 beta\n"

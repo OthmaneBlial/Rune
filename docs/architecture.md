@@ -103,8 +103,8 @@ and traversal outside the root is rejected. An Apple adapter will map that
 root to the app's Documents directory and add user-approved external roots
 through security-scoped bookmarks.
 
-The current registry includes bounded text filters (`head`, `tail`, `grep`,
-`sed`, `sort`, `uniq`, and `wc`). They consume the same in-memory pipeline stdin
+The current registry includes bounded text filters (`cut`, `head`, `tail`,
+`grep`, `sed`, `sort`, `uniq`, and `wc`). They consume the same in-memory pipeline stdin
 as file commands and never delegate to a host shell. `sed` currently supports
 literal `s///` substitutions with `g` and `p` flags plus `-n`; it does not claim
 regular-expression or address compatibility. These option surfaces are

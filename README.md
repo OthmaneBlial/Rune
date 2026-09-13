@@ -37,7 +37,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
 `setenv`, `printf`, `basename`, `dirname`, `du`, `rmdir`, `stat`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
-`true`, `false`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `pkg`,
+`true`, `false`, `cut`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `pkg`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
 `help`, `history`, `uname`, `which`, and `whoami` against a bounded filesystem,
 including basic `*`/`?` pathname
@@ -50,6 +50,8 @@ issued without a command.
 The text pipeline also supports a bounded literal `sed` substitution surface:
 `s///` with optional `g`/`p` flags and `-n`; regular expressions and addresses
 are not implemented yet.
+The text pipeline also includes bounded `cut` field/character selection
+(`-f`, `-c`, `-d`, and `-s`) over stdin or sandbox files.
 A synchronous command response is capped at 1 MiB per output channel; a
 truncation marker is emitted rather than allowing unbounded terminal output.
 Environment changes are not serialized. A bounded `~/.rune_profile` is loaded
