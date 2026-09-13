@@ -2397,6 +2397,38 @@ mod tests {
     }
 
     #[test]
+    fn lists_bounded_metadata_with_long_and_human_readable_modes() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("mkdir folder").status, 0);
+        assert_eq!(session.execute_line("echo hi > note.txt").status, 0);
+        assert_eq!(session.execute_line("touch .hidden").status, 0);
+        assert_eq!(session.execute_line("ln -s note.txt link").status, 0);
+
+        let long = session.execute_line("ls -l");
+        assert_eq!(long.status, 0);
+        assert!(long
+            .stdout
+            .lines()
+            .any(|line| line.starts_with("d ") && line.ends_with(" folder/")));
+        assert!(long.stdout.contains("-        3 note.txt\n"));
+        assert!(long.stdout.contains("l        8 link@\n"));
+        assert!(!long.stdout.contains(".hidden"));
+
+        let human = session.execute_line("ls -lh");
+        assert_eq!(human.status, 0);
+        assert!(human.stdout.contains("3B note.txt\n"));
+        assert!(human.stdout.contains("8B link@\n"));
+
+        let all = session.execute_line("ls -A -- .");
+        assert_eq!(all.status, 0);
+        assert!(all.stdout.contains(".hidden\n"));
+        assert_eq!(session.execute_line("ls -- folder").status, 0);
+        assert_eq!(session.execute_line("ls -z").status, 2);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn reports_portable_identity_and_registered_command_discovery() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));

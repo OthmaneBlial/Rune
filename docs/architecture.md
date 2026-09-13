@@ -211,6 +211,11 @@ with a 10,000-entry limit and rejects symlinks; `mv` can move a directory
 without recursively traversing it. `du` reports a recursive byte total with a
 10,000-entry limit, and `stat` reports only metadata available through the VFS.
 
+`ls` supports bounded `-l` and `-h` views in addition to hidden-entry flags.
+Long output uses a compact type marker (`d`, `-`, or `l`) and the VFS-reported
+size; permissions, ownership, and timestamps are intentionally absent because
+the portable boundary does not expose them.
+
 `ln -s` accepts only an existing relative target and verifies that the target
 resolves inside the sandbox before creating the link. `readlink` exposes the
 stored relative target, while ordinary recursive operations do not follow

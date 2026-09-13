@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use crate::{fs_failure, usage, CommandContext, CommandOutput};
 
 const FIND_ENTRY_LIMIT: usize = 10_000;
@@ -27,15 +29,31 @@ pub(super) fn cd(context: &mut CommandContext<'_>) -> CommandOutput {
 
 pub(super) fn ls(context: &mut CommandContext<'_>) -> CommandOutput {
     let mut show_hidden = false;
+    let mut long_format = false;
+    let mut human_sizes = false;
     let mut paths = Vec::new();
+    let mut parse_options = true;
     for argument in context.args {
-        if let Some(flags) = argument.strip_prefix('-') {
-            if flags.is_empty() {
-                paths.push(argument.as_str());
-            } else if flags.chars().all(|flag| flag == 'a') {
-                show_hidden = true;
+        if parse_options && argument == "--" {
+            parse_options = false;
+            continue;
+        }
+        if parse_options {
+            if let Some(flags) = argument.strip_prefix('-') {
+                if flags.is_empty() {
+                    paths.push(argument.as_str());
+                } else if flags
+                    .chars()
+                    .all(|flag| matches!(flag, 'a' | 'A' | 'l' | 'h' | '1'))
+                {
+                    show_hidden |= flags.contains('a') || flags.contains('A');
+                    long_format |= flags.contains('l') || flags.contains('h');
+                    human_sizes |= flags.contains('h');
+                } else {
+                    return usage("ls", "usage: ls [-aAhl1] [--] [path ...]");
+                }
             } else {
-                return usage("ls", "usage: ls [-a] [path ...]");
+                paths.push(argument.as_str());
             }
         } else {
             paths.push(argument.as_str());
@@ -61,8 +79,13 @@ pub(super) fn ls(context: &mut CommandContext<'_>) -> CommandOutput {
         };
         if !info.is_directory {
             if show_hidden || !info.name.starts_with('.') {
-                stdout.push_str(&info.name);
-                stdout.push('\n');
+                append_listing_line(
+                    &mut stdout,
+                    &info.name,
+                    listing_kind(info.is_directory, info.is_symlink),
+                    info.size,
+                    listing_format(long_format, human_sizes),
+                );
             }
             continue;
         }
@@ -74,14 +97,95 @@ pub(super) fn ls(context: &mut CommandContext<'_>) -> CommandOutput {
             if !show_hidden && entry.name.starts_with('.') {
                 continue;
             }
-            stdout.push_str(&entry.name);
-            if entry.is_directory {
-                stdout.push('/');
-            }
-            stdout.push('\n');
+            append_listing_line(
+                &mut stdout,
+                &entry.name,
+                listing_kind(entry.is_directory, entry.is_symlink),
+                entry.size,
+                listing_format(long_format, human_sizes),
+            );
         }
     }
     CommandOutput::success(stdout)
+}
+
+#[derive(Clone, Copy)]
+enum ListingKind {
+    File,
+    Directory,
+    Symlink,
+}
+
+#[derive(Clone, Copy)]
+enum ListingFormat {
+    Names,
+    Long { human_sizes: bool },
+}
+
+fn listing_kind(is_directory: bool, is_symlink: bool) -> ListingKind {
+    if is_symlink {
+        ListingKind::Symlink
+    } else if is_directory {
+        ListingKind::Directory
+    } else {
+        ListingKind::File
+    }
+}
+
+fn listing_format(long_format: bool, human_sizes: bool) -> ListingFormat {
+    if long_format {
+        ListingFormat::Long { human_sizes }
+    } else {
+        ListingFormat::Names
+    }
+}
+
+fn append_listing_line(
+    stdout: &mut String,
+    name: &str,
+    kind: ListingKind,
+    size: u64,
+    format: ListingFormat,
+) {
+    let suffix = match kind {
+        ListingKind::Directory => "/",
+        ListingKind::Symlink => "@",
+        ListingKind::File => "",
+    };
+    if let ListingFormat::Long { human_sizes } = format {
+        let marker = match kind {
+            ListingKind::Symlink => 'l',
+            ListingKind::Directory => 'd',
+            ListingKind::File => '-',
+        };
+        let displayed_size = if human_sizes {
+            human_size(size)
+        } else {
+            size.to_string()
+        };
+        let _ = writeln!(stdout, "{marker} {displayed_size:>8} {name}{suffix}");
+    } else {
+        let _ = writeln!(stdout, "{name}{suffix}");
+    }
+}
+
+fn human_size(size: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut unit = 0;
+    let mut divisor = 1_u64;
+    while size >= divisor.saturating_mul(1024) && unit + 1 < UNITS.len() {
+        divisor = divisor.saturating_mul(1024);
+        unit += 1;
+    }
+    if unit == 0 {
+        return format!("{size}B");
+    }
+    let tenths = (size.saturating_mul(10) + divisor / 2) / divisor;
+    if tenths >= 100 {
+        format!("{}{}", tenths / 10, UNITS[unit])
+    } else {
+        format!("{}.{}{}", tenths / 10, tenths % 10, UNITS[unit])
+    }
 }
 
 pub(super) fn cat(context: &mut CommandContext<'_>) -> CommandOutput {

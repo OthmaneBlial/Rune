@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 57%**
+**Overall progress: 58%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -20,7 +20,7 @@ working iOS application or a feature-parity claim.
 |---|---:|
 | Rust workspace | 70% |
 | Shell tokenizer/parser | 63% |
-| Command runtime | 85% |
+| Command runtime | 87% |
 | Sandboxed filesystem | 64% |
 | Sessions/history | 62% |
 | Configuration | 23% |
@@ -46,6 +46,10 @@ expansion with quote and hidden-file rules,
 with quotes, variables, leading `NAME=value` assignments, pipes, redirections,
 word-boundary comments, sequencing, `&&`/`||` short-circuiting, separate
 stdout/stderr, and exit status.
+`ls` also provides a bounded metadata view with `-l`, human-readable sizes with
+`-h`, hidden-entry selection with `-a`/`-A`, and `--` path termination; it only
+prints metadata exposed by the VFS and does not invent POSIX permissions or
+timestamps.
 Assignments are expanded left-to-right, remain session-local, and can also be
 issued without a command.
 The text pipeline also supports a bounded literal `sed` substitution surface:
@@ -277,6 +281,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded terminal output channels
 - [x] Session-local virtual directory bookmarks
 - [x] Bounded portable utility commands
+- [x] Bounded long-format and human-readable `ls` metadata
 - [x] Bounded virtual filesystem metadata and usage commands
 
 ### Phase 3 — Developer environment
