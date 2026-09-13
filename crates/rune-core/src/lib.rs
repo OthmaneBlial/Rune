@@ -379,4 +379,33 @@ mod tests {
         assert_eq!(session.execute_line("echo $?").stdout, "127\n");
         std::fs::remove_dir_all(root).expect("test root removed");
     }
+
+    #[test]
+    fn manages_environment_and_status_builtins() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(
+            session.execute_line("export GREETING='hello world'").status,
+            0
+        );
+        assert_eq!(
+            session.execute_line("echo \"$GREETING\"").stdout,
+            "hello world\n"
+        );
+        assert_eq!(
+            session.execute_line("printenv GREETING").stdout,
+            "hello world\n"
+        );
+        assert_eq!(session.execute_line("setenv NUMBER 42").status, 0);
+        assert_eq!(session.execute_line("echo $NUMBER").stdout, "42\n");
+        assert_eq!(session.execute_line("unset GREETING").status, 0);
+        assert_eq!(session.execute_line("printenv GREETING").status, 1);
+        assert_eq!(
+            session.execute_line("true && echo success").stdout,
+            "success\n"
+        );
+        assert_eq!(session.execute_line("false && echo skipped").status, 1);
+        assert_eq!(session.execute_line("echo $?").stdout, "1\n");
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
 }

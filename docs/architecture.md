@@ -37,6 +37,8 @@ specified.
 Session persistence is explicit and intentionally narrow: `~/.rune/session.state`
 stores the virtual working directory and command history, while environment
 variables are reconstructed for every session and are never serialized. The
+current shell environment can be changed by the Rust `export`, `unset`, and
+`setenv` built-ins, but those changes are intentionally session-local. The
 history policy will need configurable redaction before Rune handles workflows
 where users type credentials into commands.
 

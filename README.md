@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 9%**
+**Overall progress: 10%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -20,7 +20,7 @@ working iOS application or a feature-parity claim.
 |---|---:|
 | Rust workspace | 70% |
 | Shell tokenizer/parser | 45% |
-| Command runtime | 35% |
+| Command runtime | 40% |
 | Sandboxed filesystem | 35% |
 | Sessions/history | 25% |
 | WASM | 0% |
@@ -33,9 +33,11 @@ working iOS application or a feature-parity claim.
 
 The first Rust vertical slice is implemented and locally verified. It executes
 the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
-`touch`, `rm`, `cp`, `mv`, `env`, `clear`, `help`, and `history` against a
-bounded filesystem, with quotes, variables, pipes, redirections, sequencing,
-separate stdout/stderr, and exit status. The iOS app is represented by
+`touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `printenv`, `setenv`,
+`true`, `false`, `clear`, `help`, and `history` against a bounded filesystem,
+with quotes, variables, pipes, redirections, sequencing, separate
+stdout/stderr, and exit status. Environment changes are session-local and are
+not serialized. The iOS app is represented by
 source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
 and runtime gates remain unverified. Bounded current-directory/history
 persistence now exists in Rust; configuration/redaction and broader session

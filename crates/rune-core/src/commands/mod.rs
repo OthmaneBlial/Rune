@@ -35,6 +35,16 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::env,
     },
     CommandDefinition {
+        name: "export",
+        summary: "set session environment variables",
+        handler: shell::export,
+    },
+    CommandDefinition {
+        name: "false",
+        summary: "return a failure status",
+        handler: shell::false_command,
+    },
+    CommandDefinition {
         name: "help",
         summary: "list commands and their summaries",
         handler: shell::help,
@@ -73,5 +83,25 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "touch",
         summary: "create a file if it does not exist",
         handler: filesystem::touch,
+    },
+    CommandDefinition {
+        name: "printenv",
+        summary: "print selected environment variables",
+        handler: shell::printenv,
+    },
+    CommandDefinition {
+        name: "setenv",
+        summary: "set one environment variable",
+        handler: shell::setenv,
+    },
+    CommandDefinition {
+        name: "true",
+        summary: "return a success status",
+        handler: shell::true_command,
+    },
+    CommandDefinition {
+        name: "unset",
+        summary: "remove session environment variables",
+        handler: shell::unset,
     },
 ];
