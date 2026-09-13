@@ -145,7 +145,10 @@ pub unsafe extern "C" fn rune_string_free(value: *mut c_char) {
 
 #[cfg(test)]
 mod tests {
-    use super::{rune_session_destroy, rune_session_execute, rune_session_new, rune_string_free};
+    use super::{
+        rune_session_current_directory, rune_session_destroy, rune_session_execute,
+        rune_session_new, rune_string_free,
+    };
     use std::ffi::{CStr, CString};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -175,7 +178,24 @@ mod tests {
             rune_string_free(output.stdout);
             rune_string_free(output.stderr);
         }
+        let change_directory = CString::new("mkdir sub && cd sub").expect("valid command");
+        let output = rune_session_execute(handle, change_directory.as_ptr());
+        assert_eq!(output.status, 0);
+        // SAFETY: both pointers were returned by rune_session_execute and are
+        // released exactly once before destroying the owning session.
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
         rune_session_destroy(handle);
+
+        let reopened = rune_session_new(root_string.as_ptr());
+        assert!(!reopened.is_null());
+        let directory = rune_session_current_directory(reopened);
+        assert_eq!(c_string(directory), "~/sub");
+        // SAFETY: directory was returned by rune_session_current_directory.
+        unsafe { rune_string_free(directory) };
+        rune_session_destroy(reopened);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
