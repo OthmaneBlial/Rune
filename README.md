@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 18%**
+**Overall progress: 19%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -20,8 +20,8 @@ working iOS application or a feature-parity claim.
 |---|---:|
 | Rust workspace | 70% |
 | Shell tokenizer/parser | 60% |
-| Command runtime | 63% |
-| Sandboxed filesystem | 43% |
+| Command runtime | 65% |
+| Sandboxed filesystem | 48% |
 | Sessions/history | 32% |
 | WASM | 0% |
 | Native iOS UI | 9% |
@@ -34,7 +34,7 @@ working iOS application or a feature-parity claim.
 The first Rust vertical slice is implemented and locally verified. It executes
 the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `printenv`, `setenv`,
-`alias`, `unalias`,
+`alias`, `unalias`, `find`,
 `true`, `false`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `clear`, `help`,
 and `history` against a bounded filesystem, including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
@@ -121,6 +121,7 @@ git check-ignore -v base/a-shell
 - [x] Leading environment assignments
 - [x] Bounded session-local command aliases
 - [x] `&&` and `||` conditional chaining
+- [x] Bounded recursive `find` traversal
 
 ### Phase 3 — Developer environment
 

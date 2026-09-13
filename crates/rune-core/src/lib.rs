@@ -555,6 +555,39 @@ mod tests {
     }
 
     #[test]
+    fn walks_bounded_filesystem_with_find_filters_and_depth() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(
+            session
+                .execute_line("mkdir -p project/src project/docs")
+                .status,
+            0
+        );
+        assert_eq!(
+            session
+                .execute_line("touch project/src/main.rs project/README.md")
+                .status,
+            0
+        );
+        assert_eq!(
+            session.execute_line("find project -maxdepth 1").stdout,
+            "project\nproject/README.md\nproject/docs\nproject/src\n"
+        );
+        assert_eq!(
+            session.execute_line("find project -name '*.rs'").stdout,
+            "project/src/main.rs\n"
+        );
+        let missing = session.execute_line("find missing");
+        assert_eq!(missing.status, 1);
+        assert!(missing.stderr.contains("no such file or directory"));
+        let invalid = session.execute_line("find project -maxdepth many");
+        assert_eq!(invalid.status, 2);
+        assert!(invalid.stderr.contains("non-negative number"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn keeps_stdout_stderr_and_status_separate() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));

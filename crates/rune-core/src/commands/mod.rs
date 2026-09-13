@@ -51,6 +51,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::false_command,
     },
     CommandDefinition {
+        name: "find",
+        summary: "walk the bounded filesystem tree",
+        handler: filesystem::find,
+    },
+    CommandDefinition {
         name: "grep",
         summary: "filter text lines by a pattern",
         handler: text::grep,

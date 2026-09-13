@@ -79,6 +79,13 @@ file commands and never delegate to a host shell. Their option surfaces are
 deliberately smaller than POSIX utilities until compatibility tests justify
 expanding them.
 
+The `find` built-in walks the same virtual filesystem through `metadata` and
+`list`; it never traverses the host root directly. Its initial surface supports
+one start path, `-name` basename matching, and `-maxdepth`. Traversal is capped
+at 10,000 visited entries and does not follow symlink entries, keeping a
+malicious or cyclic tree from turning a synchronous command into unbounded
+work.
+
 Unquoted `*` and `?` are expanded by `rune-core` through the VFS `glob` method;
 quoted patterns remain literal, hidden entries require a leading `.`, and an
 unmatched pattern remains a literal argument. The VFS validates every matched

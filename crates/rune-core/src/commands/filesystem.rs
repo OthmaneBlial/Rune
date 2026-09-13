@@ -1,5 +1,7 @@
 use crate::{fs_failure, usage, CommandContext, CommandOutput};
 
+const FIND_ENTRY_LIMIT: usize = 10_000;
+
 pub(super) fn cd(context: &mut CommandContext<'_>) -> CommandOutput {
     if context.args.len() > 1 {
         return usage("cd", "usage: cd [directory]");
@@ -82,6 +84,177 @@ pub(super) fn cat(context: &mut CommandContext<'_>) -> CommandOutput {
         }
     }
     CommandOutput::success(stdout)
+}
+
+pub(super) fn find(context: &mut CommandContext<'_>) -> CommandOutput {
+    let (path, pattern, max_depth) = match parse_find_args(context.args) {
+        Ok(parsed) => parsed,
+        Err(output) => return output,
+    };
+    let mut stdout = String::new();
+    let mut visited = 0;
+    if let Err(output) = visit_find(
+        context,
+        &path,
+        pattern.as_deref(),
+        max_depth,
+        0,
+        &mut visited,
+        &mut stdout,
+    ) {
+        return output;
+    }
+    CommandOutput::success(stdout)
+}
+
+fn parse_find_args(
+    args: &[String],
+) -> Result<(String, Option<String>, Option<usize>), CommandOutput> {
+    let mut path = ".".to_string();
+    let mut pattern = None;
+    let mut max_depth = None;
+    let mut index = 0;
+    if let Some(first) = args.first() {
+        if !first.starts_with('-') {
+            path.clone_from(first);
+            index = 1;
+        }
+    }
+    while index < args.len() {
+        match args[index].as_str() {
+            "--" => {
+                index += 1;
+                if index >= args.len() {
+                    return Err(usage(
+                        "find",
+                        "usage: find [path] [-name PATTERN] [-maxdepth N]",
+                    ));
+                }
+                if index + 1 != args.len() {
+                    return Err(usage(
+                        "find",
+                        "usage: find [path] [-name PATTERN] [-maxdepth N]",
+                    ));
+                }
+                path.clone_from(&args[index]);
+                index += 1;
+            }
+            "-name" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(usage("find", "-name requires a pattern"));
+                };
+                pattern = Some(value.clone());
+                index += 1;
+            }
+            "-maxdepth" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(usage("find", "-maxdepth requires a non-negative number"));
+                };
+                max_depth = Some(
+                    value
+                        .parse::<usize>()
+                        .map_err(|_| usage("find", "-maxdepth requires a non-negative number"))?,
+                );
+                index += 1;
+            }
+            _ => {
+                return Err(usage(
+                    "find",
+                    "usage: find [path] [-name PATTERN] [-maxdepth N]",
+                ))
+            }
+        }
+    }
+    Ok((path, pattern, max_depth))
+}
+
+fn visit_find(
+    context: &mut CommandContext<'_>,
+    path: &str,
+    pattern: Option<&str>,
+    max_depth: Option<usize>,
+    depth: usize,
+    visited: &mut usize,
+    stdout: &mut String,
+) -> Result<(), CommandOutput> {
+    if *visited >= FIND_ENTRY_LIMIT {
+        return Err(CommandOutput::failure(
+            1,
+            format!("find: traversal exceeded {FIND_ENTRY_LIMIT} entries\n"),
+        ));
+    }
+    let info = context
+        .fs
+        .metadata(path)
+        .map_err(|error| fs_failure("find", &error))?;
+    *visited += 1;
+    if pattern.map_or(true, |value| wildcard_match(value, path_basename(path))) {
+        stdout.push_str(path);
+        stdout.push('\n');
+    }
+    if !info.is_directory || info.is_symlink || max_depth.is_some_and(|limit| depth >= limit) {
+        return Ok(());
+    }
+    let entries = context
+        .fs
+        .list(Some(path))
+        .map_err(|error| fs_failure("find", &error))?;
+    for entry in entries {
+        let child = append_child_path(path, &entry.name);
+        visit_find(
+            context,
+            &child,
+            pattern,
+            max_depth,
+            depth + 1,
+            visited,
+            stdout,
+        )?;
+    }
+    Ok(())
+}
+
+fn append_child_path(parent: &str, child: &str) -> String {
+    if parent == "/" {
+        format!("/{child}")
+    } else if parent.ends_with('/') {
+        format!("{parent}{child}")
+    } else {
+        format!("{parent}/{child}")
+    }
+}
+
+fn path_basename(path: &str) -> &str {
+    path.trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(path)
+}
+
+fn wildcard_match(pattern: &str, value: &str) -> bool {
+    let pattern = pattern.chars().collect::<Vec<_>>();
+    let value = value.chars().collect::<Vec<_>>();
+    let mut previous = vec![false; value.len() + 1];
+    previous[0] = true;
+    for pattern_character in pattern {
+        let mut current = vec![false; value.len() + 1];
+        if pattern_character == '*' {
+            current[0] = previous[0];
+            for index in 1..=value.len() {
+                current[index] = previous[index] || current[index - 1];
+            }
+        } else {
+            for index in 1..=value.len() {
+                current[index] = previous[index - 1]
+                    && (pattern_character == '?' || pattern_character == value[index - 1]);
+            }
+        }
+        previous = current;
+    }
+    previous[value.len()]
 }
 
 pub(super) fn mkdir(context: &mut CommandContext<'_>) -> CommandOutput {

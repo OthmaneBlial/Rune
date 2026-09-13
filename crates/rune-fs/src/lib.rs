@@ -529,9 +529,16 @@ impl VirtualFileSystem for SandboxedFileSystem {
     fn make_directory(&self, input: &str, parents: bool) -> Result<(), FsError> {
         let path = self.resolve_path(input)?;
         if path.exists() {
+            let metadata = fs::metadata(&path)
+                .map_err(|error| Self::reframe(Self::map_metadata_error(&path, &error), input))?;
+            if parents && metadata.is_dir() {
+                return Ok(());
+            }
             return Err(FsError::AlreadyExists(input.to_string()));
         }
-        Self::parent_is_directory(&path, input)?;
+        if !parents {
+            Self::parent_is_directory(&path, input)?;
+        }
         let result = if parents {
             fs::create_dir_all(&path)
         } else {
@@ -673,6 +680,18 @@ mod tests {
         fs.change_dir("-").expect("previous directory restored");
         assert_eq!(fs.current_dir_display(), "~");
         fs.remove("work", true, false).expect("directory removed");
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn creates_nested_directories_with_idempotent_parents() {
+        let root = test_root();
+        let fs = SandboxedFileSystem::new(&root).expect("root created");
+        fs.make_directory("project/src", true)
+            .expect("nested directory created");
+        fs.make_directory("project/src", true)
+            .expect("existing parent directory accepted");
+        assert!(root.join("project/src").is_dir());
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
