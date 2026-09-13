@@ -11,6 +11,11 @@ mod wasm;
 
 pub(super) const DEFINITIONS: &[CommandDefinition] = &[
     CommandDefinition {
+        name: ".",
+        summary: "execute a bounded Rune script from a sandbox file",
+        handler: shell::source,
+    },
+    CommandDefinition {
         name: "alias",
         summary: "define or print session-local command aliases",
         handler: shell::alias,
@@ -179,6 +184,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "sort",
         summary: "sort input lines",
         handler: text::sort,
+    },
+    CommandDefinition {
+        name: "source",
+        summary: "execute a bounded Rune script from a sandbox file",
+        handler: shell::source,
     },
     CommandDefinition {
         name: "stat",

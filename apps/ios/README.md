@@ -19,6 +19,11 @@ registration remains unverified and is not included here.
 Individual command lines crossing the bridge are also rejected above the
 64-KiB Rust input limit before parsing or history recording.
 
+The same Rust core also provides `source FILE` and `. FILE` for bounded script
+files stored in the virtual filesystem. The Swift layer only sends the command;
+file reads, nested execution limits, environment changes, output, status, and
+history remain Rust-owned.
+
 The Rust handle restores and persists only the virtual working directory and
 typed command history in `~/.rune/session.state` inside the configured sandbox.
 FFI command and script calls flush that state before returning, while handle

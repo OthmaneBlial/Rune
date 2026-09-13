@@ -8,6 +8,13 @@ pub(super) fn echo(context: &mut CommandContext<'_>) -> CommandOutput {
     CommandOutput::success(stdout)
 }
 
+/// `source` and `.` are dispatched by the session because they need access to
+/// the recursive script executor. The registry handler keeps their metadata
+/// available to `help`, completion, and `which`.
+pub(super) fn source(_context: &mut CommandContext<'_>) -> CommandOutput {
+    usage("source", "usage: source FILE")
+}
+
 pub(super) fn printf(context: &mut CommandContext<'_>) -> CommandOutput {
     let Some(format) = context.args.first() else {
         return usage("printf", "usage: printf FORMAT [ARG ...]");

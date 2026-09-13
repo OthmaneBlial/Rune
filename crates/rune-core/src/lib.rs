@@ -27,6 +27,7 @@ const MAX_COMMAND_INPUT_BYTES: usize = 64 * 1024;
 const MAX_INSTALLED_COMMANDS: usize = 4_096;
 const MAX_SCRIPT_BYTES: usize = 256 * 1024;
 const MAX_SCRIPT_LINES: usize = 1_024;
+const MAX_SOURCE_DEPTH: usize = 16;
 const MAX_BOOKMARKS: usize = 256;
 const MAX_BOOKMARK_NAME_CHARS: usize = 64;
 const MAX_BOOKMARK_PATH_BYTES: usize = 64 * 1024;
@@ -54,6 +55,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "rm"
             | "rmdir"
             | "sed"
+            | "source"
             | "stat"
             | "tail"
             | "tee"
@@ -61,6 +63,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "unlink"
             | "wasm"
             | "xxd"
+            | "."
     )
 }
 
@@ -75,6 +78,8 @@ struct InstalledCommand {
     module_path: String,
     entry: String,
 }
+
+type AppliedRedirections = (String, Option<(String, bool)>, Option<(String, bool)>);
 
 /// The result of one command or complete command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -400,7 +405,7 @@ impl Session {
 
     /// Executes one parsed command line and returns separate output channels.
     pub fn execute_line(&mut self, input: &str) -> CommandOutput {
-        self.execute_line_internal(input, true)
+        self.execute_line_internal(input, true, 0)
     }
 
     /// Executes a bounded newline-delimited automation script.
@@ -410,6 +415,15 @@ impl Session {
     /// continues after a failed line so automation can observe the complete
     /// output. The returned status is the status of the last executed line.
     pub fn execute_script(&mut self, script: &str) -> CommandOutput {
+        self.execute_script_internal(script, true, 0)
+    }
+
+    fn execute_script_internal(
+        &mut self,
+        script: &str,
+        record_history: bool,
+        source_depth: usize,
+    ) -> CommandOutput {
         if script.len() > MAX_SCRIPT_BYTES {
             let output = CommandOutput::failure(
                 2,
@@ -431,7 +445,7 @@ impl Session {
             if line.trim().is_empty() {
                 continue;
             }
-            let line_output = self.execute_line(line);
+            let line_output = self.execute_line_internal(line, record_history, source_depth);
             output.stdout.push_str(&line_output.stdout);
             output.stderr.push_str(&line_output.stderr);
             output.status = line_output.status;
@@ -440,7 +454,12 @@ impl Session {
         output
     }
 
-    fn execute_line_internal(&mut self, input: &str, record_history: bool) -> CommandOutput {
+    fn execute_line_internal(
+        &mut self,
+        input: &str,
+        record_history: bool,
+        source_depth: usize,
+    ) -> CommandOutput {
         if input.len() > MAX_COMMAND_INPUT_BYTES {
             let output = CommandOutput::failure(
                 2,
@@ -474,7 +493,7 @@ impl Session {
         if plan.is_empty() {
             return CommandOutput::success("");
         }
-        let mut output = self.execute_plan(&plan);
+        let mut output = self.execute_plan(&plan, record_history, source_depth);
         limit_output(&mut output);
         output
     }
@@ -489,7 +508,7 @@ impl Session {
             }
         };
         for (index, line) in lines.iter().enumerate() {
-            let output = self.execute_line_internal(line, false);
+            let output = self.execute_line_internal(line, false, 0);
             self.startup_output.stdout.push_str(&output.stdout);
             self.startup_output.stderr.push_str(&output.stderr);
             if output.status != 0 {
@@ -504,7 +523,12 @@ impl Session {
         }
     }
 
-    fn execute_plan(&mut self, plan: &ExecutionPlan) -> CommandOutput {
+    fn execute_plan(
+        &mut self,
+        plan: &ExecutionPlan,
+        record_history: bool,
+        source_depth: usize,
+    ) -> CommandOutput {
         let mut output = CommandOutput::success("");
         for (index, pipeline) in plan.pipelines.iter().enumerate() {
             if index > 0 {
@@ -517,7 +541,7 @@ impl Session {
                     continue;
                 }
             }
-            let pipeline_output = self.execute_pipeline(pipeline);
+            let pipeline_output = self.execute_pipeline(pipeline, record_history, source_depth);
             output.stdout.push_str(&pipeline_output.stdout);
             output.stderr.push_str(&pipeline_output.stderr);
             output.status = pipeline_output.status;
@@ -526,12 +550,17 @@ impl Session {
         output
     }
 
-    fn execute_pipeline(&mut self, pipeline: &rune_shell::PipelinePlan) -> CommandOutput {
+    fn execute_pipeline(
+        &mut self,
+        pipeline: &rune_shell::PipelinePlan,
+        record_history: bool,
+        source_depth: usize,
+    ) -> CommandOutput {
         let mut stdin = String::new();
         let mut stderr = String::new();
         let mut status = 0;
         for command in &pipeline.commands {
-            let result = self.execute_command(command, &stdin);
+            let result = self.execute_command(command, &stdin, record_history, source_depth);
             stdin = result.stdout;
             stderr.push_str(&result.stderr);
             status = result.status;
@@ -543,8 +572,14 @@ impl Session {
         }
     }
 
-    fn execute_command(&mut self, command: &CommandPlan, external_stdin: &str) -> CommandOutput {
-        self.execute_command_with_aliases(command, external_stdin, 0)
+    fn execute_command(
+        &mut self,
+        command: &CommandPlan,
+        external_stdin: &str,
+        record_history: bool,
+        source_depth: usize,
+    ) -> CommandOutput {
+        self.execute_command_with_aliases(command, external_stdin, 0, record_history, source_depth)
     }
 
     fn execute_command_with_aliases(
@@ -552,6 +587,8 @@ impl Session {
         command: &CommandPlan,
         external_stdin: &str,
         depth: usize,
+        record_history: bool,
+        source_depth: usize,
     ) -> CommandOutput {
         let previous_directory = self.filesystem.current_dir_display();
         let expanded_command = match self.expand_alias(command, depth) {
@@ -559,7 +596,13 @@ impl Session {
             Err(error) => return CommandOutput::failure(2, format!("rune: alias: {error}\n")),
         };
         if let Some(expanded_command) = expanded_command {
-            return self.execute_command_with_aliases(&expanded_command, external_stdin, depth + 1);
+            return self.execute_command_with_aliases(
+                &expanded_command,
+                external_stdin,
+                depth + 1,
+                record_history,
+                source_depth,
+            );
         }
 
         for assignment in &command.assignments {
@@ -579,45 +622,28 @@ impl Session {
                 arguments.push(expanded.value);
             }
         }
-        let mut stdin = external_stdin.to_string();
-        let mut stdout_redirect = None;
-        let mut stderr_redirect = None;
-
-        for redirection in &command.redirections {
-            let (path, append) = match redirection {
-                Redirection::Stdin { path } => {
-                    let path = expand_word(path, &self.environment, self.last_status).value;
-                    match self.filesystem.read(&path) {
-                        Ok(content) => stdin = String::from_utf8_lossy(&content).into_owned(),
-                        Err(error) => {
-                            return fs_failure(&program, &error);
-                        }
-                    }
-                    continue;
-                }
-                Redirection::Stdout { path, append } | Redirection::Stderr { path, append } => {
-                    (path, *append)
-                }
+        let (stdin, stdout_redirect, stderr_redirect) =
+            match self.apply_redirections(command, &program, external_stdin) {
+                Ok(redirections) => redirections,
+                Err(output) => return output,
             };
-            let path = expand_word(path, &self.environment, self.last_status).value;
-            match redirection {
-                Redirection::Stdout { .. } => stdout_redirect = Some((path, append)),
-                Redirection::Stderr { .. } => stderr_redirect = Some((path, append)),
-                Redirection::Stdin { .. } => unreachable!("stdin redirection handled above"),
+
+        let source_command = matches!(program.as_str(), "source" | ".");
+        let installed_command = if source_command
+            || command.program.parts().is_empty()
+            || self.registry.find(&program).is_some()
+        {
+            None
+        } else {
+            match self.find_installed_command(&program) {
+                Ok(command) => command,
+                Err(error) => return fs_failure(&program, &error),
             }
-        }
-
-        let installed_command =
-            if command.program.parts().is_empty() || self.registry.find(&program).is_some() {
-                None
-            } else {
-                match self.find_installed_command(&program) {
-                    Ok(command) => command,
-                    Err(error) => return fs_failure(&program, &error),
-                }
-            };
+        };
         let mut output = if command.program.parts().is_empty() && !command.assignments.is_empty() {
             CommandOutput::success("")
+        } else if source_command {
+            self.execute_source(&program, &arguments, record_history, source_depth)
         } else if let Some(handler) = self.registry.find(&program) {
             let mut context = CommandContext {
                 args: &arguments,
@@ -656,6 +682,72 @@ impl Session {
         }
         self.last_status = output.status;
         output
+    }
+
+    fn execute_source(
+        &mut self,
+        command: &str,
+        arguments: &[String],
+        record_history: bool,
+        source_depth: usize,
+    ) -> CommandOutput {
+        if arguments.len() != 1 {
+            return usage(command, &format!("usage: {command} FILE"));
+        }
+        if source_depth >= MAX_SOURCE_DEPTH {
+            return CommandOutput::failure(
+                2,
+                format!("{command}: source nesting exceeds the {MAX_SOURCE_DEPTH}-level limit\n"),
+            );
+        }
+        let path = &arguments[0];
+        let bytes = match self.filesystem.read(path) {
+            Ok(bytes) => bytes,
+            Err(error) => return fs_failure(command, &error),
+        };
+        if bytes.len() > MAX_SCRIPT_BYTES {
+            return CommandOutput::failure(
+                2,
+                format!("{command}: file exceeds the {MAX_SCRIPT_BYTES}-byte input limit\n"),
+            );
+        }
+        let Ok(script) = String::from_utf8(bytes) else {
+            return CommandOutput::failure(2, format!("{command}: file is not valid UTF-8\n"));
+        };
+        self.execute_script_internal(&script, record_history, source_depth + 1)
+    }
+
+    fn apply_redirections(
+        &mut self,
+        command: &CommandPlan,
+        program: &str,
+        external_stdin: &str,
+    ) -> Result<AppliedRedirections, CommandOutput> {
+        let mut stdin = external_stdin.to_string();
+        let mut stdout_redirect = None;
+        let mut stderr_redirect = None;
+        for redirection in &command.redirections {
+            let (path, append) = match redirection {
+                Redirection::Stdin { path } => {
+                    let path = expand_word(path, &self.environment, self.last_status).value;
+                    match self.filesystem.read(&path) {
+                        Ok(content) => stdin = String::from_utf8_lossy(&content).into_owned(),
+                        Err(error) => return Err(fs_failure(program, &error)),
+                    }
+                    continue;
+                }
+                Redirection::Stdout { path, append } | Redirection::Stderr { path, append } => {
+                    (path, *append)
+                }
+            };
+            let path = expand_word(path, &self.environment, self.last_status).value;
+            match redirection {
+                Redirection::Stdout { .. } => stdout_redirect = Some((path, append)),
+                Redirection::Stderr { .. } => stderr_redirect = Some((path, append)),
+                Redirection::Stdin { .. } => unreachable!("stdin redirection handled above"),
+            }
+        }
+        Ok((stdin, stdout_redirect, stderr_redirect))
     }
 
     fn apply_history_limit(&mut self) {
@@ -926,7 +1018,7 @@ mod tests {
     use super::{
         persistence::MAX_HISTORY_BYTES, Session, MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS,
         MAX_COMMAND_INPUT_BYTES, MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES,
-        OUTPUT_TRUNCATION_MARKER,
+        MAX_SOURCE_DEPTH, OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -1202,6 +1294,52 @@ mod tests {
         assert!(output.stderr.len() <= MAX_OUTPUT_BYTES);
         assert_eq!(session.history(), ["cat large.txt"]);
 
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn sources_bounded_scripts_through_the_virtual_filesystem() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        std::fs::write(
+            root.join("env.rc"),
+            b"export FROM_SOURCE=yes\nalias say='echo sourced'\nsource nested.rc\n",
+        )
+        .expect("source file written");
+        std::fs::write(root.join("nested.rc"), b"echo nested\n").expect("nested file written");
+
+        let sourced = session.execute_line("source env.rc");
+        assert_eq!(sourced.status, 0);
+        assert_eq!(sourced.stdout, "nested\n");
+        assert_eq!(
+            session.environment().get("FROM_SOURCE"),
+            Some(&"yes".to_string())
+        );
+        assert_eq!(session.execute_line("say").stdout, "sourced\n");
+        assert!(session.history().contains(&"source env.rc".to_string()));
+        assert!(session
+            .history()
+            .contains(&"[redacted environment assignment]".to_string()));
+        assert_eq!(session.execute_line(". nested.rc").stdout, "nested\n");
+
+        let missing = session.execute_line("source missing.rc");
+        assert_eq!(missing.status, 1);
+        assert!(missing.stderr.contains("source: "));
+        assert_eq!(session.execute_line("source").status, 2);
+        assert_eq!(session.execute_line("source one two").status, 2);
+
+        std::fs::write(root.join("loop.rc"), b"source loop.rc\n").expect("loop file written");
+        let recursive = session.execute_line("source loop.rc");
+        assert_eq!(recursive.status, 2);
+        assert!(recursive.stderr.contains(&format!(
+            "source nesting exceeds the {MAX_SOURCE_DEPTH}-level limit"
+        )));
+
+        std::fs::write(root.join("oversized.rc"), vec![b'x'; MAX_SCRIPT_BYTES + 1])
+            .expect("oversized source file written");
+        let oversized = session.execute_line("source oversized.rc");
+        assert_eq!(oversized.status, 2);
+        assert!(oversized.stderr.contains("file exceeds the"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

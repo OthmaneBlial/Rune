@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 37%**
+**Overall progress: 38%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -39,7 +39,8 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
 `true`, `false`, `cut`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `pkg`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
-`help`, `history`, `uname`, `which`, and `whoami` against a bounded filesystem,
+`help`, `history`, `uname`, `which`, `whoami`, `source`, and `.` against a
+bounded filesystem,
 including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
 with quotes, variables, leading `NAME=value` assignments, pipes, redirections,
@@ -56,6 +57,9 @@ A synchronous command response is capped at 1 MiB per output channel; a
 truncation marker is emitted rather than allowing unbounded terminal output.
 Individual command lines are capped at 64 KiB before parsing, and automation
 scripts have their separate 256 KiB/1,024-line input boundary.
+`source FILE` and `. FILE` execute bounded UTF-8 script files through the same
+Rust parser, session environment, VFS, status, and history path; nested sourcing
+is capped at 16 levels.
 Environment changes are not serialized. A bounded `~/.rune_profile` is loaded
 on restore; its supported Rust built-ins can update the session environment and
 define aliases, with output surfaced to the CLI/native boundary without
@@ -200,6 +204,7 @@ git check-ignore -v base/a-shell
 - [x] Basic bounded pathname expansion
 - [x] Leading environment assignments
 - [x] Bounded session-local command aliases
+- [x] Bounded script-file sourcing with nested execution limits
 - [x] `&&` and `||` conditional chaining
 - [x] Bounded recursive `find` traversal
 - [x] Bounded literal `sed` substitutions
