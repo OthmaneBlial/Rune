@@ -148,6 +148,20 @@ pub extern "C" fn rune_session_commands(handle: *const std::ffi::c_void) -> *mut
     into_owned_c_string(&commands.join("\n"))
 }
 
+/// Takes output generated while the session's `~/.rune_profile` was loaded.
+#[no_mangle]
+pub extern "C" fn rune_session_startup_output(handle: *mut std::ffi::c_void) -> RuneOutput {
+    if handle.is_null() {
+        let output = CommandOutput::failure(1, "rune: session is unavailable\n");
+        return into_output(&output);
+    }
+    // SAFETY: Swift serializes access to the opaque session handle and does
+    // not call this after rune_session_destroy.
+    let session = unsafe { &mut *handle.cast::<RuneSession>() };
+    let output = session.core.take_startup_output();
+    into_output(&output)
+}
+
 /// Releases a string returned by Rune's C ABI.
 ///
 /// # Safety
@@ -167,7 +181,7 @@ pub unsafe extern "C" fn rune_string_free(value: *mut c_char) {
 mod tests {
     use super::{
         rune_session_commands, rune_session_current_directory, rune_session_destroy,
-        rune_session_execute, rune_session_new, rune_string_free,
+        rune_session_execute, rune_session_new, rune_session_startup_output, rune_string_free,
     };
     use std::ffi::{CStr, CString};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -179,10 +193,23 @@ mod tests {
             .expect("clock is after epoch")
             .as_nanos();
         let root = std::env::temp_dir().join(format!("rune-ffi-test-{suffix}"));
+        std::fs::create_dir_all(&root).expect("test root created");
+        std::fs::write(root.join(".rune_profile"), b"echo profile-start\n")
+            .expect("profile written");
         let root_string = CString::new(root.to_string_lossy().as_bytes()).expect("valid root");
         let handle = rune_session_new(root_string.as_ptr());
         assert!(!handle.is_null());
 
+        let startup = rune_session_startup_output(handle);
+        assert_eq!(startup.status, 0);
+        assert_eq!(c_string(startup.stdout), "profile-start\n");
+        assert!(c_string(startup.stderr).is_empty());
+        // SAFETY: both pointers were returned by rune_session_startup_output
+        // and are released exactly once.
+        unsafe {
+            rune_string_free(startup.stdout);
+            rune_string_free(startup.stderr);
+        }
         let command = CString::new("echo from-ffi").expect("valid command");
         let output = rune_session_execute(handle, command.as_ptr());
         assert_eq!(output.status, 0);

@@ -20,6 +20,8 @@ fn main() {
         }
     };
     let mut session = Session::restore(filesystem);
+    let startup = session.take_startup_output();
+    print_output(&startup.stdout, &startup.stderr);
 
     if let Some(command) = command {
         let output = session.execute_line(&command);

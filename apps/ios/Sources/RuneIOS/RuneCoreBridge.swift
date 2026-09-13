@@ -27,6 +27,9 @@ private func rune_session_history(_ handle: OpaquePointer?) -> UnsafeMutablePoin
 @_silgen_name("rune_session_commands")
 private func rune_session_commands(_ handle: OpaquePointer?) -> UnsafeMutablePointer<CChar>?
 
+@_silgen_name("rune_session_startup_output")
+private func rune_session_startup_output(_ handle: OpaquePointer?) -> RuneFFIOutput
+
 @_silgen_name("rune_string_free")
 private func rune_string_free(_ value: UnsafeMutablePointer<CChar>?)
 
@@ -78,13 +81,11 @@ public final class RuneFFISession {
 
     public func execute(_ command: String) -> RuneCommandResult {
         let raw = command.withCString { rune_session_execute(handle, $0) }
-        defer {
-            rune_string_free(raw.stdout)
-            rune_string_free(raw.stderr)
-        }
-        let stdout = raw.stdout.map { String(cString: $0) } ?? ""
-        let stderr = raw.stderr.map { String(cString: $0) } ?? ""
-        return RuneCommandResult(stdout: stdout, stderr: stderr, status: raw.status)
+        return consume(raw)
+    }
+
+    public func takeStartupOutput() -> RuneCommandResult {
+        consume(rune_session_startup_output(handle))
     }
 
     public func history() -> [String] {
@@ -105,5 +106,15 @@ public final class RuneFFISession {
         let value = String(cString: pointer)
         guard !value.isEmpty else { return [] }
         return value.split(separator: "\n").map(String.init)
+    }
+
+    private func consume(_ raw: RuneFFIOutput) -> RuneCommandResult {
+        defer {
+            rune_string_free(raw.stdout)
+            rune_string_free(raw.stderr)
+        }
+        let stdout = raw.stdout.map { String(cString: $0) } ?? ""
+        let stderr = raw.stderr.map { String(cString: $0) } ?? ""
+        return RuneCommandResult(stdout: stdout, stderr: stderr, status: raw.status)
     }
 }

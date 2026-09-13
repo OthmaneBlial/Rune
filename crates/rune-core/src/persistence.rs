@@ -4,6 +4,8 @@ const STATE_DIRECTORY: &str = "~/.rune";
 const STATE_PATH: &str = "~/.rune/session.state";
 const STATE_HEADER: &str = "RUNE_SESSION_STATE_V1";
 const HISTORY_LIMIT: usize = 1_000;
+pub(super) const PROFILE_PATH: &str = "~/.rune_profile";
+const PROFILE_LIMIT: usize = 64 * 1024;
 
 #[derive(Debug, Default)]
 pub(super) struct SessionState {
@@ -32,6 +34,32 @@ pub(super) fn save(
     }
     let content = serialize(current_directory, history);
     filesystem.write(STATE_PATH, content.as_bytes(), false)
+}
+
+pub(super) fn load_profile(filesystem: &dyn VirtualFileSystem) -> Result<Vec<String>, FsError> {
+    let bytes = match filesystem.read(PROFILE_PATH) {
+        Ok(bytes) => bytes,
+        Err(FsError::NotFound(_)) => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    if bytes.len() > PROFILE_LIMIT {
+        return Err(FsError::Io {
+            operation: "read profile".to_string(),
+            path: PROFILE_PATH.to_string(),
+            message: format!("profile exceeds the {PROFILE_LIMIT}-byte limit"),
+        });
+    }
+    let content = String::from_utf8(bytes).map_err(|_| FsError::Io {
+        operation: "read profile".to_string(),
+        path: PROFILE_PATH.to_string(),
+        message: "profile is not valid UTF-8".to_string(),
+    })?;
+    Ok(content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_string)
+        .collect())
 }
 
 fn serialize(current_directory: &str, history: &[String]) -> String {

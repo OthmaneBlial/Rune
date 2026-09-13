@@ -98,6 +98,7 @@ pub struct Session {
     history_limit: usize,
     registry: CommandRegistry,
     last_status: i32,
+    startup_output: CommandOutput,
 }
 
 impl Session {
@@ -118,6 +119,7 @@ impl Session {
             history_limit: 1_000,
             registry: CommandRegistry::default(),
             last_status: 0,
+            startup_output: CommandOutput::success(""),
         };
         session.update_pwd();
         session
@@ -130,12 +132,20 @@ impl Session {
     pub fn restore(filesystem: impl VirtualFileSystem + 'static) -> Self {
         let mut session = Self::new(filesystem);
         let state = persistence::load(session.filesystem.as_ref());
+        session.load_startup_profile();
         session.history = state.history;
         if let Some(directory) = state.current_directory {
             let _ = session.filesystem.change_dir(&directory);
         }
         session.update_pwd();
+        session.last_status = 0;
         session
+    }
+
+    /// Takes output produced while loading `~/.rune_profile` during restore.
+    /// Profile commands are intentionally not added to history.
+    pub fn take_startup_output(&mut self) -> CommandOutput {
+        std::mem::replace(&mut self.startup_output, CommandOutput::success(""))
     }
 
     /// Persists only the current virtual directory and command history.
@@ -181,14 +191,20 @@ impl Session {
 
     /// Executes one parsed command line and returns separate output channels.
     pub fn execute_line(&mut self, input: &str) -> CommandOutput {
+        self.execute_line_internal(input, true)
+    }
+
+    fn execute_line_internal(&mut self, input: &str, record_history: bool) -> CommandOutput {
         let line = input.trim_matches(['\r', '\n', ' ']);
         if line.is_empty() {
             return CommandOutput::success("");
         }
-        self.history.push(line.to_string());
-        if self.history.len() > self.history_limit {
-            let excess = self.history.len() - self.history_limit;
-            self.history.drain(0..excess);
+        if record_history {
+            self.history.push(line.to_string());
+            if self.history.len() > self.history_limit {
+                let excess = self.history.len() - self.history_limit;
+                self.history.drain(0..excess);
+            }
         }
 
         let plan = match parse(line) {
@@ -203,6 +219,31 @@ impl Session {
             return CommandOutput::success("");
         }
         self.execute_plan(&plan)
+    }
+
+    fn load_startup_profile(&mut self) {
+        let lines = match persistence::load_profile(self.filesystem.as_ref()) {
+            Ok(lines) => lines,
+            Err(error) => {
+                self.startup_output.status = 1;
+                let _ = writeln!(self.startup_output.stderr, "rune: profile: {error}");
+                return;
+            }
+        };
+        for (index, line) in lines.iter().enumerate() {
+            let output = self.execute_line_internal(line, false);
+            self.startup_output.stdout.push_str(&output.stdout);
+            self.startup_output.stderr.push_str(&output.stderr);
+            if output.status != 0 {
+                self.startup_output.status = output.status;
+                let _ = writeln!(
+                    self.startup_output.stderr,
+                    "rune: profile command {} exited with status {}",
+                    index + 1,
+                    output.status
+                );
+            }
+        }
     }
 
     fn execute_plan(&mut self, plan: &ExecutionPlan) -> CommandOutput {
@@ -406,6 +447,38 @@ mod tests {
         );
         assert_eq!(session.execute_line("false && echo skipped").status, 1);
         assert_eq!(session.execute_line("echo $?").stdout, "1\n");
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn loads_bounded_profile_before_restoring_directory_without_history_pollution() {
+        let root = test_root();
+        std::fs::create_dir_all(&root).expect("root created");
+        std::fs::write(
+            root.join(".rune_profile"),
+            b"# comments are ignored\nexport PROFILE_GREETING=from-profile\necho \"$PROFILE_GREETING\"\nmkdir profile-dir\n",
+        )
+        .expect("profile written");
+        let mut session = Session::restore(SandboxedFileSystem::new(&root).expect("root opened"));
+        let startup = session.take_startup_output();
+        assert_eq!(
+            startup.status, 0,
+            "startup stdout={:?} stderr={:?}",
+            startup.stdout, startup.stderr
+        );
+        assert_eq!(startup.stdout, "from-profile\n");
+        assert_eq!(
+            session
+                .environment()
+                .get("PROFILE_GREETING")
+                .map(String::as_str),
+            Some("from-profile")
+        );
+        assert!(!session
+            .history()
+            .iter()
+            .any(|line| line.contains("PROFILE_GREETING")));
+        assert_eq!(session.execute_line("ls").stdout, "profile-dir/\n");
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 }

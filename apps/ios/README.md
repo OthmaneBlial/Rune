@@ -16,6 +16,11 @@ Environment variables are not serialized. History persistence is intentionally
 visible in the local state boundary and will need configurable redaction before
 credential-bearing workflows are treated as safe.
 
+On restore, the Rust core reads a maximum of 64 KiB from `~/.rune_profile`,
+skips blank/full-line comment entries, runs only registered Rune built-ins, and
+surfaces the resulting output through the FFI. Profile commands are not added
+to history; the persisted working directory is restored after the profile.
+
 ## Current evidence
 
 - `Package.swift` is a source/package boundary.

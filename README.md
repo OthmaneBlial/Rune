@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 10%**
+**Overall progress: 11%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -22,7 +22,7 @@ working iOS application or a feature-parity claim.
 | Shell tokenizer/parser | 45% |
 | Command runtime | 40% |
 | Sandboxed filesystem | 35% |
-| Sessions/history | 25% |
+| Sessions/history | 28% |
 | WASM | 0% |
 | Native iOS UI | 7% |
 | Swift/Rust bridge | 6% |
@@ -37,8 +37,11 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `true`, `false`, `clear`, `help`, and `history` against a bounded filesystem,
 with quotes, variables, pipes, redirections, sequencing, separate
 stdout/stderr, and exit status. Environment changes are session-local and are
-not serialized. The native source UI now receives the Rust command registry and
-offers first-word command suggestions. The iOS app is represented by
+not serialized. A bounded `~/.rune_profile` is loaded on restore; its supported
+Rust built-ins can update the session environment and its output is surfaced to
+the CLI/native boundary without polluting history. The native source UI now
+receives the Rust command registry and offers first-word command suggestions.
+The iOS app is represented by
 source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
 and runtime gates remain unverified. Bounded current-directory/history
 persistence now exists in Rust; configuration/redaction and broader session
@@ -99,7 +102,7 @@ git check-ignore -v base/a-shell
 - [x] Environment and path expansion
 - [x] Bounded virtual filesystem
 - [x] Built-in file commands
-- [x] Bounded session/history persistence
+- [x] Bounded session/history persistence and startup profile
 - [x] Pipes and redirections
 
 ### Phase 3 — Developer environment

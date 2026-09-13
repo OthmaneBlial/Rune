@@ -43,6 +43,17 @@ public final class RuneTerminalModel: ObservableObject {
             currentDirectory = session?.currentDirectory ?? "~"
             history = session?.history() ?? []
             commandNames = session?.commands() ?? []
+            if let startup = session?.takeStartupOutput() {
+                if !startup.stdout.isEmpty {
+                    entries.append(.init(kind: .stdout, text: startup.stdout))
+                }
+                if !startup.stderr.isEmpty {
+                    entries.append(.init(kind: .stderr, text: startup.stderr))
+                }
+                if startup.status != 0 {
+                    entries.append(.init(kind: .status, text: "[profile exit \(startup.status)]"))
+                }
+            }
         } catch {
             session = nil
             initializationError = error.localizedDescription
