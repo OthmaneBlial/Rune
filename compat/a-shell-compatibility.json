@@ -90,7 +90,7 @@
     },
     "package-management": {
       "status": "partial",
-      "rune_evidence": ["crates/rune-package/src/lib.rs", "crates/rune-core/src/commands/package.rs"],
+      "rune_evidence": ["crates/rune-package/src/lib.rs", "crates/rune-core/src/commands/package.rs", "crates/rune-core/src/network.rs"],
       "reference_comparison": "pending"
     },
     "configuration": {

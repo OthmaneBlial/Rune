@@ -317,7 +317,7 @@ duplicate entries, undeclared command targets, malformed digests, and
 path-unsafe package versions. Declared file bytes are checked with SHA-256
 before the local installer accepts them.
 This is integrity evidence, not a signature or publisher-trust system; signed
-repositories and installation policy remain future work.
+repositories and publisher policy remain future work.
 
 The archive command layer implements a deliberately narrow ZIP32 profile. ZIP
 creation writes stored UTF-8 entries and CRC32 values through the VFS; recursive
@@ -339,14 +339,25 @@ tree is complete; verification or materialization failure leaves the old
 version installed. Declared `.wasm` command entries run through the bounded
 WASI provider; declared `.rune` entries run through the same Rust parser and
 script limits as `source`. Installed module/script bytes are verified again
-before execution. There is no
-network client or remote registry. `pkg search QUERY` performs a bounded,
-case-insensitive search over installed package names, versions,
-descriptions, and command names. Installed WASM commands receive no filesystem
+before execution. `pkg search QUERY` performs a bounded, case-insensitive search
+over installed package names, versions, descriptions, and command names. An
+explicit `pkg search --registry INDEX_URL QUERY` fetches a versioned HTTPS index
+through the session's host network capability. `pkg install --registry INDEX_URL
+NAME VERSION` and the corresponding `pkg update` form fetch the exact manifest
+and each declared artifact, require HTTPS URLs on the registry origin, verify
+the manifest identity and SHA-256 bytes, and only then materialize the package.
+Remote update never selects an implicit latest version; a failed fetch,
+verification, or write leaves the current package intact. `pkg` remains
+network-disabled unless a host provider is installed. Installed WASM commands receive no filesystem
 preopen by default. A manifest must explicitly declare
 `permissions.filesystem: true` before that command can receive the approved
 Rune sandbox as `/`; unknown capability fields are rejected. Network access is
 not a package capability.
+
+The registry index is schema version 1 JSON with bounded entries shaped as
+`{name, version, description, manifest_url, artifacts:[{path, url}]}`. Its
+artifact mapping must exactly cover the downloaded manifest's file list; the
+index is discovery metadata and is not treated as a publisher signature.
 
 The runtime contract is owned by Rust and carries only explicit program bytes,
 arguments, environment, and stdin into a provider. `rune-wasm` implements the

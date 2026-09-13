@@ -1,18 +1,23 @@
 use std::fmt::Write as _;
 
-use crate::{fs_failure, usage, CommandContext, CommandOutput, PACKAGE_INSTALL_ROOT};
+use crate::{
+    fs_failure, usage, CommandContext, CommandOutput, NetworkError, NetworkMethod, NetworkRequest,
+    PACKAGE_INSTALL_ROOT,
+};
 use rune_fs::FsError;
-use rune_package::{PackageError, PackageManifest};
+use rune_package::{PackageError, PackageManifest, PackageRegistryIndex, RegistryPackage};
 
 const MAX_PACKAGE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_SEARCH_QUERY_CHARS: usize = 64;
 const MAX_SEARCH_MANIFESTS: usize = 4_096;
+const REGISTRY_FLAG: &str = "--registry";
+const REMOTE_ALIAS_FLAG: &str = "--remote";
 
 pub(super) fn pkg(context: &mut CommandContext<'_>) -> CommandOutput {
     let Some(operation) = context.args.first().map(String::as_str) else {
         return usage(
             "pkg",
-            "usage: pkg info MANIFEST|NAME [VERSION]; pkg verify|install|update MANIFEST; pkg list|search QUERY; pkg remove NAME [VERSION]",
+            "usage: pkg info MANIFEST|NAME [VERSION]; pkg verify|install|update MANIFEST; pkg list|search QUERY; pkg search --registry INDEX_URL QUERY; pkg install|update --registry INDEX_URL NAME VERSION; pkg remove NAME [VERSION]",
         );
     };
     match operation {
@@ -23,19 +28,34 @@ pub(super) fn pkg(context: &mut CommandContext<'_>) -> CommandOutput {
             list(context)
         }
         "search" => {
-            if context.args.len() != 2 {
-                return usage("pkg", "usage: pkg search QUERY");
+            if context.args.len() == 2 {
+                return search(context, &context.args[1]);
             }
-            search(context, &context.args[1])
+            if context.args.len() == 4 && is_registry_flag(&context.args[1]) {
+                return remote_search(context, &context.args[2], &context.args[3]);
+            }
+            usage(
+                "pkg",
+                "usage: pkg search QUERY; pkg search --registry INDEX_URL QUERY",
+            )
         }
         "remove" => remove(context),
         "info" => info_command(context),
         "verify" | "install" | "update" => {
+            if context.args.get(1).is_some_and(|flag| is_registry_flag(flag)) {
+                return remote_package(context, operation);
+            }
             let Some(manifest_path) = context.args.get(1) else {
-                return usage("pkg", "usage: pkg verify|install|update MANIFEST");
+                return usage(
+                    "pkg",
+                    "usage: pkg verify|install|update MANIFEST; pkg install|update --registry INDEX_URL NAME VERSION",
+                );
             };
             if context.args.len() != 2 {
-                return usage("pkg", "usage: pkg verify|install|update MANIFEST");
+                return usage(
+                    "pkg",
+                    "usage: pkg verify|install|update MANIFEST; pkg install|update --registry INDEX_URL NAME VERSION",
+                );
             }
             let (manifest_bytes, manifest) = match read_manifest(context, manifest_path) {
                 Ok(manifest) => manifest,
@@ -51,7 +71,7 @@ pub(super) fn pkg(context: &mut CommandContext<'_>) -> CommandOutput {
         _ => CommandOutput::failure(
             2,
             format!(
-                "pkg: unsupported operation: {operation}; available operations are info, verify, install, update, list, and remove\n"
+                "pkg: unsupported operation: {operation}; available operations are info, verify, install, update, list, search, and remove\n"
             ),
         ),
     }
@@ -450,6 +470,341 @@ fn search(context: &mut CommandContext<'_>, query: &str) -> CommandOutput {
         let _ = writeln!(output.stdout, "{result}");
     }
     output
+}
+
+fn remote_search(
+    context: &mut CommandContext<'_>,
+    registry_url: &str,
+    query: &str,
+) -> CommandOutput {
+    if let Some(error) = validate_search_query(query) {
+        return error;
+    }
+    let index = match fetch_registry_index(context, registry_url) {
+        Ok(index) => index,
+        Err(output) => return output,
+    };
+    let needle = query.to_lowercase();
+    let mut results = index
+        .packages
+        .iter()
+        .filter(|package| {
+            [
+                package.name.to_lowercase(),
+                package.version.to_lowercase(),
+                package.description.to_lowercase(),
+            ]
+            .into_iter()
+            .any(|field| field.contains(&needle))
+        })
+        .map(|package| {
+            format!(
+                "{}@{}\t{}",
+                package.name, package.version, package.description
+            )
+        })
+        .collect::<Vec<_>>();
+    results.sort();
+    let mut output = CommandOutput::success("");
+    for result in results {
+        let _ = writeln!(output.stdout, "{result}");
+    }
+    output
+}
+
+fn remote_package(context: &mut CommandContext<'_>, operation: &str) -> CommandOutput {
+    if operation == "verify" {
+        return usage(
+            "pkg",
+            "remote verification is implicit; use pkg install|update --registry INDEX_URL NAME VERSION",
+        );
+    }
+    if context.args.len() != 5 {
+        return usage(
+            "pkg",
+            "usage: pkg install|update --registry INDEX_URL NAME VERSION",
+        );
+    }
+    let registry_url = &context.args[2];
+    let name = &context.args[3];
+    let version = &context.args[4];
+    if !is_safe_component(name) {
+        return usage("pkg", "package name must be one safe path component");
+    }
+    if !is_safe_component(version) {
+        return usage("pkg", "package version must be one safe path component");
+    }
+
+    let index = match fetch_registry_index(context, registry_url) {
+        Ok(index) => index,
+        Err(output) => return output,
+    };
+    let Some(package) = index.find(name, version) else {
+        return CommandOutput::failure(
+            1,
+            format!("pkg: {name}@{version}: package was not found in registry\n"),
+        );
+    };
+    if let Some(error) = validate_registry_origin(registry_url, &package.manifest_url) {
+        return error;
+    }
+    let manifest_bytes = match fetch_remote(context, &package.manifest_url, "pkg registry manifest")
+    {
+        Ok(bytes) => bytes,
+        Err(output) => return output,
+    };
+    let manifest = match PackageManifest::parse(&manifest_bytes) {
+        Ok(manifest) => manifest,
+        Err(error) => return package_failure(&package.manifest_url, &error),
+    };
+    if manifest.name != package.name
+        || manifest.version != package.version
+        || manifest.description != package.description
+    {
+        return CommandOutput::failure(
+            1,
+            format!(
+                "pkg: registry metadata does not match manifest for {}@{}\n",
+                package.name, package.version
+            ),
+        );
+    }
+    let files = match fetch_remote_files(context, registry_url, package, &manifest, operation) {
+        Ok(files) => files,
+        Err(output) => return output,
+    };
+
+    match operation {
+        "install" => install_remote_package(context, &manifest_bytes, &manifest, &files),
+        "update" => update_remote_package(context, &manifest_bytes, &manifest, &files),
+        _ => usage(
+            "pkg",
+            "usage: pkg install|update --registry INDEX_URL NAME VERSION",
+        ),
+    }
+}
+
+fn fetch_registry_index(
+    context: &mut CommandContext<'_>,
+    registry_url: &str,
+) -> Result<PackageRegistryIndex, CommandOutput> {
+    let bytes = fetch_remote(context, registry_url, "pkg registry index")?;
+    PackageRegistryIndex::parse(&bytes).map_err(|error| package_failure(registry_url, &error))
+}
+
+fn fetch_remote(
+    context: &mut CommandContext<'_>,
+    url: &str,
+    operation: &str,
+) -> Result<Vec<u8>, CommandOutput> {
+    if !is_https_url(url) {
+        return Err(CommandOutput::failure(
+            2,
+            format!("{operation}: URL must use HTTPS\n"),
+        ));
+    }
+    let request = NetworkRequest {
+        method: NetworkMethod::Get,
+        url: url.to_string(),
+        headers: vec![("Accept".to_string(), "application/json".to_string())],
+        body: Vec::new(),
+    };
+    if let Err(error) = request.validate() {
+        return Err(network_failure(operation, url, &error));
+    }
+    let response = context
+        .network
+        .request(&request)
+        .map_err(|error| network_failure(operation, url, &error))?;
+    response
+        .validate()
+        .map_err(|error| network_failure(operation, url, &error))?;
+    if !(200..=299).contains(&response.status_code) {
+        return Err(CommandOutput::failure(
+            1,
+            format!("{operation}: {url}: HTTP status {}\n", response.status_code),
+        ));
+    }
+    Ok(response.body)
+}
+
+fn fetch_remote_files(
+    context: &mut CommandContext<'_>,
+    registry_url: &str,
+    package: &RegistryPackage,
+    manifest: &PackageManifest,
+    operation: &str,
+) -> Result<Vec<(String, Vec<u8>)>, CommandOutput> {
+    if package.artifacts.len() != manifest.files.len()
+        || package
+            .artifacts
+            .iter()
+            .any(|artifact| manifest.file(&artifact.path).is_none())
+    {
+        return Err(CommandOutput::failure(
+            1,
+            format!(
+                "pkg {operation}: registry artifacts do not match manifest for {}@{}\n",
+                manifest.name, manifest.version
+            ),
+        ));
+    }
+
+    let mut total_bytes = 0_u64;
+    let mut files = Vec::with_capacity(manifest.files.len());
+    for file in &manifest.files {
+        let Some(artifact) = package.artifact(&file.path) else {
+            return Err(CommandOutput::failure(
+                1,
+                format!(
+                    "pkg {operation}: registry has no artifact for {}\n",
+                    file.path
+                ),
+            ));
+        };
+        if let Some(error) = validate_registry_origin(registry_url, &artifact.url) {
+            return Err(error);
+        }
+        let bytes = fetch_remote(context, &artifact.url, "pkg registry artifact")?;
+        total_bytes = total_bytes.saturating_add(bytes.len() as u64);
+        if total_bytes > MAX_PACKAGE_BYTES {
+            return Err(package_size_failure(operation, "package", total_bytes));
+        }
+        if let Err(error) = manifest.verify_file(&file.path, &bytes) {
+            return Err(package_failure(&artifact.url, &error));
+        }
+        files.push((file.path.clone(), bytes));
+    }
+    Ok(files)
+}
+
+fn install_remote_package(
+    context: &mut CommandContext<'_>,
+    manifest_bytes: &[u8],
+    manifest: &PackageManifest,
+    files: &[(String, Vec<u8>)],
+) -> CommandOutput {
+    let install_root = package_root(&manifest.name, &manifest.version);
+    match context.fs.metadata(&install_root) {
+        Ok(_) => {
+            return CommandOutput::failure(
+                1,
+                format!(
+                    "pkg: {}@{} is already installed\n",
+                    manifest.name, manifest.version
+                ),
+            )
+        }
+        Err(FsError::NotFound(_)) => {}
+        Err(error) => return fs_failure("pkg install", &error),
+    }
+    if let Err(error) = materialize_package(context, &install_root, manifest_bytes, files) {
+        return failed_install(context, &install_root, &error);
+    }
+    CommandOutput::success(format!(
+        "installed {}@{} from registry\n",
+        manifest.name, manifest.version
+    ))
+}
+
+fn update_remote_package(
+    context: &mut CommandContext<'_>,
+    manifest_bytes: &[u8],
+    manifest: &PackageManifest,
+    files: &[(String, Vec<u8>)],
+) -> CommandOutput {
+    let current_manifest_path = match installed_manifest_for_name(context, &manifest.name) {
+        Ok(path) => path,
+        Err(output) => return output,
+    };
+    let (_, current_manifest) = match read_manifest(context, &current_manifest_path) {
+        Ok(manifest) => manifest,
+        Err(output) => return output,
+    };
+    if current_manifest.name != manifest.name {
+        return CommandOutput::failure(
+            1,
+            format!(
+                "pkg update: installed manifest name mismatch: expected {}, got {}\n",
+                manifest.name, current_manifest.name
+            ),
+        );
+    }
+    if current_manifest.version == manifest.version {
+        return CommandOutput::failure(
+            1,
+            format!(
+                "pkg: {}@{} is already installed; update requires a different version\n",
+                manifest.name, manifest.version
+            ),
+        );
+    }
+    let new_root = package_root(&manifest.name, &manifest.version);
+    match context.fs.metadata(&new_root) {
+        Ok(_) => {
+            return CommandOutput::failure(
+                1,
+                format!(
+                    "pkg: {}@{} is already installed\n",
+                    manifest.name, manifest.version
+                ),
+            )
+        }
+        Err(FsError::NotFound(_)) => {}
+        Err(error) => return fs_failure("pkg update", &error),
+    }
+    if let Err(error) = materialize_package(context, &new_root, manifest_bytes, files) {
+        return failed_package_operation(context, &new_root, "pkg update", &error);
+    }
+    let old_root = package_root(&manifest.name, &current_manifest.version);
+    if let Err(error) = context.fs.remove(&old_root, true, false) {
+        let _ = context.fs.remove(&new_root, true, false);
+        return fs_failure("pkg update", &error);
+    }
+    CommandOutput::success(format!(
+        "updated {} from {} to {} via registry\n",
+        manifest.name, current_manifest.version, manifest.version
+    ))
+}
+
+fn validate_search_query(query: &str) -> Option<CommandOutput> {
+    (query.is_empty() || query.chars().count() > MAX_SEARCH_QUERY_CHARS)
+        .then(|| usage("pkg", "search query must contain 1-64 characters"))
+}
+
+fn network_failure(operation: &str, url: &str, error: &NetworkError) -> CommandOutput {
+    CommandOutput::failure(1, format!("{operation}: {url}: {error}\n"))
+}
+
+fn validate_registry_origin(registry_url: &str, remote_url: &str) -> Option<CommandOutput> {
+    if https_origin(registry_url) == https_origin(remote_url) {
+        None
+    } else {
+        Some(CommandOutput::failure(
+            2,
+            "pkg: registry manifest and artifacts must remain on the registry origin\n",
+        ))
+    }
+}
+
+fn is_registry_flag(value: &str) -> bool {
+    matches!(value, REGISTRY_FLAG | REMOTE_ALIAS_FLAG)
+}
+
+fn is_https_url(url: &str) -> bool {
+    https_origin(url).is_some()
+}
+
+fn https_origin(url: &str) -> Option<String> {
+    let scheme_end = url.find("://")?;
+    if !url[..scheme_end].eq_ignore_ascii_case("https") {
+        return None;
+    }
+    let authority = url[scheme_end + 3..]
+        .split(['/', '?', '#'])
+        .next()
+        .filter(|authority| !authority.is_empty() && !authority.contains('@'))?;
+    Some(authority.to_ascii_lowercase())
 }
 
 fn remove(context: &mut CommandContext<'_>) -> CommandOutput {

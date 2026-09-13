@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 74%**
+**Overall progress: 76%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -18,16 +18,16 @@ working iOS application or a feature-parity claim.
 
 | Area | Progress |
 |---|---:|
-| Rust workspace | 77% |
+| Rust workspace | 80% |
 | Shell tokenizer/parser | 65% |
-| Command runtime | 92% |
+| Command runtime | 93% |
 | Sandboxed filesystem | 70% |
 | Sessions/history | 62% |
 | Configuration | 63% |
 | WASM | 52% |
 | Native iOS UI | 68% |
 | Swift/Rust bridge | 56% |
-| Package manager | 52% |
+| Package manager | 66% |
 | Compatibility evidence | 3% |
 
 ## Current status
@@ -107,11 +107,14 @@ and independent background/foreground overrides. Cursor shape,
 configurable redaction, and broader session recovery remain planned. Non-WASM language runtimes remain
 planned work.
 
-The Rust package boundary now validates a bounded, versioned JSON manifest and
-checks declared file bytes with SHA-256. Local installation and update are
-available without network access; `pkg search` remains an offline search over
-manifests already installed in the sandbox. There is deliberately no remote
-registry or transport.
+The Rust package boundary now validates bounded, versioned JSON manifests and
+registry indexes, and checks declared file bytes with SHA-256. Local installation
+and update are available without network access. An explicit HTTPS registry can
+also serve bounded search results and exact-version package installation/update
+through the injected host network capability; the downloaded manifest and every
+artifact must match, stay on the registry origin, and pass digest verification.
+There is no implicit `latest` selection, publisher signature system, or ambient
+network access.
 
 The `wasm MODULE [arg ...]` built-in loads a module through the bounded virtual
 filesystem and executes WASI preview1 `_start` in Rust. It exposes
@@ -129,9 +132,11 @@ sessions receive only `/`. No arbitrary guest preopen is inherited.
 Compression, broader WASI resource policy, and non-WASM language runtimes
 remain planned.
 
-The local package flow supports `pkg info MANIFEST|NAME [VERSION]`, `pkg verify
+The package flow supports `pkg info MANIFEST|NAME [VERSION]`, `pkg verify
 MANIFEST`, `pkg install MANIFEST`, `pkg update MANIFEST`, `pkg list`, `pkg search
-QUERY`, and `pkg remove NAME [VERSION]`. Once installed, `pkg info NAME` resolves the sole
+QUERY`, `pkg search --registry INDEX_URL QUERY`, `pkg install --registry INDEX_URL
+NAME VERSION`, `pkg update --registry INDEX_URL NAME VERSION`, and `pkg remove NAME
+[VERSION]`. Once installed, `pkg info NAME` resolves the sole
 installed version; an explicit version is required when multiple versions are
 present. Install
 copies only SHA-256-verified files into `~/.rune/packages`; declared `.wasm`
@@ -141,8 +146,10 @@ WASM commands receive no filesystem preopen by default; a manifest must
 explicitly declare `permissions.filesystem: true` to request the approved Rune
 sandbox as `/`. `pkg update MANIFEST` verifies and materializes a different
 local version before retiring the currently installed version; a failed
-verification or write keeps the old version. There is no network transport or
-remote registry yet, and `pkg search` remains an installed-manifest search.
+verification or write keeps the old version. Remote updates require an explicit
+registry URL and target version; a failed fetch, identity check, digest check,
+or materialization keeps the old version. The `--remote` flag is accepted as a
+compatibility alias for `--registry`.
 
 The bounded `curl` command owns HTTP request parsing in Rust and accepts GET,
 HEAD, POST, PUT, and DELETE through explicit method selection, bounded headers,
@@ -342,7 +349,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded Rust-owned history, font, font-size, scrollback, theme, cursor-color, background, and foreground configuration
 - [x] Bounded stored ZIP creation/extraction with path validation
 - [x] Explicit host HTTP capability and bounded `curl` transport boundary
-- [ ] Network registry, remote search, and remote update policy
+- [x] Bounded HTTPS registry index, remote search, and explicit-version update policy
 - [ ] Python, JavaScript, and Lua runtime evaluation
 - [x] Rust-owned command/path completion and help metadata
 

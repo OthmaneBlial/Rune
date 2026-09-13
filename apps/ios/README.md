@@ -74,6 +74,10 @@ Swift owns URL loading and copies the response into a Rust-provided buffer;
 there is no ambient socket access for the core or WASM. This is source/API
 evidence only: URLSession, ATS configuration, TLS, redirects, and runtime
 behavior remain unverified without an Apple build.
+The same callback can serve Rust-owned package registry search and exact-version
+package fetches; the registry index, manifest, artifact mapping, origin policy,
+and SHA-256 checks remain in Rust. No registry URL or package bytes are stored
+in Swift state.
 
 The FFI session serializes mutable calls with a lock while allowing the atomic
 cancellation signal to arrive from the UI thread. `RuneTerminalModel` runs

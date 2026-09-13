@@ -1534,10 +1534,18 @@ fn history_entry(line: &str) -> String {
         })
     });
     let contains_network_request = plan.pipelines.iter().any(|pipeline| {
-        pipeline
-            .commands
-            .iter()
-            .any(|command| command.program.literal_value().as_deref() == Some("curl"))
+        pipeline.commands.iter().any(|command| {
+            if command.program.literal_value().as_deref() == Some("curl") {
+                return true;
+            }
+            command.program.literal_value().as_deref() == Some("pkg")
+                && command.arguments.iter().any(|argument| {
+                    matches!(
+                        argument.literal_value().as_deref(),
+                        Some("--registry" | "--remote")
+                    )
+                })
+        })
     });
     if contains_network_request {
         return "[redacted network command]".to_string();
@@ -1643,6 +1651,25 @@ mod tests {
                 .expect("request log lock")
                 .push(request.clone());
             Ok(self.response.clone())
+        }
+    }
+
+    struct RoutingNetworkProvider {
+        requests: Arc<Mutex<Vec<NetworkRequest>>>,
+        routes: Vec<(String, NetworkResponse)>,
+    }
+
+    impl NetworkProvider for RoutingNetworkProvider {
+        fn request(&self, request: &NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+            self.requests
+                .lock()
+                .expect("request log lock")
+                .push(request.clone());
+            self.routes
+                .iter()
+                .find(|(url, _)| url == &request.url)
+                .map(|(_, response)| response.clone())
+                .ok_or_else(|| NetworkError::Transport("test route not found".to_string()))
         }
     }
 
@@ -1824,6 +1851,271 @@ mod tests {
             .execute_line("curl https://example.test");
         assert_eq!(disabled.status, 1);
         assert!(disabled.stderr.contains("network provider is unavailable"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[allow(clippy::too_many_lines)]
+    #[test]
+    fn searches_installs_and_updates_a_verified_remote_package() {
+        let root = test_root();
+        let index_url = "https://registry.example.test/index.json";
+        let manifest_v1_url = "https://registry.example.test/remote/v1/manifest.json";
+        let artifact_v1_url = "https://registry.example.test/remote/v1/bin/remote.rune";
+        let manifest_v2_url = "https://registry.example.test/remote/v2/manifest.json";
+        let artifact_v2_url = "https://registry.example.test/remote/v2/bin/remote.rune";
+        let script_v1 = b"echo remote-v1\n";
+        let script_v2 = b"echo remote-v2\n";
+        let manifest_v1 = format!(
+            r#"{{
+                "schema_version": 1,
+                "name": "remote-tool",
+                "version": "0.1.0",
+                "description": "A remote Rune tool",
+                "files": [{{"path": "bin/remote.rune", "sha256": "{}"}}],
+                "commands": [{{"name": "remote-tool", "entry": "bin/remote.rune"}}]
+            }}"#,
+            rune_package::sha256_hex(script_v1)
+        );
+        let manifest_v2 = format!(
+            r#"{{
+                "schema_version": 1,
+                "name": "remote-tool",
+                "version": "0.2.0",
+                "description": "A remote Rune tool",
+                "files": [{{"path": "bin/remote.rune", "sha256": "{}"}}],
+                "commands": [{{"name": "remote-tool", "entry": "bin/remote.rune"}}]
+            }}"#,
+            rune_package::sha256_hex(script_v2)
+        );
+        let index = format!(
+            r#"{{
+                "schema_version": 1,
+                "packages": [
+                    {{
+                        "name": "remote-tool",
+                        "version": "0.1.0",
+                        "description": "A remote Rune tool",
+                        "manifest_url": "{manifest_v1_url}",
+                        "artifacts": [{{"path": "bin/remote.rune", "url": "{artifact_v1_url}"}}]
+                    }},
+                    {{
+                        "name": "remote-tool",
+                        "version": "0.2.0",
+                        "description": "A remote Rune tool",
+                        "manifest_url": "{manifest_v2_url}",
+                        "artifacts": [{{"path": "bin/remote.rune", "url": "{artifact_v2_url}"}}]
+                    }}
+                ]
+            }}"#
+        );
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        session.set_network_provider(Box::new(RoutingNetworkProvider {
+            requests: Arc::clone(&requests),
+            routes: vec![
+                (
+                    index_url.to_string(),
+                    NetworkResponse {
+                        status_code: 200,
+                        body: index.into_bytes(),
+                    },
+                ),
+                (
+                    manifest_v1_url.to_string(),
+                    NetworkResponse {
+                        status_code: 200,
+                        body: manifest_v1.into_bytes(),
+                    },
+                ),
+                (
+                    artifact_v1_url.to_string(),
+                    NetworkResponse {
+                        status_code: 200,
+                        body: script_v1.to_vec(),
+                    },
+                ),
+                (
+                    manifest_v2_url.to_string(),
+                    NetworkResponse {
+                        status_code: 200,
+                        body: manifest_v2.into_bytes(),
+                    },
+                ),
+                (
+                    artifact_v2_url.to_string(),
+                    NetworkResponse {
+                        status_code: 200,
+                        body: script_v2.to_vec(),
+                    },
+                ),
+            ],
+        }));
+
+        let search = session.execute_line(&format!("pkg search --registry {index_url} remote"));
+        assert_eq!(search.status, 0, "{search:?}");
+        assert_eq!(
+            search.stdout,
+            "remote-tool@0.1.0\tA remote Rune tool\nremote-tool@0.2.0\tA remote Rune tool\n"
+        );
+        let installed = session.execute_line(&format!(
+            "pkg install --registry {index_url} remote-tool 0.1.0"
+        ));
+        assert_eq!(installed.status, 0, "{installed:?}");
+        assert_eq!(
+            installed.stdout,
+            "installed remote-tool@0.1.0 from registry\n"
+        );
+        assert_eq!(session.execute_line("remote-tool").stdout, "remote-v1\n");
+
+        let updated = session.execute_line(&format!(
+            "pkg update --registry {index_url} remote-tool 0.2.0"
+        ));
+        assert_eq!(updated.status, 0, "{updated:?}");
+        assert_eq!(
+            updated.stdout,
+            "updated remote-tool from 0.1.0 to 0.2.0 via registry\n"
+        );
+        assert_eq!(session.execute_line("remote-tool").stdout, "remote-v2\n");
+        assert_eq!(
+            session
+                .history()
+                .iter()
+                .filter(|entry| entry.as_str() == "[redacted network command]")
+                .count(),
+            2
+        );
+
+        let recorded = requests.lock().expect("request log lock");
+        assert_eq!(recorded.len(), 7);
+        assert!(recorded
+            .iter()
+            .all(|request| request.method == NetworkMethod::Get));
+        assert!(recorded
+            .iter()
+            .all(|request| request.headers
+                == [("Accept".to_string(), "application/json".to_string())]));
+        drop(recorded);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn rejects_remote_package_artifacts_outside_the_registry_origin() {
+        let root = test_root();
+        let index_url = "https://registry.example.test/index.json";
+        let index = br#"{
+            "schema_version": 1,
+            "packages": [{
+                "name": "remote-tool",
+                "version": "0.1.0",
+                "description": "A remote Rune tool",
+                "manifest_url": "https://cdn.example.test/manifest.json",
+                "artifacts": [{"path": "bin/remote.rune", "url": "https://cdn.example.test/remote.rune"}]
+            }]
+        }"#;
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        session.set_network_provider(Box::new(RoutingNetworkProvider {
+            requests: Arc::clone(&requests),
+            routes: vec![(
+                index_url.to_string(),
+                NetworkResponse {
+                    status_code: 200,
+                    body: index.to_vec(),
+                },
+            )],
+        }));
+        let rejected = session.execute_line(&format!(
+            "pkg install --registry {index_url} remote-tool 0.1.0"
+        ));
+        assert_eq!(rejected.status, 2);
+        assert!(rejected.stderr.contains("registry origin"));
+        assert_eq!(requests.lock().expect("request log lock").len(), 1);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn keeps_the_installed_remote_version_when_a_new_artifact_is_tampered() {
+        let root = test_root();
+        let index_url = "https://registry.example.test/index.json";
+        let manifest_v1_url = "https://registry.example.test/tool/v1/manifest.json";
+        let artifact_v1_url = "https://registry.example.test/tool/v1/bin/tool.rune";
+        let manifest_v2_url = "https://registry.example.test/tool/v2/manifest.json";
+        let artifact_v2_url = "https://registry.example.test/tool/v2/bin/tool.rune";
+        let script_v1 = b"echo stable\n";
+        let expected_v2 = b"echo verified\n";
+        let manifest_v1 = format!(
+            r#"{{"schema_version":1,"name":"remote-tool","version":"0.1.0","description":"Remote tool","files":[{{"path":"bin/tool.rune","sha256":"{}"}}],"commands":[{{"name":"remote-tool","entry":"bin/tool.rune"}}]}}"#,
+            rune_package::sha256_hex(script_v1)
+        );
+        let manifest_v2 = format!(
+            r#"{{"schema_version":1,"name":"remote-tool","version":"0.2.0","description":"Remote tool","files":[{{"path":"bin/tool.rune","sha256":"{}"}}],"commands":[{{"name":"remote-tool","entry":"bin/tool.rune"}}]}}"#,
+            rune_package::sha256_hex(expected_v2)
+        );
+        let index = format!(
+            r#"{{"schema_version":1,"packages":[
+                {{"name":"remote-tool","version":"0.1.0","description":"Remote tool","manifest_url":"{manifest_v1_url}","artifacts":[{{"path":"bin/tool.rune","url":"{artifact_v1_url}"}}]}},
+                {{"name":"remote-tool","version":"0.2.0","description":"Remote tool","manifest_url":"{manifest_v2_url}","artifacts":[{{"path":"bin/tool.rune","url":"{artifact_v2_url}"}}]}}
+            ]}}"#
+        );
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        session.set_network_provider(Box::new(RoutingNetworkProvider {
+            requests: Arc::new(Mutex::new(Vec::new())),
+            routes: vec![
+                (
+                    index_url.to_string(),
+                    NetworkResponse {
+                        status_code: 200,
+                        body: index.into_bytes(),
+                    },
+                ),
+                (
+                    manifest_v1_url.to_string(),
+                    NetworkResponse {
+                        status_code: 200,
+                        body: manifest_v1.into_bytes(),
+                    },
+                ),
+                (
+                    artifact_v1_url.to_string(),
+                    NetworkResponse {
+                        status_code: 200,
+                        body: script_v1.to_vec(),
+                    },
+                ),
+                (
+                    manifest_v2_url.to_string(),
+                    NetworkResponse {
+                        status_code: 200,
+                        body: manifest_v2.into_bytes(),
+                    },
+                ),
+                (
+                    artifact_v2_url.to_string(),
+                    NetworkResponse {
+                        status_code: 200,
+                        body: b"tampered\n".to_vec(),
+                    },
+                ),
+            ],
+        }));
+        assert_eq!(
+            session
+                .execute_line(&format!(
+                    "pkg install --registry {index_url} remote-tool 0.1.0"
+                ))
+                .status,
+            0
+        );
+        let rejected = session.execute_line(&format!(
+            "pkg update --registry {index_url} remote-tool 0.2.0"
+        ));
+        assert_eq!(rejected.status, 1);
+        assert!(rejected.stderr.contains("integrity mismatch"));
+        assert_eq!(session.execute_line("remote-tool").stdout, "stable\n");
+        assert_eq!(
+            session.execute_line("pkg list").stdout,
+            "remote-tool@0.1.0\n"
+        );
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

@@ -14,15 +14,19 @@ explicitly approved roots. Invocation arguments, environment, and stdin are
 bounded before WASI setup. A pre-cancelled module is rejected with status 130;
 in-flight WASM cancellation remains cooperative because the current Wasmi call
 does not expose a safe mid-stack interrupt API.
-Package metadata and local WASM installation tests are also local-only; no
-registry or download is needed to validate the manifest, digest, and bounded
+Package metadata and local WASM installation tests remain local-only; no
+internet access is needed to validate the manifest, digest, and bounded
 package-tree boundaries. Manifest capabilities are explicit: installed WASM
 has no filesystem preopen unless `permissions.filesystem: true` is declared;
 tests cover both the denied-by-default and granted paths.
 The package search test is local-only as well and searches installed
 manifests without network access. The package update test verifies that an
 invalid replacement leaves the old version runnable, while a verified local
-replacement is materialized before the old version is retired.
+replacement is materialized before the old version is retired. Separate
+injected-provider tests exercise an HTTPS registry index, case-insensitive
+remote search, exact-version remote install/update, same-origin enforcement,
+manifest/artifact identity checks, and SHA-256 verification; they do not claim
+internet, TLS, redirect, publisher-signature, or Apple URLSession proof.
 Package command tests also cover a SHA-256-verified `.rune` script, bounded
 positional arguments, and rejection after installed content is tampered with.
 Configuration tests are local-only as well and verify bounded history, font,
