@@ -1,13 +1,13 @@
 //! Bounded WASI preview1 execution for Rune.
 //!
-//! The first runtime slice intentionally exposes only process-like channels:
-//! arguments, environment variables, stdin, stdout, and stderr. It does not
-//! preopen a host directory, so a module cannot use WASI filesystem calls to
-//! bypass Rune's virtual filesystem boundary.
+//! The runtime exposes process-like channels and, only when the caller passes
+//! an approved root, one capability-scoped WASI preopen. No ambient process
+//! execution, network, or directory outside that root is inherited.
 
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use std::io::{self, Write};
+use std::path::Path;
 
 use rune_runtime::{Runtime, RuntimeError, RuntimeKind, RuntimeOutput, RuntimeRequest};
 use wasi_common::pipe::{ReadPipe, WritePipe};
@@ -15,7 +15,7 @@ use wasi_common::WasiCtx;
 use wasmi::{
     Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, TypedResumableCall,
 };
-use wasmi_wasi::sync::{add_to_linker, WasiCtxBuilder};
+use wasmi_wasi::sync::{add_to_linker, ambient_authority, Dir, WasiCtxBuilder};
 
 /// Limits applied to each WASM invocation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,6 +122,29 @@ impl WasmRunner {
         environment: &BTreeMap<String, String>,
         stdin: &str,
     ) -> Result<WasmExecution, WasmError> {
+        self.execute_with_preopened_root(wasm, argv0, args, environment, stdin, None)
+    }
+
+    /// Executes a WASI preview1 module with an optional capability-scoped root.
+    ///
+    /// When `preopened_root` is present, the directory is opened once with
+    /// capability-based filesystem APIs and exposed to the guest as `/` (WASI
+    /// file descriptor 3). The guest can access only that directory tree; a
+    /// missing root keeps the no-filesystem behavior of [`Self::execute`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the module, WASI boundary, capability root, or
+    /// guest execution cannot be started.
+    pub fn execute_with_preopened_root(
+        &self,
+        wasm: &[u8],
+        argv0: &str,
+        args: &[String],
+        environment: &BTreeMap<String, String>,
+        stdin: &str,
+        preopened_root: Option<&Path>,
+    ) -> Result<WasmExecution, WasmError> {
         if wasm.len() > self.limits.max_module_bytes {
             return Err(WasmError::ModuleTooLarge {
                 actual: wasm.len(),
@@ -135,28 +158,17 @@ impl WasmRunner {
         let module = Module::new(&engine, wasm)
             .map_err(|error| WasmError::InvalidModule(error.to_string()))?;
 
-        let stdin_pipe = ReadPipe::from(stdin.to_owned());
         let stdout_pipe = WritePipe::new(BoundedOutput::new(self.limits.max_output_bytes));
         let stderr_pipe = WritePipe::new(BoundedOutput::new(self.limits.max_output_bytes));
-        let mut wasi_builder = WasiCtxBuilder::new();
-        wasi_builder = wasi_builder
-            .arg(argv0)
-            .map_err(|error| WasmError::WasiSetup(error.to_string()))?;
-        wasi_builder = wasi_builder
-            .args(args)
-            .map_err(|error| WasmError::WasiSetup(error.to_string()))?;
-        let environment_entries = environment
-            .iter()
-            .map(|(name, value)| (name.clone(), value.clone()))
-            .collect::<Vec<_>>();
-        wasi_builder = wasi_builder
-            .envs(&environment_entries)
-            .map_err(|error| WasmError::WasiSetup(error.to_string()))?;
-        let wasi_context = wasi_builder
-            .stdin(Box::new(stdin_pipe))
-            .stdout(Box::new(stdout_pipe.clone()))
-            .stderr(Box::new(stderr_pipe.clone()))
-            .build();
+        let wasi_context = build_wasi_context(
+            argv0,
+            args,
+            environment,
+            stdin,
+            stdout_pipe.clone(),
+            stderr_pipe.clone(),
+            preopened_root,
+        )?;
 
         let limits = StoreLimitsBuilder::new()
             .memory_size(self.limits.memory_bytes)
@@ -227,6 +239,43 @@ impl WasmRunner {
     }
 }
 
+fn build_wasi_context(
+    argv0: &str,
+    args: &[String],
+    environment: &BTreeMap<String, String>,
+    stdin: &str,
+    stdout: WritePipe<BoundedOutput>,
+    stderr: WritePipe<BoundedOutput>,
+    preopened_root: Option<&Path>,
+) -> Result<WasiCtx, WasmError> {
+    let mut wasi_builder = WasiCtxBuilder::new();
+    wasi_builder = wasi_builder
+        .arg(argv0)
+        .map_err(|error| WasmError::WasiSetup(error.to_string()))?;
+    wasi_builder = wasi_builder
+        .args(args)
+        .map_err(|error| WasmError::WasiSetup(error.to_string()))?;
+    let environment_entries = environment
+        .iter()
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect::<Vec<_>>();
+    wasi_builder = wasi_builder
+        .envs(&environment_entries)
+        .map_err(|error| WasmError::WasiSetup(error.to_string()))?;
+    if let Some(root) = preopened_root {
+        let directory = Dir::open_ambient_dir(root, ambient_authority())
+            .map_err(|error| WasmError::WasiSetup(format!("open preopened root: {error}")))?;
+        wasi_builder = wasi_builder
+            .preopened_dir(directory, "/")
+            .map_err(|error| WasmError::WasiSetup(error.to_string()))?;
+    }
+    Ok(wasi_builder
+        .stdin(Box::new(ReadPipe::from(stdin.to_owned())))
+        .stdout(Box::new(stdout))
+        .stderr(Box::new(stderr))
+        .build())
+}
+
 impl Runtime for WasmRunner {
     fn kind(&self) -> RuntimeKind {
         RuntimeKind::Wasm
@@ -239,13 +288,14 @@ impl Runtime for WasmRunner {
                 provider: self.kind(),
             });
         }
-        let execution = WasmRunner::execute(
+        let execution = WasmRunner::execute_with_preopened_root(
             self,
             request.source,
             request.program_name,
             request.args,
             request.environment,
             request.stdin,
+            request.preopened_root,
         )
         .map_err(|error| RuntimeError::Execution(error.to_string()))?;
         Ok(RuntimeOutput {
@@ -506,6 +556,88 @@ mod tests {
             .expect("module should execute");
         assert_eq!(execution.stdout, "no preopen\n");
         assert_eq!(execution.status, 0);
+    }
+
+    #[test]
+    fn wasi_guest_can_read_only_from_an_explicit_preopened_root() {
+        let root = std::env::temp_dir().join(format!(
+            "rune-wasm-preopen-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock is after epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).expect("preopen root created");
+        std::fs::write(root.join("hello.txt"), b"hello from preopen\n")
+            .expect("preopen fixture written");
+        let wasm = wat::parse_str(
+            r#"
+                (module
+                  (import "wasi_snapshot_preview1" "path_open"
+                    (func $path_open (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))
+                  (import "wasi_snapshot_preview1" "fd_read"
+                    (func $fd_read (param i32 i32 i32 i32) (result i32)))
+                  (import "wasi_snapshot_preview1" "fd_write"
+                    (func $fd_write (param i32 i32 i32 i32) (result i32)))
+                  (memory (export "memory") 1)
+                  (data (i32.const 0) "\80\00\00\00\13\00\00\00")
+                  (data (i32.const 32) "hello.txt")
+                  (data (i32.const 44) "\c8\00\00\00\0c\00\00\00")
+                  (data (i32.const 200) "open failed\n")
+                  (data (i32.const 48) "\dc\00\00\00\0c\00\00\00")
+                  (data (i32.const 220) "read failed\n")
+                  (func (export "_start")
+                    (i32.const 3)
+                    (i32.const 0)
+                    (i32.const 32)
+                    (i32.const 9)
+                    (i32.const 0)
+                    (i64.const 2)
+                    (i64.const 2)
+                    (i32.const 0)
+                    (i32.const 28)
+                    (call $path_open)
+                    (i32.eqz)
+                    (if
+                      (then
+                        (i32.load (i32.const 28))
+                        (i32.const 0)
+                        (i32.const 1)
+                        (i32.const 24)
+                        (call $fd_read)
+                        (i32.eqz)
+                        (if
+                          (then
+                            (i32.const 1)
+                            (i32.const 0)
+                            (i32.const 1)
+                            (i32.const 24)
+                            (call $fd_write)
+                            (drop))
+                          (else
+                            (i32.const 1)
+                            (i32.const 48)
+                            (i32.const 1)
+                            (i32.const 24)
+                            (call $fd_write)
+                            (drop))))
+                      (else
+                        (i32.const 1)
+                            (i32.const 44)
+                        (i32.const 1)
+                        (i32.const 24)
+                        (call $fd_write)
+                        (drop)))))
+            "#,
+        )
+        .expect("valid WAT");
+        let execution = WasmRunner::default()
+            .execute_with_preopened_root(&wasm, "read.wasm", &[], &BTreeMap::new(), "", Some(&root))
+            .expect("module should execute");
+        assert_eq!(execution.stdout, "hello from preopen\n", "{execution:?}");
+        assert_eq!(execution.status, 0);
+        std::fs::remove_dir_all(root).expect("preopen root removed");
     }
 
     #[test]

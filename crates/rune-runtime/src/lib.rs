@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
+use std::path::Path;
 
 /// A runtime family Rune may eventually host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -53,6 +54,9 @@ pub struct RuntimeRequest<'a> {
     pub environment: &'a BTreeMap<String, String>,
     /// Input connected to the runtime's standard input.
     pub stdin: &'a str,
+    /// Optional approved host directory exposed as the runtime's filesystem
+    /// capability. `None` means that filesystem access is unavailable.
+    pub preopened_root: Option<&'a Path>,
 }
 
 impl<'a> RuntimeRequest<'a> {
@@ -73,7 +77,15 @@ impl<'a> RuntimeRequest<'a> {
             args,
             environment,
             stdin,
+            preopened_root: None,
         }
+    }
+
+    /// Adds one explicitly approved host directory to the runtime request.
+    #[must_use]
+    pub const fn with_preopened_root(mut self, root: Option<&'a Path>) -> Self {
+        self.preopened_root = root;
+        self
     }
 
     /// Returns the runtime family requested by this invocation.

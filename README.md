@@ -24,7 +24,7 @@ working iOS application or a feature-parity claim.
 | Sandboxed filesystem | 58% |
 | Sessions/history | 60% |
 | Configuration | 23% |
-| WASM | 23% |
+| WASM | 36% |
 | Native iOS UI | 36% |
 | Swift/Rust bridge | 34% |
 | Package manager | 33% |
@@ -92,11 +92,13 @@ transport, remote registry, or update flow yet; `pkg search` is an offline
 search over manifests already installed in the sandbox.
 
 The `wasm MODULE [arg ...]` built-in loads a module through the bounded virtual
-filesystem and executes WASI preview1 `_start` in Rust. It exposes only
-stdin/stdout/stderr, arguments, and the session environment; it does not
-preopen a host directory. Module bytes, interpreter fuel, linear memory,
-tables, and captured output are bounded. This is an initial WASM execution
-slice, not a language runtime or package manager.
+filesystem and executes WASI preview1 `_start` in Rust. It exposes
+stdin/stdout/stderr, arguments, and the session environment, plus one explicit
+WASI preopen at `/` mapped to Rune's approved sandbox root. Capability-based
+opening keeps guest filesystem calls inside that root; no host process or
+network capability is inherited. Module bytes, interpreter fuel, linear
+memory, tables, and captured output are bounded. Compression, broader WASI
+resource policy, and non-WASM language runtimes remain planned.
 
 The local package flow supports `pkg info MANIFEST|NAME [VERSION]`, `pkg verify
 MANIFEST`, `pkg install MANIFEST`, `pkg list`, `pkg search QUERY`, and `pkg

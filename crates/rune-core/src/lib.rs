@@ -12,6 +12,7 @@ pub use config::{TerminalConfig, TerminalTheme};
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -167,6 +168,7 @@ pub struct CommandContext<'a> {
     pub(crate) history: &'a mut Vec<String>,
     pub(crate) command_definitions: &'a [CommandDefinition],
     pub(crate) runtime: &'a dyn Runtime,
+    pub(crate) filesystem_root: Option<PathBuf>,
 }
 
 /// One independent terminal session.
@@ -770,6 +772,7 @@ impl Session {
         } else if source_command {
             self.execute_source(&program, &arguments, record_history, source_depth)
         } else if let Some(handler) = self.registry.find(&program) {
+            let filesystem_root = self.filesystem.host_root().map(PathBuf::from);
             let mut context = CommandContext {
                 args: &arguments,
                 stdin: &stdin,
@@ -781,6 +784,7 @@ impl Session {
                 history: &mut self.history,
                 command_definitions: self.registry.definitions(),
                 runtime: &self.wasm_runner,
+                filesystem_root,
             };
             handler(&mut context)
         } else if let Some(installed_command) = installed_command {
@@ -930,7 +934,8 @@ impl Session {
             arguments,
             &self.environment,
             stdin,
-        );
+        )
+        .with_preopened_root(self.filesystem.host_root());
         match Runtime::execute(&self.wasm_runner, &request) {
             Ok(execution) => CommandOutput {
                 stdout: execution.stdout,
@@ -1813,6 +1818,51 @@ mod tests {
         assert_eq!(output.status, 0);
         assert_eq!(output.stdout, "hello from rune wasm\n");
         assert!(output.stderr.is_empty());
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn passes_the_sandbox_root_to_the_wasm_builtin_as_a_preopen() {
+        let root = test_root();
+        let wasm = wat::parse_str(
+            r#"
+                (module
+                  (import "wasi_snapshot_preview1" "fd_prestat_get"
+                    (func $fd_prestat_get (param i32 i32) (result i32)))
+                  (import "wasi_snapshot_preview1" "fd_write"
+                    (func $fd_write (param i32 i32 i32 i32) (result i32)))
+                  (memory (export "memory") 1)
+                  (data (i32.const 0) "\40\00\00\00\12\00\00\00")
+                  (data (i32.const 32) "\64\00\00\00\0c\00\00\00")
+                  (data (i32.const 64) "preopen available\n")
+                  (data (i32.const 100) "preopen absent\n")
+                  (func (export "_start")
+                    (i32.const 3)
+                    (i32.const 48)
+                    (call $fd_prestat_get)
+                    (if
+                      (then
+                        (i32.const 1)
+                        (i32.const 32)
+                        (i32.const 1)
+                        (i32.const 24)
+                        (call $fd_write)
+                        (drop))
+                      (else
+                        (i32.const 1)
+                        (i32.const 0)
+                        (i32.const 1)
+                        (i32.const 24)
+                        (call $fd_write)
+                        (drop)))))
+            "#,
+        )
+        .expect("valid preopen WAT");
+        std::fs::write(root.join("preopen.wasm"), wasm).expect("module written");
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let output = session.execute_line("wasm preopen.wasm");
+        assert_eq!(output.status, 0);
+        assert_eq!(output.stdout, "preopen available\n");
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

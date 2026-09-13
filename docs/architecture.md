@@ -227,12 +227,20 @@ VFS.
 
 The `wasm MODULE [arg ...]` built-in reads the module through the virtual
 filesystem and invokes WASI preview1 `_start` in the Rust runtime. The guest
-receives only argv, the session environment, stdin, stdout, and stderr. The
-initial linker does not expose a preopened directory or host process API, so
-WASI filesystem access is unavailable until it can be mapped to explicit Rune
-capabilities. Each invocation bounds module bytes, interpreter fuel, linear
-memory, tables, and captured output. Guest traps become a failed command while
-preserving captured output; explicit WASI exits preserve their exit status.
+receives argv, the session environment, stdin, stdout, and stderr, plus one
+explicit preopen at `/` when the VFS exposes an approved host root. That
+preopen is opened through capability-based APIs and cannot grant access beyond
+Rune's sandbox; host process and network APIs are not linked. Each invocation
+bounds module bytes, interpreter fuel, linear memory, tables, and captured
+output. Guest traps become a failed command while preserving captured output;
+explicit WASI exits preserve their exit status. Fine-grained per-operation
+WASI rights and additional runtime families remain planned.
+
+The VFS exposes its host root to this boundary only as an optional borrowed
+capability. Sandboxed host VFS instances return their canonical root; other
+VFS implementations return no root and therefore keep WASI filesystem access
+disabled. Swift does not receive or construct this path: approved external
+folder access must enter through the Rust VFS boundary first.
 
 Package metadata is parsed independently of network transport through
 `rune-package`. Schema version 1 rejects unknown fields, path traversal,

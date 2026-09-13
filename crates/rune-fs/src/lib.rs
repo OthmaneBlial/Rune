@@ -74,6 +74,14 @@ impl std::error::Error for FsError {}
 
 /// Filesystem operations required by the portable command engine.
 pub trait VirtualFileSystem {
+    /// Returns the approved host root when this VFS is backed by a directory.
+    ///
+    /// Runtime providers may use this only to install an explicit capability
+    /// such as a WASI preopen. A VFS without a host representation returns
+    /// `None`, which keeps runtime filesystem access disabled.
+    fn host_root(&self) -> Option<&Path> {
+        None
+    }
     fn current_dir_display(&self) -> String;
     fn change_dir(&mut self, input: &str) -> Result<(), FsError>;
     fn metadata(&self, input: &str) -> Result<FileInfo, FsError>;
@@ -459,6 +467,10 @@ impl SandboxedFileSystem {
 }
 
 impl VirtualFileSystem for SandboxedFileSystem {
+    fn host_root(&self) -> Option<&Path> {
+        Some(&self.root)
+    }
+
     fn current_dir_display(&self) -> String {
         self.display_path(&self.current_dir)
     }
