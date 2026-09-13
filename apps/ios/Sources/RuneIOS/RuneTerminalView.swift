@@ -329,6 +329,7 @@ private struct RuneBackground: View {
     }
 }
 
+@main
 public struct RuneIOSApp: App {
     public init() {}
 

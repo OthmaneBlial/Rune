@@ -25,7 +25,7 @@ working iOS application or a feature-parity claim.
 | Sessions/history | 40% |
 | Configuration | 12% |
 | WASM | 23% |
-| Native iOS UI | 9% |
+| Native iOS UI | 12% |
 | Swift/Rust bridge | 8% |
 | Package manager | 25% |
 | Compatibility evidence | 2% |

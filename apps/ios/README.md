@@ -37,6 +37,8 @@ directory is restored after the profile.
 - `Package.swift` is a source/package boundary.
 - `RuneFFI.h` documents the C ABI layout.
 - `RuneCoreBridge.swift` owns and frees Rust session handles/strings.
+- `RuneTerminalView.swift` includes the `@main` SwiftUI application entry point
+  and launches the real terminal view.
 - The bridge receives the Rust built-in command registry for first-word
   suggestions; it does not advertise arbitrary host executables.
 - `RuneTerminalView.swift` renders stdout, stderr, and non-zero exit status
