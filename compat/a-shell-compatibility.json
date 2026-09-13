@@ -1,4 +1,5 @@
 {
+  "schema_version": 2,
   "reference": {
     "name": "a-Shell",
     "path": "base/a-shell",
@@ -13,28 +14,114 @@
     "unsupported",
     "intentionally-different"
   ],
+  "comparison_states": ["verified", "pending", "not-started"],
+  "policy": "A status becomes supported only after direct reference behavior and Rune regression tests exist. Partial means a bounded Rune subset is implemented; it is not a parity claim.",
+  "last_reviewed": "2026-09-13",
   "areas": {
-    "shell": "planned",
-    "commands": "planned",
-    "filesystem": "planned",
-    "environment": "planned",
-    "history": "planned",
-    "multi-window": "planned",
-    "bookmarks": "planned",
-    "shortcuts": "planned",
-    "python": "planned",
-    "lua": "planned",
-    "javascript": "planned",
-    "c-cpp": "planned",
-    "wasm": "planned",
-    "tex": "planned",
-    "package-management": "planned",
-    "configuration": "planned",
-    "themes": "planned",
-    "keyboard": "planned",
-    "accessibility": "planned",
-    "networking": "planned",
-    "archives": "planned"
-  },
-  "policy": "A status becomes supported only after direct behavior and regression tests exist."
+    "shell": {
+      "status": "partial",
+      "rune_evidence": ["crates/rune-shell/src/lib.rs", "crates/rune-core/src/lib.rs"],
+      "reference_comparison": "pending"
+    },
+    "commands": {
+      "status": "partial",
+      "rune_evidence": ["crates/rune-core/src/commands/mod.rs", "crates/rune-core/src/lib.rs"],
+      "reference_comparison": "pending"
+    },
+    "filesystem": {
+      "status": "partial",
+      "rune_evidence": ["crates/rune-fs/src/lib.rs", "crates/rune-core/src/lib.rs"],
+      "reference_comparison": "pending"
+    },
+    "environment": {
+      "status": "partial",
+      "rune_evidence": ["crates/rune-core/src/commands/shell.rs", "crates/rune-core/src/lib.rs"],
+      "reference_comparison": "pending"
+    },
+    "history": {
+      "status": "partial",
+      "rune_evidence": ["crates/rune-core/src/persistence.rs", "crates/rune-core/src/lib.rs"],
+      "reference_comparison": "pending"
+    },
+    "multi-window": {
+      "status": "partial",
+      "rune_evidence": ["apps/ios/Sources/RuneIOS/RuneWorkspaceView.swift", "apps/ios/Sources/RuneIOS/RuneTerminalView.swift"],
+      "reference_comparison": "pending"
+    },
+    "bookmarks": {
+      "status": "partial",
+      "rune_evidence": ["crates/rune-core/src/commands/bookmarks.rs", "apps/ios/Sources/RuneIOS/RuneExternalFolderAccess.swift"],
+      "reference_comparison": "pending"
+    },
+    "shortcuts": {
+      "status": "partial",
+      "rune_evidence": ["apps/ios/Sources/RuneIOS/RuneShortcuts.swift", "crates/rune-ffi/src/lib.rs"],
+      "reference_comparison": "pending"
+    },
+    "python": {
+      "status": "planned",
+      "rune_evidence": [],
+      "reference_comparison": "not-started"
+    },
+    "lua": {
+      "status": "planned",
+      "rune_evidence": [],
+      "reference_comparison": "not-started"
+    },
+    "javascript": {
+      "status": "planned",
+      "rune_evidence": [],
+      "reference_comparison": "not-started"
+    },
+    "c-cpp": {
+      "status": "planned",
+      "rune_evidence": [],
+      "reference_comparison": "not-started"
+    },
+    "wasm": {
+      "status": "partial",
+      "rune_evidence": ["crates/rune-wasm/src/lib.rs", "crates/rune-core/src/commands/wasm.rs"],
+      "reference_comparison": "pending"
+    },
+    "tex": {
+      "status": "planned",
+      "rune_evidence": [],
+      "reference_comparison": "not-started"
+    },
+    "package-management": {
+      "status": "partial",
+      "rune_evidence": ["crates/rune-package/src/lib.rs", "crates/rune-core/src/commands/package.rs"],
+      "reference_comparison": "pending"
+    },
+    "configuration": {
+      "status": "partial",
+      "rune_evidence": ["crates/rune-core/src/config.rs", "crates/rune-core/src/commands/config.rs"],
+      "reference_comparison": "pending"
+    },
+    "themes": {
+      "status": "partial",
+      "rune_evidence": ["crates/rune-core/src/config.rs", "apps/ios/Sources/RuneIOS/RuneTerminalView.swift"],
+      "reference_comparison": "pending"
+    },
+    "keyboard": {
+      "status": "partial",
+      "rune_evidence": ["apps/ios/Sources/RuneIOS/RuneTerminalView.swift"],
+      "reference_comparison": "pending"
+    },
+    "accessibility": {
+      "status": "planned",
+      "rune_evidence": [],
+      "reference_comparison": "not-started"
+    },
+    "networking": {
+      "status": "planned",
+      "rune_evidence": [],
+      "reference_comparison": "not-started"
+    },
+    "archives": {
+      "status": "partial",
+      "rune_evidence": ["crates/rune-core/src/commands/archive.rs"],
+      "reference_comparison": "pending"
+    }
+  }
 }
