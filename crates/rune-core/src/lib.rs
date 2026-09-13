@@ -405,6 +405,37 @@ impl Session {
         &self.config
     }
 
+    /// Updates one Rust-owned terminal setting without recording a shell
+    /// command in history. Native settings surfaces use this method so UI
+    /// changes share the same validation and persistence policy as `config`.
+    pub fn set_configuration(&mut self, key: &str, value: &str) -> CommandOutput {
+        let output = match config::update(self.filesystem.as_mut(), &mut self.config, key, value) {
+            Ok(()) => {
+                if key == "history-limit" {
+                    self.apply_history_limit();
+                }
+                CommandOutput::success("")
+            }
+            Err(message) => CommandOutput::failure(2, format!("config: {message}\n")),
+        };
+        self.last_status = output.status;
+        output
+    }
+
+    /// Restores Rust-owned terminal settings to their defaults without adding
+    /// a synthetic command to history.
+    pub fn reset_configuration(&mut self) -> CommandOutput {
+        let output = config::reset(self.filesystem.as_mut(), &mut self.config).map_or_else(
+            |error| fs_failure("config", &error),
+            |()| CommandOutput::success(""),
+        );
+        if output.status == 0 {
+            self.apply_history_limit();
+        }
+        self.last_status = output.status;
+        output
+    }
+
     /// Returns the command history in execution order.
     #[must_use]
     pub fn history(&self) -> &[String] {
@@ -1372,10 +1403,10 @@ fn package_runtime_failure(command: &str, error: &rune_package::PackageError) ->
 #[cfg(test)]
 mod tests {
     use super::{
-        persistence::MAX_HISTORY_BYTES, CommandEvent, EventSink, Session, CANCELLED_STATUS,
-        MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS, MAX_COMMAND_INPUT_BYTES, MAX_FILE_TRANSFER_BYTES,
-        MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES, MAX_SOURCE_DEPTH,
-        OUTPUT_TRUNCATION_MARKER,
+        persistence::MAX_HISTORY_BYTES, CommandEvent, EventSink, Session, TerminalConfig,
+        CANCELLED_STATUS, MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS, MAX_COMMAND_INPUT_BYTES,
+        MAX_FILE_TRANSFER_BYTES, MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES,
+        MAX_SOURCE_DEPTH, OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -1740,6 +1771,31 @@ mod tests {
         assert_eq!(restored.execute_line("config reset").status, 0);
         assert_eq!(restored.configuration().history_limit(), 1_000);
         assert_eq!(restored.configuration().scrollback_limit(), 4_096);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn native_configuration_updates_share_validation_without_history_entries() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("echo keep").status, 0);
+        let changed = session.set_configuration("font-size", "20");
+        assert_eq!(changed.status, 0);
+        assert_eq!(session.configuration().font_size(), 20);
+        assert_eq!(session.history(), ["echo keep"]);
+
+        let invalid = session.set_configuration("theme", "paper");
+        assert_eq!(invalid.status, 2);
+        assert!(invalid.stderr.contains("theme must be one of"));
+        assert_eq!(session.configuration().theme().as_str(), "ink");
+
+        assert_eq!(session.set_configuration("history-limit", "1").status, 0);
+        assert_eq!(session.history(), ["echo keep"]);
+        assert_eq!(session.reset_configuration().status, 0);
+        assert_eq!(session.configuration(), &TerminalConfig::default());
+        assert_eq!(session.history(), ["echo keep"]);
+        assert_eq!(session.execute_line("echo after-reset").status, 0);
+        assert_eq!(session.history(), ["echo keep", "echo after-reset"]);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

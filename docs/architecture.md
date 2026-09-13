@@ -95,8 +95,12 @@ between 1 and 10,000, a `font_size` between 8 and 32 points, a
 `scrollback_limit` between 128 and 8,192 rendered entries, and a theme in `ink`,
 `light`, or `ember`. `config get`, `config set`, and `config reset` update these
 values, and the session applies them immediately. SwiftUI consumes all four
-settings; its scrollback window also remains subject to an 8 MiB byte cap.
-Cursor styling and toolbar preferences remain outside the current contract.
+settings; the public session and C ABI also expose validated set/reset
+operations that do not add shell text to history, allowing native settings
+surfaces to use the same Rust policy. The source-only SwiftUI sheet uses that
+boundary for font size, scrollback, theme, and reset; its scrollback window
+also remains subject to an 8 MiB byte cap. Cursor styling and toolbar
+preferences remain outside the current contract.
 
 The `history` built-in can render the full session, a bounded recent count,
 search matching entries with `history search QUERY ...`, or clear the mutable
@@ -173,10 +177,11 @@ unsupported terminal controls are deliberately bounded and not claimed as a
 complete emulator.
 
 The terminal view also declares native keyboard shortcuts for folder import,
-cooperative cancellation, history navigation, and command submission. These
-shortcuts dispatch into the existing Swift model and Rust FFI rather than
-maintaining a second command or history implementation. Their behavior still
-needs Apple keyboard/runtime validation.
+cooperative cancellation, history navigation, command submission, and a
+source-only settings sheet. These controls dispatch into the existing Swift
+model and Rust FFI rather than maintaining a second command, configuration, or
+history implementation. Their behavior still needs Apple keyboard/runtime
+validation.
 
 The filesystem starts with a host-backed root for local development. The root
 is a policy boundary: paths are resolved relative to it, `~` maps to the root,

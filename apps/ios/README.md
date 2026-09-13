@@ -74,10 +74,10 @@ intentionally visible in the local state boundary. Interactive `export`,
 marker before history is stored; arbitrary credential-bearing commands still
 require a configurable policy. The Rust core also persists bounded
 `history-limit`, `font-size`, `scrollback-limit`, and `theme` configuration in
-`~/.rune/config.state`; the bridge exposes them as key/value text and the
-source-only Swift view consumes the font size, scrollback window, and `ink`,
-`light`, or `ember` palette. Cursor styling and toolbar preferences are not
-wired through yet.
+`~/.rune/config.state`. The bridge exposes both key/value inspection and
+validated set/reset calls without creating history entries; the source-only
+Swift view provides a settings sheet for font size, scrollback, theme, and
+reset. Cursor styling and toolbar preferences are not wired through yet.
 
 On restore, the Rust core reads a maximum of 64 KiB from `~/.rune_profile`,
 skips blank/full-line comment entries, runs only registered Rune built-ins, and
@@ -109,7 +109,8 @@ integration remain unverified.
 - `RuneWorkspaceView.swift` declares the source-only independent-session tab
   container.
 - `RuneTerminalView.swift` declares source-only Command-key shortcuts for
-  folder import, cancellation, history navigation, and command execution.
+  folder import, cancellation, history navigation, and command execution, plus
+  a settings sheet backed by Rust configuration calls.
 - `RuneTerminalView.swift` includes the `@main` SwiftUI application entry point
   and launches the source-only workspace view.
 - The bridge asks Rust for bounded command/path replacement candidates; it does

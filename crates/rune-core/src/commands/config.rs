@@ -57,31 +57,16 @@ fn get(context: &CommandContext<'_>, key: &str) -> CommandOutput {
 }
 
 fn set(context: &mut CommandContext<'_>, key: &str, value: &str) -> CommandOutput {
-    let result = match key {
-        "history-limit" => crate::config::update_history_limit(context.fs, context.config, value),
-        "font-size" => crate::config::update_font_size(context.fs, context.config, value),
-        "scrollback-limit" => {
-            crate::config::update_scrollback_limit(context.fs, context.config, value)
-        }
-        "theme" => crate::config::update_theme(context.fs, context.config, value),
-        _ => {
-            return usage(
-                "config",
-                "unknown key; available keys: history-limit, font-size, scrollback-limit, theme",
-            )
-        }
-    };
+    let result = crate::config::update(context.fs, context.config, key, value);
     match result {
         Ok(()) => CommandOutput::success(""),
+        Err(message) if message.starts_with("unknown key") => usage("config", &message),
         Err(message) => CommandOutput::failure(2, format!("config: {message}\n")),
     }
 }
 
 fn reset(context: &mut CommandContext<'_>) -> CommandOutput {
-    let previous = context.config.clone();
-    *context.config = crate::config::TerminalConfig::default();
-    if let Err(error) = context.config.save(context.fs) {
-        *context.config = previous;
+    if let Err(error) = crate::config::reset(context.fs, context.config) {
         return fs_failure("config", &error);
     }
     CommandOutput::success("")

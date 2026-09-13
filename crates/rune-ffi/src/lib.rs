@@ -242,6 +242,47 @@ pub extern "C" fn rune_session_cancel(handle: *const std::ffi::c_void) {
     session.cancellation.store(true, Ordering::Release);
 }
 
+/// Updates one validated Rust-owned configuration value without recording a
+/// shell command in history. The result is persisted before returning.
+#[no_mangle]
+pub extern "C" fn rune_session_set_configuration(
+    handle: *mut c_void,
+    key: *const c_char,
+    value: *const c_char,
+) -> RuneOutput {
+    let (Some(key), Some(value)) = (read_string(key), read_string(value)) else {
+        let output =
+            CommandOutput::failure(2, "rune: configuration key/value is not valid UTF-8\n");
+        return into_output(&output);
+    };
+    if handle.is_null() {
+        let output = CommandOutput::failure(1, "rune: session is unavailable\n");
+        return into_output(&output);
+    }
+    // SAFETY: Swift serializes access to the opaque session handle and does
+    // not call this after rune_session_destroy.
+    let core = unsafe { &mut (*handle.cast::<RuneSession>()).core };
+    let output = core.set_configuration(&key, &value);
+    let output = persist_after_execution(core, output);
+    into_output(&output)
+}
+
+/// Resets Rust-owned configuration without recording a shell command in
+/// history. The result is persisted before returning.
+#[no_mangle]
+pub extern "C" fn rune_session_reset_configuration(handle: *mut c_void) -> RuneOutput {
+    if handle.is_null() {
+        let output = CommandOutput::failure(1, "rune: session is unavailable\n");
+        return into_output(&output);
+    }
+    // SAFETY: Swift serializes access to the opaque session handle and does
+    // not call this after rune_session_destroy.
+    let core = unsafe { &mut (*handle.cast::<RuneSession>()).core };
+    let output = core.reset_configuration();
+    let output = persist_after_execution(core, output);
+    into_output(&output)
+}
+
 /// Executes one Rune command line and persists the session state before
 /// returning. A persistence failure is reported on stderr and changes a
 /// successful command's status to 1.
@@ -574,9 +615,11 @@ mod tests {
         rune_file_bytes_free, rune_session_cancel, rune_session_commands, rune_session_complete,
         rune_session_configuration, rune_session_current_directory, rune_session_destroy,
         rune_session_execute, rune_session_execute_script, rune_session_execute_script_with_events,
-        rune_session_execute_with_events, rune_session_get_file, rune_session_new,
-        rune_session_new_named, rune_session_put_file, rune_session_startup_output,
-        rune_string_free, RuneEvent, RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS,
+        rune_session_execute_with_events, rune_session_get_file, rune_session_history,
+        rune_session_new, rune_session_new_named, rune_session_put_file,
+        rune_session_reset_configuration, rune_session_set_configuration,
+        rune_session_startup_output, rune_string_free, RuneEvent, RUNE_EVENT_OUTPUT,
+        RUNE_EVENT_STATUS,
     };
     use std::ffi::{c_void, CStr, CString};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -701,6 +744,68 @@ mod tests {
         unsafe {
             rune_string_free(output.stdout);
             rune_string_free(output.stderr);
+        }
+        rune_session_destroy(handle);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn c_abi_updates_configuration_without_recording_a_shell_command() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rune-ffi-config-test-{suffix}"));
+        std::fs::create_dir_all(&root).expect("test root created");
+        let root_string = CString::new(root.to_string_lossy().as_bytes()).expect("valid root");
+        let handle = rune_session_new(root_string.as_ptr());
+        assert!(!handle.is_null());
+
+        let command = CString::new("echo keep").expect("valid command");
+        let output = rune_session_execute(handle, command.as_ptr());
+        assert_eq!(output.status, 0);
+        // SAFETY: both pointers came from rune_session_execute.
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+
+        let key = CString::new("font-size").expect("valid key");
+        let value = CString::new("20").expect("valid value");
+        let changed = rune_session_set_configuration(handle, key.as_ptr(), value.as_ptr());
+        assert_eq!(changed.status, 0);
+        // SAFETY: both pointers came from rune_session_set_configuration.
+        unsafe {
+            rune_string_free(changed.stdout);
+            rune_string_free(changed.stderr);
+        }
+        let configuration = rune_session_configuration(handle);
+        assert!(c_string(configuration).contains("font-size=20"));
+        // SAFETY: configuration came from rune_session_configuration.
+        unsafe { rune_string_free(configuration) };
+
+        let history = rune_session_history(handle);
+        assert_eq!(c_string(history), "echo keep");
+        // SAFETY: history came from rune_session_history.
+        unsafe { rune_string_free(history) };
+
+        let bad_key = CString::new("theme").expect("valid key");
+        let bad_value = CString::new("paper").expect("valid value");
+        let rejected = rune_session_set_configuration(handle, bad_key.as_ptr(), bad_value.as_ptr());
+        assert_eq!(rejected.status, 2);
+        assert!(c_string(rejected.stderr).contains("theme must be one of"));
+        // SAFETY: both pointers came from rune_session_set_configuration.
+        unsafe {
+            rune_string_free(rejected.stdout);
+            rune_string_free(rejected.stderr);
+        }
+
+        let reset = rune_session_reset_configuration(handle);
+        assert_eq!(reset.status, 0);
+        // SAFETY: both pointers came from rune_session_reset_configuration.
+        unsafe {
+            rune_string_free(reset.stdout);
+            rune_string_free(reset.stderr);
         }
         rune_session_destroy(handle);
         std::fs::remove_dir_all(root).expect("test root removed");

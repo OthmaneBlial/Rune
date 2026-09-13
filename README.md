@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 61%**
+**Overall progress: 62%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -23,10 +23,10 @@ working iOS application or a feature-parity claim.
 | Command runtime | 89% |
 | Sandboxed filesystem | 64% |
 | Sessions/history | 62% |
-| Configuration | 27% |
+| Configuration | 35% |
 | WASM | 40% |
-| Native iOS UI | 48% |
-| Swift/Rust bridge | 42% |
+| Native iOS UI | 52% |
+| Swift/Rust bridge | 48% |
 | Package manager | 36% |
 | Compatibility evidence | 2% |
 
@@ -201,9 +201,10 @@ The portable configuration boundary currently supports bounded `history-limit`,
 `font-size`, `scrollback-limit`, and `theme` settings through `config get`,
 `config set`, and `config reset`. The scrollback setting accepts 128–8,192
 rendered entries and remains subject to the UI's 8 MiB byte cap. It persists in
-`~/.rune/config.state`, and SwiftUI consumes `font-size`, `scrollback-limit`,
-and the `ink`, `light`, and `ember` palettes; cursor styling and toolbar
-preferences are not yet wired through.
+`~/.rune/config.state`. The FFI also exposes validated Rust-native set/reset
+calls that do not create history entries; the source-only SwiftUI settings
+sheet uses those calls for font size, scrollback, theme, and reset. Cursor
+styling and toolbar preferences are not yet wired through.
 
 The `history` built-in also supports `history N` for a bounded recent view,
 `history search QUERY ...` for a case-insensitive substring search that keeps

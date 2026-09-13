@@ -159,6 +159,36 @@ public final class RuneTerminalModel: ObservableObject {
         session?.cancel()
     }
 
+    /// Updates a validated Rust-owned setting without routing the change
+    /// through shell text or adding it to command history.
+    public func setConfiguration(key: String, value: String) {
+        guard !isExecuting else { return }
+        guard let session else {
+            initializationError = "Rune session unavailable."
+            return
+        }
+        let result = session.setConfiguration(key: key, value: value)
+        if result.status != 0 {
+            append(result)
+        }
+        refreshConfiguration()
+    }
+
+    /// Restores Rust-owned settings to their defaults without adding a shell
+    /// command to history.
+    public func resetConfiguration() {
+        guard !isExecuting else { return }
+        guard let session else {
+            initializationError = "Rune session unavailable."
+            return
+        }
+        let result = session.resetConfiguration()
+        if result.status != 0 {
+            append(result)
+        }
+        refreshConfiguration()
+    }
+
     private func finishExecution(
         _ result: RuneCommandResult,
         events: [RuneExecutionEvent],
@@ -311,6 +341,7 @@ public struct RuneTerminalView: View {
     @StateObject private var model: RuneTerminalModel
     @FocusState private var inputFocused: Bool
     @State private var isImportingFolder = false
+    @State private var isShowingSettings = false
 
     public init(rootURL: URL? = nil, sessionID: String? = nil) {
         _model = StateObject(wrappedValue: RuneTerminalModel(rootURL: rootURL, sessionID: sessionID))
@@ -347,6 +378,15 @@ public struct RuneTerminalView: View {
                     .foregroundStyle(palette.cyan)
                     .accessibilityLabel("Open a folder")
                     .keyboardShortcut("o", modifiers: [.command])
+                    Button {
+                        isShowingSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .font(.title3)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(palette.cyan)
+                    .accessibilityLabel("Terminal settings")
                     if model.isExecuting {
                         Button {
                             model.cancel()
@@ -506,6 +546,9 @@ public struct RuneTerminalView: View {
                 model.reportFolderImportError(error)
             }
         }
+        .sheet(isPresented: $isShowingSettings) {
+            RuneSettingsView(model: model)
+        }
         .onAppear { inputFocused = true }
     }
 
@@ -516,6 +559,100 @@ public struct RuneTerminalView: View {
         case .stderr: return palette.ember
         case .status: return palette.muted
         }
+    }
+}
+
+private struct RuneSettingsView: View {
+    @ObservedObject var model: RuneTerminalModel
+    @Environment(\.dismiss) private var dismiss
+
+    private let themes = ["ink", "light", "ember"]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Terminal") {
+                    HStack {
+                        Text("Font size")
+                        Spacer()
+                        Button {
+                            adjustFontSize(by: -1)
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .accessibilityLabel("Decrease font size")
+                        Text("\(Int(model.fontSize)) pt")
+                            .monospacedDigit()
+                            .frame(minWidth: 58)
+                        Button {
+                            adjustFontSize(by: 1)
+                        } label: {
+                            Image(systemName: "plus.circle")
+                        }
+                        .accessibilityLabel("Increase font size")
+                    }
+
+                    Picker(
+                        "Theme",
+                        selection: Binding(
+                            get: { model.theme },
+                            set: { model.setConfiguration(key: "theme", value: $0) }
+                        )
+                    ) {
+                        ForEach(themes, id: \.self) { theme in
+                            Text(theme.capitalized).tag(theme)
+                        }
+                    }
+
+                    HStack {
+                        Text("Scrollback")
+                        Spacer()
+                        Button {
+                            adjustScrollback(by: -256)
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .accessibilityLabel("Decrease scrollback")
+                        Text("\(model.scrollbackLimit)")
+                            .monospacedDigit()
+                            .frame(minWidth: 58)
+                        Button {
+                            adjustScrollback(by: 256)
+                        } label: {
+                            Image(systemName: "plus.circle")
+                        }
+                        .accessibilityLabel("Increase scrollback")
+                    }
+                }
+
+                Section {
+                    Button("Reset Rust settings", role: .destructive) {
+                        model.resetConfiguration()
+                    }
+                } footer: {
+                    Text("Settings are validated and persisted by the Rust session.")
+                }
+            }
+            .navigationTitle("Rune Settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .preferredColorScheme(model.theme == "light" ? .light : .dark)
+    }
+
+    private func adjustFontSize(by delta: Int) {
+        let value = min(max(Int(model.fontSize) + delta, 8), 32)
+        model.setConfiguration(key: "font-size", value: String(value))
+    }
+
+    private func adjustScrollback(by delta: Int) {
+        let value = min(max(model.scrollbackLimit + delta, 128), 8_192)
+        model.setConfiguration(key: "scrollback-limit", value: String(value))
     }
 }
 

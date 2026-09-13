@@ -36,6 +36,14 @@ void *rune_session_new_named(const char *root, const char *session_id);
 void rune_session_destroy(void *handle);
 // Request cooperative cancellation at the next Rust execution boundary.
 void rune_session_cancel(const void *handle);
+// Update one validated Rust-owned configuration value without history entry.
+RuneOutput rune_session_set_configuration(
+    void *handle,
+    const char *key,
+    const char *value
+);
+// Reset Rust-owned configuration without history entry.
+RuneOutput rune_session_reset_configuration(void *handle);
 RuneOutput rune_session_put_file(
     void *handle,
     const char *path,

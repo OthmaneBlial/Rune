@@ -90,6 +90,16 @@ private func rune_session_destroy(_ handle: OpaquePointer?)
 @_silgen_name("rune_session_cancel")
 private func rune_session_cancel(_ handle: OpaquePointer?)
 
+@_silgen_name("rune_session_set_configuration")
+private func rune_session_set_configuration(
+    _ handle: OpaquePointer?,
+    _ key: UnsafePointer<CChar>,
+    _ value: UnsafePointer<CChar>
+) -> RuneFFIOutput
+
+@_silgen_name("rune_session_reset_configuration")
+private func rune_session_reset_configuration(_ handle: OpaquePointer?) -> RuneFFIOutput
+
 @_silgen_name("rune_session_execute")
 private func rune_session_execute(
     _ handle: OpaquePointer?,
@@ -214,6 +224,27 @@ public final class RuneFFISession: @unchecked Sendable {
     /// A synchronous operation already in progress may finish first.
     public func cancel() {
         rune_session_cancel(handle)
+    }
+
+    /// Updates one validated Rust-owned setting without adding a shell
+    /// command to history. The result includes any persistence failure.
+    public func setConfiguration(key: String, value: String) -> RuneCommandResult {
+        withLock {
+            let raw = key.withCString { keyPointer in
+                value.withCString { valuePointer in
+                    rune_session_set_configuration(handle, keyPointer, valuePointer)
+                }
+            }
+            return consume(raw)
+        }
+    }
+
+    /// Restores Rust-owned settings to their defaults without adding a shell
+    /// command to history.
+    public func resetConfiguration() -> RuneCommandResult {
+        withLock {
+            consume(rune_session_reset_configuration(handle))
+        }
     }
 
     public var currentDirectory: String {

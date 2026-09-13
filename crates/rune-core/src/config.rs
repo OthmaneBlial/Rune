@@ -212,6 +212,37 @@ pub(super) fn update_scrollback_limit(
     Ok(())
 }
 
+pub(super) fn update(
+    filesystem: &mut dyn VirtualFileSystem,
+    config: &mut TerminalConfig,
+    key: &str,
+    value: &str,
+) -> Result<(), String> {
+    match key {
+        "history-limit" => update_history_limit(filesystem, config, value),
+        "font-size" => update_font_size(filesystem, config, value),
+        "scrollback-limit" => update_scrollback_limit(filesystem, config, value),
+        "theme" => update_theme(filesystem, config, value),
+        _ => Err(
+            "unknown key; available keys: history-limit, font-size, scrollback-limit, theme"
+                .to_string(),
+        ),
+    }
+}
+
+pub(super) fn reset(
+    filesystem: &mut dyn VirtualFileSystem,
+    config: &mut TerminalConfig,
+) -> Result<(), FsError> {
+    let previous = config.clone();
+    *config = TerminalConfig::default();
+    if let Err(error) = config.save(filesystem) {
+        *config = previous;
+        return Err(error);
+    }
+    Ok(())
+}
+
 fn parse(content: &str) -> Option<TerminalConfig> {
     let mut lines = content.lines();
     if lines.next()? != CONFIG_HEADER {
