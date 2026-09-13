@@ -32,6 +32,12 @@ UTF-8 for the text automation result. The Rust API itself accepts bounded
 binary payloads up to 16 MiB; the source-only App Intent surface intentionally
 does not claim arbitrary binary file parameters.
 
+The terminal and workspace sources attach VoiceOver labels, hints, values, and
+stable identifiers to their primary controls and session output. This provides
+an explicit accessibility contract for the eventual native target; traversal,
+Dynamic Type, contrast, and VoiceOver behavior remain unverified without an
+Apple runtime.
+
 Individual command lines crossing the bridge are also rejected above the
 64-KiB Rust input limit before parsing or history recording.
 

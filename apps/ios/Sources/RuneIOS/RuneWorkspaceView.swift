@@ -80,6 +80,10 @@ public struct RuneWorkspaceView: View {
                             .buttonStyle(.plain)
                             .font(.system(size: 12, design: .monospaced))
                             .lineLimit(1)
+                            .accessibilityLabel("Terminal tab \(tab.title)")
+                            .accessibilityValue(tab.id == selectedTabID ? "Selected" : "")
+                            .accessibilityHint("Switch to this independent Rust session.")
+                            .accessibilityAddTraits(tab.id == selectedTabID ? .isSelected : [])
                             if tabs.count > 1 {
                                 Button {
                                     close(tab)
@@ -106,6 +110,8 @@ public struct RuneWorkspaceView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("New Rune session")
+            .accessibilityHint("Open another independent terminal tab.")
+            .accessibilityIdentifier("rune.newTab")
             Button {
                 openWindow(value: RuneWindowRoute(sessionID: UUID().uuidString.lowercased()))
             } label: {
@@ -114,6 +120,8 @@ public struct RuneWorkspaceView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Open a new Rune window")
+            .accessibilityHint("Open an independent Rune session window.")
+            .accessibilityIdentifier("rune.newWindow")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

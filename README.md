@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 71%**
+**Overall progress: 72%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -25,7 +25,7 @@ working iOS application or a feature-parity claim.
 | Sessions/history | 62% |
 | Configuration | 63% |
 | WASM | 52% |
-| Native iOS UI | 66% |
+| Native iOS UI | 68% |
 | Swift/Rust bridge | 52% |
 | Package manager | 52% |
 | Compatibility evidence | 2% |
@@ -211,6 +211,13 @@ and paste actions through the native model; only command execution and shell
 state cross the Rust boundary. A currently running synchronous Rust operation
 may still finish before its next boundary; background execution, cancellation,
 and Apple runtime behavior are not device-validated here.
+
+The SwiftUI terminal source also provides VoiceOver labels, values, hints, and
+stable accessibility identifiers for the session status, transcript entries,
+command input, execution controls, completion actions, settings, and workspace
+tabs. This is source-level accessibility structure; VoiceOver traversal,
+Dynamic Type, contrast, and iPad interaction still require Apple runtime
+validation.
 
 The Swift transcript also applies a separate bounded scrollback window
 (4,096 entries by default, configurable up to 8,192) and an 8 MiB in-memory

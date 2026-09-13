@@ -433,6 +433,9 @@ public struct RuneTerminalView: View {
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
                             .foregroundStyle(palette.muted)
                     }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Rune terminal")
+                    .accessibilityValue("Rust core, local session")
                     Button {
                         isImportingFolder = true
                     } label: {
@@ -442,6 +445,8 @@ public struct RuneTerminalView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(palette.cyan)
                     .accessibilityLabel("Open a folder")
+                    .accessibilityHint("Choose an external folder for a confined Rune session.")
+                    .accessibilityIdentifier("rune.openFolder")
                     .keyboardShortcut("o", modifiers: [.command])
                     Button {
                         isShowingSettings = true
@@ -452,6 +457,8 @@ public struct RuneTerminalView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(palette.cyan)
                     .accessibilityLabel("Terminal settings")
+                    .accessibilityHint("Configure terminal appearance and scrollback.")
+                    .accessibilityIdentifier("rune.settings")
                     if model.isExecuting {
                         Button {
                             model.cancel()
@@ -462,6 +469,8 @@ public struct RuneTerminalView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(palette.ember)
                         .accessibilityLabel("Cancel command")
+                        .accessibilityHint("Request cooperative cancellation from the Rust session.")
+                        .accessibilityIdentifier("rune.cancel")
                         .keyboardShortcut(".", modifiers: [.command])
                     }
                     Spacer()
@@ -477,6 +486,12 @@ public struct RuneTerminalView: View {
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(palette.muted)
                     }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Session status")
+                    .accessibilityValue(
+                        "\(model.workspaceName), directory \(model.currentDirectory), "
+                            + "\(model.entries.count) events"
+                    )
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 14)
@@ -503,11 +518,15 @@ public struct RuneTerminalView: View {
                                     .font(terminalFont(size: model.fontSize))
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .textSelection(.enabled)
+                                    .accessibilityElement(children: .ignore)
+                                    .accessibilityLabel(accessibilityLabel(for: entry.kind))
+                                    .accessibilityValue(Text(verbatim: entry.text))
                                     .id(entry.id)
                             }
                         }
                         .padding(18)
                     }
+                    .accessibilityIdentifier("rune.transcript")
                     .scrollDismissesKeyboard(.interactively)
                     .onChange(of: model.entries.count) { _, _ in
                         if let last = model.entries.last {
@@ -535,6 +554,8 @@ public struct RuneTerminalView: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 7)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityLabel("Command completions")
                     }
                 }
 
@@ -564,6 +585,8 @@ public struct RuneTerminalView: View {
                             inputFocused = true
                         }
                         .accessibilityLabel("Command input")
+                        .accessibilityHint("Enter a Rust-backed Rune command and submit it.")
+                        .accessibilityIdentifier("rune.commandInput")
                     Button {
                         model.previousHistory()
                         inputFocused = true
@@ -573,6 +596,7 @@ public struct RuneTerminalView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(palette.muted)
                     .accessibilityLabel("Previous command")
+                    .accessibilityHint("Load the previous command from this session's history.")
                     .disabled(model.isExecuting)
                     .keyboardShortcut(.upArrow, modifiers: [.command])
                     Button {
@@ -584,6 +608,7 @@ public struct RuneTerminalView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(palette.muted)
                     .accessibilityLabel("Next command")
+                    .accessibilityHint("Load the next command from this session's history.")
                     .disabled(model.isExecuting)
                     .keyboardShortcut(.downArrow, modifiers: [.command])
                     Button {
@@ -596,6 +621,8 @@ public struct RuneTerminalView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(palette.cyan)
                     .accessibilityLabel("Execute command")
+                    .accessibilityHint("Send the command to the Rust session.")
+                    .accessibilityIdentifier("rune.execute")
                     .disabled(model.isExecuting)
                     .keyboardShortcut(.return, modifiers: [.command])
                 }
@@ -630,6 +657,15 @@ public struct RuneTerminalView: View {
         case .stdout: return palette.foreground
         case .stderr: return palette.ember
         case .status: return palette.muted
+        }
+    }
+
+    private func accessibilityLabel(for kind: RuneTranscriptEntry.Kind) -> String {
+        switch kind {
+        case .command: return "Command"
+        case .stdout: return "Command output"
+        case .stderr: return "Command error output"
+        case .status: return "Command status"
         }
     }
 
@@ -833,6 +869,7 @@ private struct RuneInputToolbar: View {
                 .labelStyle(.titleAndIcon)
                 .buttonStyle(.bordered)
                 .accessibilityLabel("Paste text")
+                .accessibilityHint("Insert text from the clipboard into the command input.")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 7)
@@ -852,6 +889,7 @@ private struct RuneToolbarButton: View {
         }
         .buttonStyle(.bordered)
         .accessibilityLabel(title)
+        .accessibilityHint("Apply \(title) to the command input.")
     }
 }
 
