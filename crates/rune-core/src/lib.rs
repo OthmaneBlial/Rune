@@ -2034,6 +2034,43 @@ mod tests {
     }
 
     #[test]
+    fn grants_installed_wasm_filesystem_only_with_manifest_permission() {
+        let root = test_root();
+        let package_root = root.join("bundle/bin");
+        std::fs::create_dir_all(&package_root).expect("package directories created");
+        let wasm = package_wasm_probe();
+        let digest = rune_package::sha256_hex(&wasm);
+        std::fs::write(package_root.join("hello.wasm"), &wasm).expect("module written");
+        let manifest = format!(
+            r#"{{
+                "schema_version": 1,
+                "name": "local-wasm",
+                "version": "0.1.0",
+                "description": "A local WASM package",
+                "permissions": {{"filesystem": true}},
+                "files": [{{"path": "bin/hello.wasm", "sha256": "{digest}"}}],
+                "commands": [{{"name": "local-hello", "entry": "bin/hello.wasm"}}]
+            }}"#
+        );
+        std::fs::write(root.join("bundle/manifest.json"), &manifest).expect("manifest written");
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+
+        assert_eq!(
+            session
+                .execute_line("pkg install bundle/manifest.json")
+                .status,
+            0
+        );
+        let output = session.execute_line("local-hello");
+        assert_eq!(output.status, 9, "{output:?}");
+        assert!(session
+            .execute_line("pkg info local-wasm")
+            .stdout
+            .contains("permissions: filesystem"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn manages_environment_and_status_builtins() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
