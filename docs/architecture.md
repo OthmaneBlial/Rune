@@ -88,7 +88,9 @@ search matching entries with `history search QUERY ...`, or clear the mutable
 history with `history -c`. Search is case-insensitive, retains original entry
 numbers, and is limited to 256 query characters. New records obey both the
 configured count and a 4 MiB serialized-history budget, preventing a large
-count from creating unbounded session state.
+count from creating unbounded session state. Consecutive duplicate records are
+suppressed before those limits are applied; non-consecutive repeats remain
+distinct.
 
 Aliases live in the same session boundary but are not serialized. `alias` and
 `unalias` mutate the Rust-owned alias map, so profile commands can establish

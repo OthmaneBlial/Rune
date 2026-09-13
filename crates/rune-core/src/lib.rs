@@ -456,8 +456,11 @@ impl Session {
             return CommandOutput::success("");
         }
         if record_history {
-            self.history.push(history_entry(line));
-            persistence::apply_history_limit(&mut self.history, self.history_limit);
+            let entry = history_entry(line);
+            if self.history.last() != Some(&entry) {
+                self.history.push(entry);
+                persistence::apply_history_limit(&mut self.history, self.history_limit);
+            }
         }
 
         let plan = match parse(line) {
@@ -1122,6 +1125,28 @@ mod tests {
     }
 
     #[test]
+    fn suppresses_only_consecutive_duplicate_history_entries() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("echo repeat").status, 0);
+        assert_eq!(session.execute_line("echo repeat").status, 0);
+        assert_eq!(session.execute_line("echo other").status, 0);
+        assert_eq!(session.execute_line("echo repeat").status, 0);
+        assert_eq!(
+            session.history(),
+            ["echo repeat", "echo other", "echo repeat"]
+        );
+
+        session.persist().expect("deduplicated history persisted");
+        let restored = Session::restore(SandboxedFileSystem::new(&root).expect("root reopened"));
+        assert_eq!(
+            restored.history(),
+            ["echo repeat", "echo other", "echo repeat"]
+        );
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn tracks_previous_directory_and_prints_it_for_cd_dash() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
@@ -1175,9 +1200,7 @@ mod tests {
         assert!(output.stdout.len() <= MAX_OUTPUT_BYTES);
         assert!(output.stdout.ends_with(OUTPUT_TRUNCATION_MARKER));
         assert!(output.stderr.len() <= MAX_OUTPUT_BYTES);
-        assert!(session
-            .history()
-            .ends_with(&["cat large.txt".to_string(), "cat large.txt".to_string()]));
+        assert_eq!(session.history(), ["cat large.txt"]);
 
         std::fs::remove_dir_all(root).expect("test root removed");
     }

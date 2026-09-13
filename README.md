@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 36%**
+**Overall progress: 37%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -22,7 +22,7 @@ working iOS application or a feature-parity claim.
 | Shell tokenizer/parser | 63% |
 | Command runtime | 82% |
 | Sandboxed filesystem | 58% |
-| Sessions/history | 48% |
+| Sessions/history | 50% |
 | Configuration | 23% |
 | WASM | 23% |
 | Native iOS UI | 20% |
@@ -130,7 +130,8 @@ The `history` built-in also supports `history N` for a bounded recent view,
 original history numbers, and `history -c` to clear the current session
 history. History records are limited by the configured count and a 4 MiB total
 serialized-history budget, so a large count cannot create unbounded session
-state.
+state. Consecutive duplicate entries are suppressed, while the same command
+after another command remains a distinct history record.
 
 Runtime providers use a small Rust-owned request/output contract. WASM is the
 first provider; Python, JavaScript, and Lua are named extension points only and
