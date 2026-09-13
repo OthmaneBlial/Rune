@@ -194,9 +194,13 @@ pub(super) fn cat(context: &mut CommandContext<'_>) -> CommandOutput {
     }
     let mut stdout = String::new();
     for path in context.args {
-        match context.fs.read(path) {
-            Ok(bytes) => stdout.push_str(&String::from_utf8_lossy(&bytes)),
-            Err(error) => return fs_failure("cat", &error),
+        if path == "-" {
+            stdout.push_str(context.stdin);
+        } else {
+            match context.fs.read(path) {
+                Ok(bytes) => stdout.push_str(&String::from_utf8_lossy(&bytes)),
+                Err(error) => return fs_failure("cat", &error),
+            }
         }
     }
     CommandOutput::success(stdout)

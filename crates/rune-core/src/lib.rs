@@ -2715,6 +2715,7 @@ mod tests {
             session.execute_line("echo alpha | grep alpha -").stdout,
             "alpha\n"
         );
+        assert_eq!(session.execute_line("echo alpha | cat -").stdout, "alpha\n");
         assert_eq!(session.execute_line("echo Hi | xxd -p").stdout, "48690a\n");
         assert!(session
             .execute_line("echo Hi | xxd")
