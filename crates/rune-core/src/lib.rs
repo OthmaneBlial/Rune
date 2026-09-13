@@ -60,7 +60,8 @@ pub(crate) const PACKAGE_INSTALL_ROOT: &str = "~/.rune/packages";
 fn supports_path_completion(command: &str) -> bool {
     matches!(
         command,
-        "base64"
+        "awk"
+            | "base64"
             | "bc"
             | "basename"
             | "cat"
@@ -2603,6 +2604,32 @@ mod tests {
 
         assert_eq!(session.execute_line("gzip -c note.txt").status, 2);
         assert_eq!(session.execute_line("gunzip note.txt").status, 1);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn processes_bounded_awk_fields_and_patterns() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let fields = session.execute_line("printf 'red 1\\nblue 2\\n' | awk '{print $2}'");
+        assert_eq!(fields.status, 0);
+        assert_eq!(fields.stdout, "1\n2\n");
+
+        assert_eq!(
+            session
+                .execute_line("printf 'ok,1,red\\nskip,2,blue\\n' > rows.csv")
+                .status,
+            0
+        );
+        let selected = session
+            .execute_line("awk -F, 'BEGIN { OFS = \":\" } $2 == \"1\" { print $1, $3 }' rows.csv");
+        assert_eq!(selected.status, 0);
+        assert_eq!(selected.stdout, "ok:red\n");
+
+        let ended = session.execute_line("awk 'END { print \"done\" }' rows.csv");
+        assert_eq!(ended.status, 0);
+        assert_eq!(ended.stdout, "done\n");
+        assert_eq!(session.execute_line("awk -F, 'next' rows.csv").status, 2);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

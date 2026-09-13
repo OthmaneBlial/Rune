@@ -1,6 +1,7 @@
 use crate::CommandDefinition;
 
 mod archive;
+mod awk;
 mod bookmarks;
 mod compression;
 mod config;
@@ -35,6 +36,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "alias",
         summary: "define or print session-local command aliases",
         handler: shell::alias,
+    },
+    CommandDefinition {
+        name: "awk",
+        summary: "process bounded text fields with a Rust-owned awk subset",
+        handler: awk::awk,
     },
     CommandDefinition {
         name: "bookmark",

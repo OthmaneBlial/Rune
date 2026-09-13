@@ -37,7 +37,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
 `setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
-`true`, `false`, `cut`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `pkg`, `tar`,
+`true`, `false`, `awk`, `cut`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `pkg`, `tar`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
 `help`, `history`, `sleep`, `uname`, `which`, `whoami`, `pbcopy`, `pbpaste`,
 `source`, and `.` against a
@@ -64,6 +64,11 @@ its status remains 0 for a match, 1 for no match, and 2 for invalid usage.
 `diff [-u|--unified] FILE1 FILE2` compares two bounded UTF-8 VFS files with a
 whole-file unified view, returning status 0 when equal, 1 when different, and
 2 when input, comparison size, or usage bounds are rejected.
+`awk` provides a Rust-owned bounded text-processing subset: `-F` field
+separators, `$0`/`$1...`, `NF`/`NR`/`FNR`, `print`, `FS`/`OFS` assignments,
+`BEGIN`/`END`, literal `/text/` filters, simple equality, and literal
+contains/not-contains predicates. It accepts UTF-8 stdin or confined files,
+and does not execute arbitrary awk code or regular expressions.
 Redirections also support bounded stream duplication with `2>&1`, `1>&2`,
 `>&2`, and `&>`/`&>>`; the Rust plan preserves their left-to-right target
 semantics for pipelines and captured stdout/stderr.
@@ -394,6 +399,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded `expr` arithmetic and text utility
 - [x] Bounded `pbcopy`/`pbpaste` through an explicit host clipboard capability
 - [x] Bounded UTF-8 `diff` with unified output and comparison limits
+- [x] Bounded Rust-owned `awk` field processing subset
 
 ### Phase 3 — Developer environment
 
