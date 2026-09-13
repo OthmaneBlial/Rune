@@ -71,6 +71,10 @@ Configuration is a separate, versioned Rust-owned file at
 preferences are intentionally not serialized until the native UI consumes a
 defined configuration contract.
 
+The `history` built-in can render the full session, a bounded recent count, or
+clear the mutable history with `history -c`. The command is still subject to
+the configured history limit when new entries are recorded.
+
 Aliases live in the same session boundary but are not serialized. `alias` and
 `unalias` mutate the Rust-owned alias map, so profile commands can establish
 repeatable local shortcuts without Swift-specific state. Before command lookup,

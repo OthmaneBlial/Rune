@@ -102,6 +102,9 @@ The portable configuration boundary currently supports the bounded
 It persists in `~/.rune/config.state`; fonts, themes, cursor styling, and
 toolbar preferences are not yet consumed by the source-only Swift UI.
 
+The `history` built-in also supports `history N` for a bounded recent view and
+`history -c` to clear the current session history.
+
 Runtime providers use a small Rust-owned request/output contract. WASM is the
 first provider; Python, JavaScript, and Lua are named extension points only and
 remain unavailable until their execution and App Store boundaries are designed

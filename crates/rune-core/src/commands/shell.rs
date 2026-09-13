@@ -176,11 +176,26 @@ pub(super) fn false_command(context: &mut CommandContext<'_>) -> CommandOutput {
 }
 
 pub(super) fn history(context: &mut CommandContext<'_>) -> CommandOutput {
-    if !context.args.is_empty() {
-        return usage("history", "usage: history");
+    match context.args {
+        [] => history_output(context.history, 0),
+        [flag] if flag == "-c" => {
+            context.history.clear();
+            CommandOutput::success("")
+        }
+        [count] => {
+            let Ok(count) = count.parse::<usize>() else {
+                return usage("history", "usage: history [-c|COUNT]");
+            };
+            let start = context.history.len().saturating_sub(count);
+            history_output(context.history, start)
+        }
+        _ => usage("history", "usage: history [-c|COUNT]"),
     }
+}
+
+fn history_output(history: &[String], start: usize) -> CommandOutput {
     let mut stdout = String::new();
-    for (index, command) in context.history.iter().enumerate() {
+    for (index, command) in history.iter().enumerate().skip(start) {
         let _ = writeln!(stdout, "{:>5}  {command}", index + 1);
     }
     CommandOutput::success(stdout)

@@ -107,7 +107,7 @@ pub struct CommandContext<'a> {
     pub(crate) aliases: &'a mut BTreeMap<String, String>,
     pub(crate) bookmarks: &'a mut BTreeMap<String, String>,
     pub(crate) config: &'a mut TerminalConfig,
-    pub(crate) history: &'a [String],
+    pub(crate) history: &'a mut Vec<String>,
     pub(crate) command_definitions: &'a [CommandDefinition],
     pub(crate) runtime: &'a dyn Runtime,
 }
@@ -452,7 +452,7 @@ impl Session {
                 aliases: &mut self.aliases,
                 bookmarks: &mut self.bookmarks,
                 config: &mut self.config,
-                history: &self.history,
+                history: &mut self.history,
                 command_definitions: self.registry.definitions(),
                 runtime: &self.wasm_runner,
             };
@@ -812,6 +812,21 @@ mod tests {
         assert!(restored.history().len() <= 3);
         assert_eq!(restored.execute_line("config reset").status, 0);
         assert_eq!(restored.configuration().history_limit(), 1_000);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn limits_and_clears_session_history_through_the_builtin() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("echo first").status, 0);
+        assert_eq!(session.execute_line("echo second").status, 0);
+        let recent = session.execute_line("history 1");
+        assert_eq!(recent.status, 0);
+        assert!(recent.stdout.contains("history 1"));
+        assert!(!recent.stdout.contains("echo second"));
+        assert_eq!(session.execute_line("history -c").status, 0);
+        assert!(session.history().is_empty());
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
