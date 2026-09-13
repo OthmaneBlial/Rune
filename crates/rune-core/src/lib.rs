@@ -93,6 +93,7 @@ pub struct CommandContext<'a> {
     pub(crate) fs: &'a mut dyn VirtualFileSystem,
     pub(crate) env: &'a mut BTreeMap<String, String>,
     pub(crate) aliases: &'a mut BTreeMap<String, String>,
+    pub(crate) bookmarks: &'a mut BTreeMap<String, String>,
     pub(crate) history: &'a [String],
     pub(crate) command_definitions: &'a [CommandDefinition],
     pub(crate) runtime: &'a dyn Runtime,
@@ -103,6 +104,7 @@ pub struct Session {
     filesystem: Box<dyn VirtualFileSystem>,
     environment: BTreeMap<String, String>,
     aliases: BTreeMap<String, String>,
+    bookmarks: BTreeMap<String, String>,
     history: Vec<String>,
     history_limit: usize,
     registry: CommandRegistry,
@@ -126,6 +128,7 @@ impl Session {
             filesystem: Box::new(filesystem),
             environment,
             aliases: BTreeMap::new(),
+            bookmarks: BTreeMap::new(),
             history: Vec::new(),
             history_limit: 1_000,
             registry: CommandRegistry::default(),
@@ -146,6 +149,7 @@ impl Session {
         let state = persistence::load(session.filesystem.as_ref());
         session.load_startup_profile();
         session.history = state.history;
+        session.bookmarks = state.bookmarks;
         if let Some(directory) = state.current_directory {
             let _ = session.filesystem.change_dir(&directory);
         }
@@ -168,7 +172,12 @@ impl Session {
     /// created or the state file cannot be written.
     pub fn persist(&mut self) -> Result<(), FsError> {
         let directory = self.filesystem.current_dir_display();
-        persistence::save(self.filesystem.as_mut(), &directory, &self.history)
+        persistence::save(
+            self.filesystem.as_mut(),
+            &directory,
+            &self.history,
+            &self.bookmarks,
+        )
     }
 
     /// Returns the current virtual directory, useful to native frontends.
@@ -187,6 +196,12 @@ impl Session {
     #[must_use]
     pub fn aliases(&self) -> &BTreeMap<String, String> {
         &self.aliases
+    }
+
+    /// Returns the session-local directory bookmarks.
+    #[must_use]
+    pub fn bookmarks(&self) -> &BTreeMap<String, String> {
+        &self.bookmarks
     }
 
     /// Returns the command history in execution order.
@@ -380,6 +395,7 @@ impl Session {
                 fs: self.filesystem.as_mut(),
                 env: &mut self.environment,
                 aliases: &mut self.aliases,
+                bookmarks: &mut self.bookmarks,
                 history: &self.history,
                 command_definitions: self.registry.definitions(),
                 runtime: &self.wasm_runner,
@@ -583,6 +599,40 @@ mod tests {
         assert_eq!(restored.current_directory(), "~/work");
         assert!(restored.history().contains(&"cat note.txt".to_string()));
         assert_eq!(restored.history().last().map(String::as_str), Some("pwd"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn manages_virtual_bookmarks_and_restores_them() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(
+            session.execute_line("mkdir project && cd project").status,
+            0
+        );
+        assert_eq!(session.execute_line("bookmark work").status, 0);
+        assert_eq!(session.execute_line("bookmark bad/name").status, 2);
+        assert_eq!(session.execute_line("cd ~").status, 0);
+        assert_eq!(session.execute_line("cd ~work").status, 0);
+        assert_eq!(session.current_directory(), "~/project");
+        assert_eq!(
+            session.execute_line("showmarks").stdout,
+            "work -> ~/project\n"
+        );
+        assert_eq!(session.execute_line("renamemark work source").status, 0);
+        assert_eq!(session.execute_line("bookmark other").status, 0);
+        assert_eq!(session.execute_line("renamemark source other").status, 1);
+        assert_eq!(session.execute_line("cd ~source").status, 0);
+        assert_eq!(session.execute_line("deletemark source").status, 0);
+        assert_eq!(session.execute_line("jump source").status, 1);
+
+        assert_eq!(session.execute_line("bookmark persisted").status, 0);
+        session.persist().expect("bookmarks persisted");
+        let mut restored =
+            Session::restore(SandboxedFileSystem::new(&root).expect("root reopened"));
+        assert_eq!(restored.bookmarks()["persisted"], "~/project");
+        assert_eq!(restored.execute_line("cd ~persisted").status, 0);
+        assert_eq!(restored.current_directory(), "~/project");
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

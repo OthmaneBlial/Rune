@@ -7,6 +7,15 @@ pub(super) fn cd(context: &mut CommandContext<'_>) -> CommandOutput {
         return usage("cd", "usage: cd [directory]");
     }
     let directory = context.args.first().map_or("~", String::as_str);
+    let bookmarked_directory =
+        match crate::commands::bookmarks::lookup_cd_bookmark(context, directory) {
+            Ok(path) => path,
+            Err(output) => return output,
+        };
+    let directory = match bookmarked_directory.as_deref() {
+        Some(path) => path,
+        None => directory,
+    };
     match context.fs.change_dir(directory) {
         Ok(()) => CommandOutput::success(""),
         Err(error) => fs_failure("cd", &error),

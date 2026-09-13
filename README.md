@@ -21,8 +21,8 @@ working iOS application or a feature-parity claim.
 | Rust workspace | 70% |
 | Shell tokenizer/parser | 60% |
 | Command runtime | 71% |
-| Sandboxed filesystem | 48% |
-| Sessions/history | 32% |
+| Sandboxed filesystem | 55% |
+| Sessions/history | 38% |
 | WASM | 23% |
 | Native iOS UI | 9% |
 | Swift/Rust bridge | 6% |
@@ -36,7 +36,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `printenv`, `setenv`,
 `alias`, `unalias`, `find`, `sed`,
 `true`, `false`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `pkg`,
-`clear`, `help`,
+`bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `help`,
 and `history` against a bounded filesystem, including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
 with quotes, variables, leading `NAME=value` assignments, pipes, redirections,
@@ -83,6 +83,12 @@ The `pkg info MANIFEST` and `pkg verify MANIFEST` commands inspect local
 versioned package metadata through the same VFS and verify declared SHA-256
 file digests. Network transport and installation commands are intentionally
 unsupported at this stage.
+
+The portable core also supports session-local virtual directory bookmarks with
+`bookmark`, `showmarks`, `jump`, `cd ~NAME`, `renamemark`, and `deletemark`.
+They persist with the session state and remain confined to the configured VFS;
+external folders and security-scoped bookmark resolution are still Apple-side
+work.
 
 Runtime providers use a small Rust-owned request/output contract. WASM is the
 first provider; Python, JavaScript, and Lua are named extension points only and
@@ -155,6 +161,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded recursive `find` traversal
 - [x] Bounded literal `sed` substitutions
 - [x] Bounded terminal output channels
+- [x] Session-local virtual directory bookmarks
 
 ### Phase 3 — Developer environment
 

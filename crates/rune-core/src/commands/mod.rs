@@ -1,5 +1,6 @@
 use crate::CommandDefinition;
 
+mod bookmarks;
 mod filesystem;
 mod package;
 mod shell;
@@ -11,6 +12,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "alias",
         summary: "define or print session-local command aliases",
         handler: shell::alias,
+    },
+    CommandDefinition {
+        name: "bookmark",
+        summary: "save the current directory under a session-local name",
+        handler: bookmarks::bookmark,
     },
     CommandDefinition {
         name: "cat",
@@ -31,6 +37,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "cp",
         summary: "copy one file",
         handler: filesystem::cp,
+    },
+    CommandDefinition {
+        name: "deletemark",
+        summary: "remove one or more saved directory names",
+        handler: bookmarks::deletemark,
     },
     CommandDefinition {
         name: "echo",
@@ -78,6 +89,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::history,
     },
     CommandDefinition {
+        name: "jump",
+        summary: "change directory to a saved bookmark",
+        handler: bookmarks::jump,
+    },
+    CommandDefinition {
         name: "ls",
         summary: "list directory entries",
         handler: filesystem::ls,
@@ -108,6 +124,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: filesystem::rm,
     },
     CommandDefinition {
+        name: "renamemark",
+        summary: "rename a saved directory bookmark",
+        handler: bookmarks::renamemark,
+    },
+    CommandDefinition {
         name: "sed",
         summary: "apply bounded literal substitutions to text",
         handler: text::sed,
@@ -136,6 +157,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "setenv",
         summary: "set one environment variable",
         handler: shell::setenv,
+    },
+    CommandDefinition {
+        name: "showmarks",
+        summary: "list saved directory bookmarks",
+        handler: bookmarks::showmarks,
     },
     CommandDefinition {
         name: "true",

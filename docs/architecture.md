@@ -100,6 +100,13 @@ at 10,000 visited entries and does not follow symlink entries, keeping a
 malicious or cyclic tree from turning a synchronous command into unbounded
 work.
 
+Session-local virtual bookmarks are stored as validated names mapped to Rune
+virtual directories. `bookmark`, `showmarks`, `jump`, `renamemark`, and
+`deletemark` mutate or inspect that map; `cd ~NAME` resolves an existing mark
+before asking the VFS to change directory. The map is persisted with the
+bounded session state. It is not an Apple security-scoped bookmark and cannot
+grant access outside the configured VFS.
+
 The `wasm MODULE [arg ...]` built-in reads the module through the virtual
 filesystem and invokes WASI preview1 `_start` in the Rust runtime. The guest
 receives only argv, the session environment, stdin, stdout, and stderr. The
