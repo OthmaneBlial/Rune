@@ -86,6 +86,10 @@ Event tests verify Rust pipeline/status emission and the C callback lifetime:
 event strings are borrowed only during the callback and are copied by the
 native bridge. This validates boundary-level event delivery, not Apple runtime,
 live UI rendering, or byte-level WASM streaming.
+The Swift transcript stores parsed ANSI spans once per immutable transcript
+entry and renders bounded entries through `LazyVStack`; this is source-level
+rendering architecture evidence, not a measured Apple frame-time or device
+memory result.
 The archive integration tests create nested files, list and extract a USTAR
 archive into a new confined destination, and reject compressed tar flags and
 escaping archive members. ZIP coverage remains stored-only and does not

@@ -403,7 +403,7 @@ git check-ignore -v base/a-shell
 
 ### Phase 4 — Apple integration
 
-- [ ] Fast native terminal rendering
+- [x] Source-level lazy terminal transcript with cached ANSI spans
 - [x] Source-only external folders and bounded security-scoped bookmarks
 - [x] Rust-namespaced sessions and source-only terminal tabs
 - [x] Source-only typed iPad window routing

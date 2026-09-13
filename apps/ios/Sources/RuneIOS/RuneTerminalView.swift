@@ -16,10 +16,12 @@ public struct RuneTranscriptEntry: Identifiable, Hashable, Sendable {
     public let id = UUID()
     public let kind: Kind
     public let text: String
+    let ansiSegments: [RuneANSISegment]
 
     public init(kind: Kind, text: String) {
         self.kind = kind
         self.text = text
+        ansiSegments = RuneANSIRenderer.segments(from: text)
     }
 }
 
@@ -544,7 +546,7 @@ public struct RuneTerminalView: View {
                             }
                             ForEach(model.entries) { entry in
                                 RuneANSIText(
-                                    text: entry.text,
+                                    segments: entry.ansiSegments,
                                     defaultColor: color(for: entry.kind, palette: palette),
                                     defaultBackground: palette.background
                                 )

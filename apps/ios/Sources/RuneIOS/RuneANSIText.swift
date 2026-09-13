@@ -1,6 +1,6 @@
 import SwiftUI
 
-private enum RuneANSIColor {
+enum RuneANSIColor: Hashable, Sendable {
     case indexed(Int)
     case rgb(Int, Int, Int)
 
@@ -66,7 +66,7 @@ private enum RuneANSIColor {
     }()
 }
 
-private struct RuneANSIStyle {
+struct RuneANSIStyle: Hashable, Sendable {
     var foreground: RuneANSIColor?
     var background: RuneANSIColor?
     var bold = false
@@ -74,7 +74,7 @@ private struct RuneANSIStyle {
     var inverse = false
 }
 
-private struct RuneANSISegment {
+struct RuneANSISegment: Hashable, Sendable {
     let text: String
     let style: RuneANSIStyle
 }
@@ -82,12 +82,22 @@ private struct RuneANSISegment {
 /// Displays terminal text after consuming common ANSI control sequences.
 /// Unsupported controls are removed rather than shown as escape bytes.
 struct RuneANSIText: View {
-    let text: String
+    let segments: [RuneANSISegment]
     let defaultColor: Color
     let defaultBackground: Color
 
     init(text: String, defaultColor: Color, defaultBackground: Color = .clear) {
-        self.text = text
+        self.segments = RuneANSIRenderer.segments(from: text)
+        self.defaultColor = defaultColor
+        self.defaultBackground = defaultBackground
+    }
+
+    init(
+        segments: [RuneANSISegment],
+        defaultColor: Color,
+        defaultBackground: Color = .clear
+    ) {
+        self.segments = segments
         self.defaultColor = defaultColor
         self.defaultBackground = defaultBackground
     }
@@ -97,7 +107,7 @@ struct RuneANSIText: View {
     }
 
     private var styledText: Text {
-        RuneANSIRenderer.segments(from: text).reduce(Text("")) { result, segment in
+        segments.reduce(Text("")) { result, segment in
             let regularForeground = segment.style.foreground?.resolve() ?? defaultColor
             let regularBackground = segment.style.background?.resolve()
             let foregroundColor = segment.style.inverse
@@ -122,7 +132,7 @@ struct RuneANSIText: View {
     }
 }
 
-private enum RuneANSIRenderer {
+enum RuneANSIRenderer {
     static func segments(from text: String) -> [RuneANSISegment] {
         var segments = [RuneANSISegment]()
         var style = RuneANSIStyle(foreground: nil, background: nil)
