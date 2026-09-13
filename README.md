@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 32%**
+**Overall progress: 33%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -20,7 +20,7 @@ working iOS application or a feature-parity claim.
 |---|---:|
 | Rust workspace | 70% |
 | Shell tokenizer/parser | 63% |
-| Command runtime | 78% |
+| Command runtime | 80% |
 | Sandboxed filesystem | 58% |
 | Sessions/history | 42% |
 | Configuration | 23% |
