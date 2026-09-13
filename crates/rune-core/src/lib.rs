@@ -23,6 +23,7 @@ const MAX_ALIAS_EXPANSIONS: usize = 32;
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_COMPLETION_CANDIDATES: usize = 8;
 const MAX_COMPLETION_INPUT_BYTES: usize = 64 * 1024;
+const MAX_INSTALLED_COMMANDS: usize = 4_096;
 const OUTPUT_TRUNCATION_MARKER: &str = "\n[rune: output truncated at 1048576 bytes]\n";
 pub(crate) const PACKAGE_INSTALL_ROOT: &str = "~/.rune/packages";
 
@@ -60,6 +61,7 @@ fn directories_only_for_completion(command: &str) -> bool {
 }
 
 struct InstalledCommand {
+    name: String,
     package: String,
     manifest_path: String,
     module_path: String,
@@ -311,6 +313,16 @@ impl Session {
                 .filter(|name| *name != prefix && name.starts_with(prefix))
                 .map(str::to_owned)
                 .collect::<Vec<_>>();
+            if let Ok(installed_commands) =
+                installed_commands_in_filesystem(self.filesystem.as_ref())
+            {
+                candidates.extend(
+                    installed_commands
+                        .into_iter()
+                        .map(|command| command.name)
+                        .filter(|name| *name != prefix && name.starts_with(prefix)),
+                );
+            }
             candidates.sort_unstable();
             candidates.dedup();
             candidates.truncate(MAX_COMPLETION_CANDIDATES);
@@ -737,11 +749,20 @@ fn find_installed_command_in_filesystem(
     filesystem: &dyn VirtualFileSystem,
     name: &str,
 ) -> Result<Option<InstalledCommand>, FsError> {
+    Ok(installed_commands_in_filesystem(filesystem)?
+        .into_iter()
+        .find(|command| command.name == name))
+}
+
+fn installed_commands_in_filesystem(
+    filesystem: &dyn VirtualFileSystem,
+) -> Result<Vec<InstalledCommand>, FsError> {
     let packages = match filesystem.list(Some(PACKAGE_INSTALL_ROOT)) {
         Ok(entries) => entries,
-        Err(FsError::NotFound(_)) => return Ok(None),
+        Err(FsError::NotFound(_)) => return Ok(Vec::new()),
         Err(error) => return Err(error),
     };
+    let mut commands = Vec::new();
     for package in packages.into_iter().filter(|entry| entry.is_directory) {
         let package_path = format!("{PACKAGE_INSTALL_ROOT}/{}", package.name);
         let Ok(versions) = filesystem.list(Some(&package_path)) else {
@@ -756,21 +777,21 @@ fn find_installed_command_in_filesystem(
             let Ok(manifest) = PackageManifest::parse(&bytes) else {
                 continue;
             };
-            if let Some(command) = manifest
-                .commands
-                .iter()
-                .find(|command| command.name == name)
-            {
-                return Ok(Some(InstalledCommand {
+            for command in manifest.commands {
+                commands.push(InstalledCommand {
+                    name: command.name,
                     package: format!("{}@{}", manifest.name, manifest.version),
-                    manifest_path,
+                    manifest_path: manifest_path.clone(),
                     module_path: format!("{version_path}/{}", command.entry),
-                    entry: command.entry.clone(),
-                }));
+                    entry: command.entry,
+                });
+                if commands.len() >= MAX_INSTALLED_COMMANDS {
+                    return Ok(commands);
+                }
             }
         }
     }
-    Ok(None)
+    Ok(commands)
 }
 
 struct ExpandedWord {
@@ -1248,6 +1269,7 @@ mod tests {
         let installed = session.execute_line("pkg install bundle/manifest.json");
         assert_eq!(installed.status, 0);
         assert_eq!(installed.stdout, "installed local-wasm@0.1.0\n");
+        assert_eq!(session.completion_candidates("local-"), vec!["local-hello"]);
         assert_eq!(
             session.execute_line("pkg list").stdout,
             "local-wasm@0.1.0\n"

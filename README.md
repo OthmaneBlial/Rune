@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 30%**
+**Overall progress: 31%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -27,7 +27,7 @@ working iOS application or a feature-parity claim.
 | WASM | 23% |
 | Native iOS UI | 20% |
 | Swift/Rust bridge | 15% |
-| Package manager | 28% |
+| Package manager | 30% |
 | Compatibility evidence | 2% |
 
 ## Current status

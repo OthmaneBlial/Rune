@@ -140,7 +140,8 @@ executables are available; installed package commands are discovered from
 local package manifests and reported with their package and version.
 
 Native completion asks the Rust session for replacement tokens. At the start
-of a line it returns built-in command names; for supported path-oriented
+of a line it returns built-in and installed-package command names; for
+supported path-oriented
 commands it lists only entries in the bounded VFS, preserves virtual prefixes
 such as `~/` and `../`, marks directories with `/`, and caps results at eight.
 Quoted, escaped, option, and compound-shell fragments are intentionally
