@@ -1,0 +1,40 @@
+{
+  "reference": {
+    "name": "a-Shell",
+    "path": "base/a-shell",
+    "usage": "behavioral-reference-only",
+    "license": "BSD-3-Clause"
+  },
+  "statuses": [
+    "supported",
+    "mostly-supported",
+    "partial",
+    "planned",
+    "unsupported",
+    "intentionally-different"
+  ],
+  "areas": {
+    "shell": "planned",
+    "commands": "planned",
+    "filesystem": "planned",
+    "environment": "planned",
+    "history": "planned",
+    "multi-window": "planned",
+    "bookmarks": "planned",
+    "shortcuts": "planned",
+    "python": "planned",
+    "lua": "planned",
+    "javascript": "planned",
+    "c-cpp": "planned",
+    "wasm": "planned",
+    "tex": "planned",
+    "package-management": "planned",
+    "configuration": "planned",
+    "themes": "planned",
+    "keyboard": "planned",
+    "accessibility": "planned",
+    "networking": "planned",
+    "archives": "planned"
+  },
+  "policy": "A status becomes supported only after direct behavior and regression tests exist."
+}

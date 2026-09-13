@@ -1,0 +1,14 @@
+[package]
+name = "rune-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rune-fs = { path = "../rune-fs" }
+rune-shell = { path = "../rune-shell" }
+
+[lints]
+workspace = true

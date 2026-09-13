@@ -1,0 +1,18 @@
+# The local a-Shell checkout is behavioral reference material only. It must
+# never enter Rune's history.
+/base/
+
+# Rust build output
+/target/
+
+# macOS and Xcode local state
+.DS_Store
+*.xcuserstate
+xcuserdata/
+DerivedData/
+
+# Local developer files
+.env
+.env.*
+!.env.example
+*.swp
