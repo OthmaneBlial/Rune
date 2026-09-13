@@ -72,10 +72,11 @@ intentionally visible in the local state boundary. Interactive `export`,
 `setenv`, and assignment command lines are currently replaced by a redaction
 marker before history is stored; arbitrary credential-bearing commands still
 require a configurable policy. The Rust core also persists bounded
-`history-limit`, `font-size`, and `theme` configuration in
+`history-limit`, `font-size`, `scrollback-limit`, and `theme` configuration in
 `~/.rune/config.state`; the bridge exposes them as key/value text and the
-source-only Swift view consumes the font size and `ink`, `light`, or `ember`
-palette. Cursor styling and toolbar preferences are not wired through yet.
+source-only Swift view consumes the font size, scrollback window, and `ink`,
+`light`, or `ember` palette. Cursor styling and toolbar preferences are not
+wired through yet.
 
 On restore, the Rust core reads a maximum of 64 KiB from `~/.rune_profile`,
 skips blank/full-line comment entries, runs only registered Rune built-ins, and

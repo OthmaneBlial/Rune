@@ -21,7 +21,9 @@ tests cover both the denied-by-default and granted paths.
 The package search test is local-only as well and searches installed
 manifests without network access.
 Configuration tests are local-only as well and verify bounded history, font
-size, and theme settings without requiring an Apple runtime.
+size, scrollback, and theme settings without requiring an Apple runtime. The
+scrollback setting accepts 128–8,192 rendered entries and remains subject to
+the native UI's separate 8 MiB byte cap.
 Completion tests also use only the confined VFS and do not require an Apple
 runtime.
 Named-session tests use separate temporary VFS state namespaces and verify that

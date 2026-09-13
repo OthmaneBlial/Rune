@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 58%**
+**Overall progress: 59%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -23,10 +23,10 @@ working iOS application or a feature-parity claim.
 | Command runtime | 87% |
 | Sandboxed filesystem | 64% |
 | Sessions/history | 62% |
-| Configuration | 23% |
+| Configuration | 27% |
 | WASM | 40% |
-| Native iOS UI | 47% |
-| Swift/Rust bridge | 41% |
+| Native iOS UI | 48% |
+| Swift/Rust bridge | 42% |
 | Package manager | 36% |
 | Compatibility evidence | 2% |
 
@@ -186,16 +186,19 @@ currently running synchronous Rust operation may still finish before its next
 boundary; background execution, cancellation, and Apple runtime behavior are
 not device-validated here.
 
-The Swift transcript also applies a separate 4,096-entry/8 MiB in-memory
-window, dropping the oldest rendered events when the window is exceeded. This
-protects the UI from unbounded replay growth while Rust retains its own
+The Swift transcript also applies a separate bounded scrollback window
+(4,096 entries by default, configurable up to 8,192) and an 8 MiB in-memory
+byte cap, dropping the oldest rendered events when either limit is exceeded.
+This protects the UI from unbounded replay growth while Rust retains its own
 bounded per-command output and persisted history policies.
 
 The portable configuration boundary currently supports bounded `history-limit`,
-`font-size`, and `theme` settings through `config get`, `config set`, and
-`config reset`. It persists in `~/.rune/config.state`, and SwiftUI consumes
-`font-size` plus the `ink`, `light`, and `ember` palettes; cursor styling and
-toolbar preferences are not yet wired through.
+`font-size`, `scrollback-limit`, and `theme` settings through `config get`,
+`config set`, and `config reset`. The scrollback setting accepts 128–8,192
+rendered entries and remains subject to the UI's 8 MiB byte cap. It persists in
+`~/.rune/config.state`, and SwiftUI consumes `font-size`, `scrollback-limit`,
+and the `ink`, `light`, and `ember` palettes; cursor styling and toolbar
+preferences are not yet wired through.
 
 The `history` built-in also supports `history N` for a bounded recent view,
 `history search QUERY ...` for a case-insensitive substring search that keeps
@@ -289,7 +292,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded WASI preview1 runtime boundary and resource limits
 - [x] Bounded package metadata, integrity, and local WASM installation
 - [x] Portable runtime request/output contract
-- [x] Bounded Rust-owned history, font-size, and theme configuration
+- [x] Bounded Rust-owned history, font-size, scrollback, and theme configuration
 - [x] Bounded stored ZIP creation/extraction with path validation
 - [ ] Network registry, search, and update policy
 - [ ] Python, JavaScript, and Lua runtime evaluation

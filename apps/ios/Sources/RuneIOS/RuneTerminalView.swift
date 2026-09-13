@@ -25,14 +25,17 @@ public final class RuneTerminalModel: ObservableObject {
     private static let clearSequence = "\u{1b}[2J\u{1b}[H"
     private static let clearScreenControl = "\u{1b}[2J"
     private static let cursorHomeControl = "\u{1b}[H"
-    private static let maximumTranscriptEntries = 4_096
+    private static let maximumTranscriptEntries = 8_192
     private static let maximumTranscriptBytes = 8 * 1024 * 1024
+    private static let defaultScrollbackLimit = 4_096
+    private static let minimumScrollbackLimit = 128
 
     @Published public private(set) var entries: [RuneTranscriptEntry] = []
     @Published public var command = ""
     @Published public private(set) var currentDirectory = "~"
     @Published public private(set) var workspaceName = "Documents"
     @Published public private(set) var fontSize: CGFloat = 15
+    @Published public private(set) var scrollbackLimit = Self.defaultScrollbackLimit
     @Published public private(set) var theme = "ink"
     @Published public private(set) var initializationError: String?
     @Published public private(set) var isExecuting = false
@@ -224,10 +227,14 @@ public final class RuneTerminalModel: ObservableObject {
     private func appendEntry(_ entry: RuneTranscriptEntry) {
         entries.append(entry)
         transcriptBytes += entry.text.utf8.count
-        while entries.count > Self.maximumTranscriptEntries
-            || transcriptBytes > Self.maximumTranscriptBytes {
+        trimTranscript()
+    }
+
+    private func trimTranscript() {
+        let entryLimit = Swift.min(Self.maximumTranscriptEntries, scrollbackLimit)
+        while entries.count > entryLimit || transcriptBytes > Self.maximumTranscriptBytes {
             guard let removed = entries.first else { break }
-            transcriptBytes = max(0, transcriptBytes - removed.text.utf8.count)
+            transcriptBytes = Swift.max(0, transcriptBytes - removed.text.utf8.count)
             entries.removeFirst()
         }
     }
@@ -241,14 +248,28 @@ public final class RuneTerminalModel: ObservableObject {
         guard let session else { return }
         for line in session.configuration.split(separator: "\n") {
             let pair = line.split(separator: "=", maxSplits: 1).map(String.init)
-            guard pair.count == 2, pair[0] == "font-size", let value = Double(pair[1]) else {
-                if pair.count == 2, pair[0] == "theme", ["ink", "light", "ember"].contains(pair[1]) {
+            guard pair.count == 2 else { continue }
+            switch pair[0] {
+            case "font-size":
+                if let value = Double(pair[1]) {
+                    fontSize = CGFloat(Swift.min(Swift.max(value, 8), 32))
+                }
+            case "scrollback-limit":
+                if let value = Int(pair[1]) {
+                    scrollbackLimit = Swift.min(
+                        Swift.max(value, Self.minimumScrollbackLimit),
+                        Self.maximumTranscriptEntries
+                    )
+                }
+            case "theme":
+                if ["ink", "light", "ember"].contains(pair[1]) {
                     theme = pair[1]
                 }
+            default:
                 continue
             }
-            fontSize = CGFloat(min(max(value, 8), 32))
         }
+        trimTranscript()
     }
 
     public func previousHistory() {

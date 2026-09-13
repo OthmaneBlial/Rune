@@ -9,6 +9,9 @@ const MAX_HISTORY_LIMIT: usize = 10_000;
 const DEFAULT_FONT_SIZE: u8 = 15;
 const MIN_FONT_SIZE: u8 = 8;
 const MAX_FONT_SIZE: u8 = 32;
+const DEFAULT_SCROLLBACK_LIMIT: usize = 4_096;
+const MIN_SCROLLBACK_LIMIT: usize = 128;
+const MAX_SCROLLBACK_LIMIT: usize = 8_192;
 const DEFAULT_THEME: TerminalTheme = TerminalTheme::Ink;
 
 /// Themes understood by the portable configuration contract.
@@ -44,6 +47,7 @@ impl TerminalTheme {
 pub struct TerminalConfig {
     history_limit: usize,
     font_size: u8,
+    scrollback_limit: usize,
     theme: TerminalTheme,
 }
 
@@ -52,6 +56,7 @@ impl Default for TerminalConfig {
         Self {
             history_limit: DEFAULT_HISTORY_LIMIT,
             font_size: DEFAULT_FONT_SIZE,
+            scrollback_limit: DEFAULT_SCROLLBACK_LIMIT,
             theme: DEFAULT_THEME,
         }
     }
@@ -70,6 +75,13 @@ impl TerminalConfig {
         self.font_size
     }
 
+    /// Returns the maximum number of rendered transcript entries retained by
+    /// the native presentation layer.
+    #[must_use]
+    pub const fn scrollback_limit(&self) -> usize {
+        self.scrollback_limit
+    }
+
     /// Returns the configured terminal color theme.
     #[must_use]
     pub const fn theme(&self) -> TerminalTheme {
@@ -82,6 +94,10 @@ impl TerminalConfig {
 
     pub(super) fn set_font_size(&mut self, value: u8) {
         self.font_size = value;
+    }
+
+    pub(super) fn set_scrollback_limit(&mut self, value: usize) {
+        self.scrollback_limit = value;
     }
 
     pub(super) fn set_theme(&mut self, value: TerminalTheme) {
@@ -104,9 +120,10 @@ impl TerminalConfig {
             Err(error) => return Err(error),
         }
         let content = format!(
-            "{CONFIG_HEADER}\nhistory_limit={}\nfont_size={}\ntheme={}\n",
+            "{CONFIG_HEADER}\nhistory_limit={}\nfont_size={}\nscrollback_limit={}\ntheme={}\n",
             self.history_limit,
             self.font_size,
+            self.scrollback_limit,
             self.theme.as_str()
         );
         filesystem.write(CONFIG_PATH, content.as_bytes(), false)
@@ -173,6 +190,28 @@ pub(super) fn update_theme(
     Ok(())
 }
 
+pub(super) fn update_scrollback_limit(
+    filesystem: &mut dyn VirtualFileSystem,
+    config: &mut TerminalConfig,
+    value: &str,
+) -> Result<(), String> {
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|_| "scrollback-limit must be a positive integer".to_string())?;
+    if !(MIN_SCROLLBACK_LIMIT..=MAX_SCROLLBACK_LIMIT).contains(&parsed) {
+        return Err(format!(
+            "scrollback-limit must be between {MIN_SCROLLBACK_LIMIT} and {MAX_SCROLLBACK_LIMIT}"
+        ));
+    }
+    let previous = config.clone();
+    config.set_scrollback_limit(parsed);
+    if let Err(error) = config.save(filesystem) {
+        *config = previous;
+        return Err(format!("could not persist configuration: {error}"));
+    }
+    Ok(())
+}
+
 fn parse(content: &str) -> Option<TerminalConfig> {
     let mut lines = content.lines();
     if lines.next()? != CONFIG_HEADER {
@@ -181,6 +220,7 @@ fn parse(content: &str) -> Option<TerminalConfig> {
     let mut config = TerminalConfig::default();
     let mut seen_history_limit = false;
     let mut seen_font_size = false;
+    let mut seen_scrollback_limit = false;
     let mut seen_theme = false;
     for line in lines {
         let (key, value) = line.split_once('=')?;
@@ -201,6 +241,14 @@ fn parse(content: &str) -> Option<TerminalConfig> {
                 config.font_size = font_size;
                 seen_font_size = true;
             }
+            "scrollback_limit" if !seen_scrollback_limit => {
+                let scrollback_limit = value.parse::<usize>().ok()?;
+                if !(MIN_SCROLLBACK_LIMIT..=MAX_SCROLLBACK_LIMIT).contains(&scrollback_limit) {
+                    return None;
+                }
+                config.scrollback_limit = scrollback_limit;
+                seen_scrollback_limit = true;
+            }
             "theme" if !seen_theme => {
                 config.theme = TerminalTheme::parse(value)?;
                 seen_theme = true;
@@ -214,7 +262,8 @@ fn parse(content: &str) -> Option<TerminalConfig> {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse, TerminalConfig, TerminalTheme, CONFIG_HEADER, DEFAULT_FONT_SIZE, DEFAULT_THEME,
+        parse, TerminalConfig, TerminalTheme, CONFIG_HEADER, DEFAULT_FONT_SIZE,
+        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_THEME,
     };
 
     #[test]
@@ -223,6 +272,7 @@ mod tests {
         let config = parse(&content).expect("configuration should parse");
         assert_eq!(config.history_limit(), 25);
         assert_eq!(config.font_size(), DEFAULT_FONT_SIZE);
+        assert_eq!(config.scrollback_limit(), DEFAULT_SCROLLBACK_LIMIT);
         assert_eq!(config.theme(), DEFAULT_THEME);
     }
 
@@ -237,8 +287,17 @@ mod tests {
             parse(&themed).expect("theme should parse").theme(),
             TerminalTheme::Ember
         );
+        let configured = format!("{content}scrollback_limit=2048\ntheme=ember\n");
+        assert_eq!(
+            parse(&configured)
+                .expect("scrollback should parse")
+                .scrollback_limit(),
+            2048
+        );
         assert!(parse("RUNE_CONFIG_V1\nfont_size=7\n").is_none());
         assert!(parse("RUNE_CONFIG_V1\nfont_size=33\n").is_none());
+        assert!(parse("RUNE_CONFIG_V1\nscrollback_limit=127\n").is_none());
+        assert!(parse("RUNE_CONFIG_V1\nscrollback_limit=8193\n").is_none());
         assert!(parse("RUNE_CONFIG_V1\ntheme=unknown\n").is_none());
     }
 
@@ -253,6 +312,10 @@ mod tests {
     fn defaults_when_configuration_is_missing_or_malformed() {
         assert_eq!(TerminalConfig::default().history_limit(), 1_000);
         assert_eq!(TerminalConfig::default().font_size(), DEFAULT_FONT_SIZE);
+        assert_eq!(
+            TerminalConfig::default().scrollback_limit(),
+            DEFAULT_SCROLLBACK_LIMIT
+        );
         assert_eq!(TerminalConfig::default().theme(), DEFAULT_THEME);
         assert!(parse("not-rune-config\n").is_none());
     }

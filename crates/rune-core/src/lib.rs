@@ -1604,6 +1604,7 @@ mod tests {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
         assert_eq!(session.configuration().history_limit(), 1_000);
+        assert_eq!(session.configuration().scrollback_limit(), 4_096);
         assert_eq!(session.execute_line("config set history-limit 3").status, 0);
         assert_eq!(
             session.execute_line("config get history-limit").stdout,
@@ -1619,6 +1620,16 @@ mod tests {
             session.execute_line("config get theme").stdout,
             "theme=ember\n"
         );
+        assert_eq!(
+            session
+                .execute_line("config set scrollback-limit 2048")
+                .status,
+            0
+        );
+        assert_eq!(
+            session.execute_line("config get scrollback-limit").stdout,
+            "scrollback-limit=2048\n"
+        );
         assert_eq!(session.execute_line("echo one").status, 0);
         assert_eq!(session.execute_line("echo two").status, 0);
         assert!(session.history().len() <= 3);
@@ -1628,15 +1639,31 @@ mod tests {
         assert_eq!(session.configuration().font_size(), 20);
         assert_eq!(session.execute_line("config set theme paper").status, 2);
         assert_eq!(session.configuration().theme().as_str(), "ember");
+        assert_eq!(
+            session
+                .execute_line("config set scrollback-limit 127")
+                .status,
+            2
+        );
+        assert_eq!(session.configuration().scrollback_limit(), 2_048);
+        assert_eq!(
+            session
+                .execute_line("config set scrollback-limit 8193")
+                .status,
+            2
+        );
+        assert_eq!(session.configuration().scrollback_limit(), 2_048);
         session.persist().expect("configuration persisted");
         let mut restored =
             Session::restore(SandboxedFileSystem::new(&root).expect("root reopened"));
         assert_eq!(restored.configuration().history_limit(), 3);
         assert_eq!(restored.configuration().font_size(), 20);
+        assert_eq!(restored.configuration().scrollback_limit(), 2_048);
         assert_eq!(restored.configuration().theme().as_str(), "ember");
         assert!(restored.history().len() <= 3);
         assert_eq!(restored.execute_line("config reset").status, 0);
         assert_eq!(restored.configuration().history_limit(), 1_000);
+        assert_eq!(restored.configuration().scrollback_limit(), 4_096);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
