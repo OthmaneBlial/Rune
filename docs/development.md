@@ -6,6 +6,9 @@
 - Existing Apple/Swift tooling is optional for source inspection; do not install
   Xcode, simulators, SDKs, or additional dependencies just for this phase.
 
+The portable WASM slice is validated through Rust tests and does not require
+Xcode, a simulator, an Apple SDK, or a third-party Apple dependency.
+
 ## Local checks
 
 Run `./scripts/ci.sh` from the repository root. It runs formatting, Clippy,

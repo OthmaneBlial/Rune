@@ -1,15 +1,16 @@
 [package]
-name = "rune-core"
+name = "rune-wasm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+description = "Bounded WASI preview1 execution for Rune"
 
 [dependencies]
-rune-fs = { path = "../rune-fs" }
-rune-shell = { path = "../rune-shell" }
-rune-wasm = { path = "../rune-wasm" }
+wasi-common = "2.0"
+wasmi = "0.36.5"
+wasmi_wasi = "0.36.5"
 
 [dev-dependencies]
 wat = "1.0"

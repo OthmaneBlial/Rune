@@ -4,6 +4,7 @@ members = [
     "crates/rune-fs",
     "crates/rune-shell",
     "crates/rune-core",
+    "crates/rune-wasm",
     "crates/rune-ffi",
     "apps/rune-cli",
 ]

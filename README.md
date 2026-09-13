@@ -23,7 +23,7 @@ working iOS application or a feature-parity claim.
 | Command runtime | 71% |
 | Sandboxed filesystem | 48% |
 | Sessions/history | 32% |
-| WASM | 0% |
+| WASM | 18% |
 | Native iOS UI | 9% |
 | Swift/Rust bridge | 6% |
 | Package manager | 0% |
@@ -35,7 +35,8 @@ The first Rust vertical slice is implemented and locally verified. It executes
 the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `printenv`, `setenv`,
 `alias`, `unalias`, `find`, `sed`,
-`true`, `false`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `clear`, `help`,
+`true`, `false`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `clear`,
+`help`,
 and `history` against a bounded filesystem, including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
 with quotes, variables, leading `NAME=value` assignments, pipes, redirections,
@@ -63,7 +64,15 @@ The iOS app is represented by
 source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
 and runtime gates remain unverified. Bounded current-directory/history
 persistence now exists in Rust; configuration/redaction and broader session
-recovery remain planned. WASM and package management remain planned work.
+recovery remain planned. Package management and language runtimes remain
+planned work.
+
+The `wasm MODULE [arg ...]` built-in loads a module through the bounded virtual
+filesystem and executes WASI preview1 `_start` in Rust. It exposes only
+stdin/stdout/stderr, arguments, and the session environment; it does not
+preopen a host directory. Module bytes, interpreter fuel, linear memory,
+tables, and captured output are bounded. This is an initial WASM execution
+slice, not a language runtime or package manager.
 
 No a-Shell compatibility area is marked `supported` without behavior and test
 evidence. See [`compat/a-shell-compatibility.json`](compat/a-shell-compatibility.json).
@@ -77,6 +86,7 @@ Swift / SwiftUI app (source-only; Apple link unverified)
       rune-core  ─── command registry and session orchestration
         │   │
         │   └──── rune-fs   bounded filesystem abstraction
+        ├──────── rune-wasm WASI preview1 interpreter boundary
         ├──────── rune-shell tokenizer, parser, execution plan
         └──────── rune-ffi   owned C ABI handles and output buffers
 ```
@@ -132,7 +142,7 @@ git check-ignore -v base/a-shell
 
 ### Phase 3 — Developer environment
 
-- [ ] WASM runtime boundary and resource limits
+- [x] Bounded WASI preview1 runtime boundary and resource limits
 - [ ] Package metadata and verification
 - [ ] Python, JavaScript, and Lua runtime evaluation
 - [ ] Completion and help system (initial first-word suggestions exist)

@@ -18,6 +18,8 @@ constraints. It is not a source dependency or an implementation template.
   abstraction rather than reaching into Apple APIs directly.
 - `rune-core`: command registry, command context, session state, and execution
   results.
+- `rune-wasm`: bounded WASI preview1 execution with no host-directory
+  preopens in the initial slice.
 - `rune-ffi`: a deliberately narrow C ABI for opaque session handles and owned
   stdout/stderr buffers. Its unsafe code is isolated at the boundary.
 - `apps/rune-cli`: a small host executable used for local development and
@@ -92,6 +94,15 @@ one start path, `-name` basename matching, and `-maxdepth`. Traversal is capped
 at 10,000 visited entries and does not follow symlink entries, keeping a
 malicious or cyclic tree from turning a synchronous command into unbounded
 work.
+
+The `wasm MODULE [arg ...]` built-in reads the module through the virtual
+filesystem and invokes WASI preview1 `_start` in the Rust runtime. The guest
+receives only argv, the session environment, stdin, stdout, and stderr. The
+initial linker does not expose a preopened directory or host process API, so
+WASI filesystem access is unavailable until it can be mapped to explicit Rune
+capabilities. Each invocation bounds module bytes, interpreter fuel, linear
+memory, tables, and captured output. Guest traps become a failed command while
+preserving captured output; explicit WASI exits preserve their exit status.
 
 Unquoted `*` and `?` are expanded by `rune-core` through the VFS `glob` method;
 quoted patterns remain literal, hidden entries require a leading `.`, and an

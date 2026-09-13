@@ -643,6 +643,36 @@ mod tests {
     }
 
     #[test]
+    fn executes_wasi_module_loaded_through_the_virtual_filesystem() {
+        let root = test_root();
+        let wasm = wat::parse_str(
+            r#"
+                (module
+                  (import "wasi_snapshot_preview1" "fd_write"
+                    (func $fd_write (param i32 i32 i32 i32) (result i32)))
+                  (memory (export "memory") 1)
+                  (data (i32.const 8) "hello from rune wasm\n")
+                  (data (i32.const 0) "\08\00\00\00\15\00\00\00")
+                  (func (export "_start")
+                    (i32.const 1)
+                    (i32.const 0)
+                    (i32.const 1)
+                    (i32.const 24)
+                    (call $fd_write)
+                    (drop)))
+            "#,
+        )
+        .expect("valid WAT");
+        std::fs::write(root.join("hello.wasm"), wasm).expect("module written");
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let output = session.execute_line("wasm hello.wasm demo-arg");
+        assert_eq!(output.status, 0);
+        assert_eq!(output.stdout, "hello from rune wasm\n");
+        assert!(output.stderr.is_empty());
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn manages_environment_and_status_builtins() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));

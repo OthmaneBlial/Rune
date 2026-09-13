@@ -3,6 +3,7 @@ use crate::CommandDefinition;
 mod filesystem;
 mod shell;
 mod text;
+mod wasm;
 
 pub(super) const DEFINITIONS: &[CommandDefinition] = &[
     CommandDefinition {
@@ -154,5 +155,10 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "wc",
         summary: "count lines, words, and bytes",
         handler: text::wc,
+    },
+    CommandDefinition {
+        name: "wasm",
+        summary: "run a bounded WASI preview1 module",
+        handler: wasm::wasm,
     },
 ];
