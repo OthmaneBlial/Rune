@@ -64,9 +64,9 @@
       "reference_comparison": "not-started"
     },
     "lua": {
-      "status": "planned",
-      "rune_evidence": [],
-      "reference_comparison": "not-started"
+      "status": "partial",
+      "rune_evidence": ["crates/rune-runtime/src/lib.rs", "crates/rune-core/src/commands/lua.rs", "crates/rune-core/src/lib.rs"],
+      "reference_comparison": "pending"
     },
     "javascript": {
       "status": "planned",

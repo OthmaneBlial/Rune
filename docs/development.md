@@ -29,6 +29,10 @@ manifest/artifact identity checks, and SHA-256 verification; they do not claim
 internet, TLS, redirect, publisher-signature, or Apple URLSession proof.
 Package command tests also cover a SHA-256-verified `.rune` script, bounded
 positional arguments, and rejection after installed content is tampered with.
+Lua runtime tests cover captured stdout/stderr, explicit `arg`/environment/stdin
+inputs, disabled unsafe libraries, UTF-8/source-size validation, memory, and
+instruction limits. The embedded provider intentionally has no host filesystem,
+process, module-loader, or network bridge yet.
 Configuration tests are local-only as well and verify bounded history, font,
 font size, scrollback, toolbar visibility, theme, cursor-color, cursor-shape,
 background, and foreground settings without requiring an Apple

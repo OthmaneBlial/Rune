@@ -24,8 +24,9 @@ constraints. It is not a source dependency or an implementation template.
 - `rune-package`: bounded versioned manifest parsing and SHA-256 artifact
   verification; transport and installation are intentionally outside this
   first boundary.
-- `rune-runtime`: runtime-neutral request/output/error contracts. It does not
-  ship language interpreters; providers are added behind this boundary.
+- `rune-runtime`: runtime request/output/error contracts and the bounded Lua 5.4
+  provider. WASM stays in its dedicated crate; other providers are added behind
+  the same boundary.
 - `rune-ffi`: a deliberately narrow C ABI for opaque session handles and owned
   stdout/stderr buffers. Its unsafe code is isolated at the boundary.
 - `apps/rune-cli`: a small host executable used for local development and
@@ -369,8 +370,9 @@ or version. `pkg update MANIFEST` verifies a different local version, writes it
 alongside the current version, and removes the old version only after the new
 tree is complete; verification or materialization failure leaves the old
 version installed. Declared `.wasm` command entries run through the bounded
-WASI provider; declared `.rune` entries run through the same Rust parser and
-script limits as `source`. Installed module/script bytes are verified again
+WASI provider, declared `.lua` entries run through the bounded Lua provider,
+and declared `.rune` entries run through the same Rust parser and script limits
+as `source`. Installed module/script bytes are verified again
 before execution. `pkg search QUERY` performs a bounded, case-insensitive search
 over installed package names, versions, descriptions, and command names. An
 explicit `pkg search --registry INDEX_URL QUERY` fetches a versioned HTTPS index
@@ -392,9 +394,10 @@ artifact mapping must exactly cover the downloaded manifest's file list; the
 index is discovery metadata and is not treated as a publisher signature.
 
 The runtime contract is owned by Rust and carries only explicit program bytes,
-arguments, environment, and stdin into a provider. `rune-wasm` implements the
-first provider by adapting its bounded WASI result to that contract. Python,
-JavaScript, and Lua remain unimplemented rather than being represented by
+arguments, environment, and stdin into a provider. `rune-wasm` adapts its
+bounded WASI result to that contract, while `rune-runtime` provides a fresh,
+safe Lua 5.4 state with captured output and instruction/memory bounds. Python
+and JavaScript remain unimplemented rather than being represented by
 placeholder execution.
 
 HTTP is a separate explicit capability rather than an ambient core service.

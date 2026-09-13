@@ -4,6 +4,7 @@ mod archive;
 mod bookmarks;
 mod config;
 mod filesystem;
+mod lua;
 mod network;
 mod package;
 pub(super) mod shell;
@@ -166,6 +167,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "ln",
         summary: "create a bounded relative symbolic link",
         handler: filesystem::ln,
+    },
+    CommandDefinition {
+        name: "lua",
+        summary: "run a bounded sandbox Lua 5.4 script",
+        handler: lua::lua,
     },
     CommandDefinition {
         name: "mkdir",

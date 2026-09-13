@@ -7,5 +7,12 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Portable runtime request and output contracts for Rune"
 
+[dependencies]
+mlua = { version = "0.9.9", default-features = false, features = [
+    "lua54",
+    "send",
+    "vendored",
+] }
+
 [lints]
 workspace = true
