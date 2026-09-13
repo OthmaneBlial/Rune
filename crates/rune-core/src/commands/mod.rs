@@ -61,6 +61,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: utilities::dirname,
     },
     CommandDefinition {
+        name: "du",
+        summary: "summarize bounded virtual filesystem bytes",
+        handler: utilities::du,
+    },
+    CommandDefinition {
         name: "echo",
         summary: "write arguments to stdout",
         handler: shell::echo,
@@ -159,6 +164,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "sort",
         summary: "sort input lines",
         handler: text::sort,
+    },
+    CommandDefinition {
+        name: "stat",
+        summary: "show bounded virtual filesystem metadata",
+        handler: utilities::stat,
     },
     CommandDefinition {
         name: "tail",

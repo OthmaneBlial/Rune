@@ -3,6 +3,7 @@ use std::fmt::Write as _;
 use crate::{fs_failure, usage, CommandContext, CommandOutput};
 
 const MAX_HEXDUMP_INPUT: usize = 256 * 1024;
+const MAX_DISK_USAGE_ENTRIES: usize = 10_000;
 
 pub(super) fn basename(context: &mut CommandContext<'_>) -> CommandOutput {
     if !(1..=2).contains(&context.args.len()) || context.args[0].is_empty() {
@@ -24,6 +25,18 @@ pub(super) fn dirname(context: &mut CommandContext<'_>) -> CommandOutput {
     CommandOutput::success(format!("{}\n", dirname_value(&context.args[0])))
 }
 
+pub(super) fn du(context: &mut CommandContext<'_>) -> CommandOutput {
+    if context.args.len() > 1 {
+        return usage("du", "usage: du [PATH]");
+    }
+    let path = context.args.first().map_or("~", String::as_str);
+    let mut visited = 0;
+    match disk_usage(context, path, &mut visited) {
+        Ok(bytes) => CommandOutput::success(format!("{bytes}\t{path}\n")),
+        Err(output) => output,
+    }
+}
+
 pub(super) fn rmdir(context: &mut CommandContext<'_>) -> CommandOutput {
     if context.args.is_empty() {
         return usage("rmdir", "usage: rmdir DIRECTORY ...");
@@ -41,6 +54,28 @@ pub(super) fn rmdir(context: &mut CommandContext<'_>) -> CommandOutput {
         }
     }
     CommandOutput::success("")
+}
+
+pub(super) fn stat(context: &mut CommandContext<'_>) -> CommandOutput {
+    if context.args.len() != 1 {
+        return usage("stat", "usage: stat PATH");
+    }
+    let path = &context.args[0];
+    let info = match context.fs.metadata(path) {
+        Ok(info) => info,
+        Err(error) => return fs_failure("stat", &error),
+    };
+    let kind = if info.is_symlink {
+        "symlink"
+    } else if info.is_directory {
+        "directory"
+    } else {
+        "file"
+    };
+    CommandOutput::success(format!(
+        "  File: {path}\n  Name: {}\n  Size: {}\n  Type: {kind}\n",
+        info.name, info.size
+    ))
 }
 
 pub(super) fn tee(context: &mut CommandContext<'_>) -> CommandOutput {
@@ -156,6 +191,43 @@ fn dirname_value(path: &str) -> &str {
         Some(0) => "/",
         Some(index) => &trimmed[..index],
     }
+}
+
+fn disk_usage(
+    context: &mut CommandContext<'_>,
+    path: &str,
+    visited: &mut usize,
+) -> Result<u64, CommandOutput> {
+    if *visited >= MAX_DISK_USAGE_ENTRIES {
+        return Err(CommandOutput::failure(
+            1,
+            format!("du: traversal exceeded {MAX_DISK_USAGE_ENTRIES} entries\n"),
+        ));
+    }
+    let info = context
+        .fs
+        .metadata(path)
+        .map_err(|error| fs_failure("du", &error))?;
+    *visited += 1;
+    if !info.is_directory || info.is_symlink {
+        return Ok(info.size);
+    }
+    let entries = context
+        .fs
+        .list(Some(path))
+        .map_err(|error| fs_failure("du", &error))?;
+    let mut total = 0_u64;
+    for entry in entries {
+        let child = if path == "/" {
+            format!("/{name}", name = entry.name)
+        } else if path.ends_with('/') {
+            format!("{path}{name}", name = entry.name)
+        } else {
+            format!("{path}/{name}", name = entry.name)
+        };
+        total = total.saturating_add(disk_usage(context, &child, visited)?);
+    }
+    Ok(total)
 }
 
 fn plain_hex(bytes: &[u8]) -> String {

@@ -1106,6 +1106,18 @@ mod tests {
             session.execute_line("dirname ~/notes/readme.md").stdout,
             "~/notes\n"
         );
+        assert_eq!(session.execute_line("mkdir -p tree/nested").status, 0);
+        assert_eq!(
+            session
+                .execute_line("echo hello > tree/nested/value.txt")
+                .status,
+            0
+        );
+        assert_eq!(session.execute_line("du tree").stdout, "6\ttree\n");
+        let metadata = session.execute_line("stat tree/nested/value.txt");
+        assert_eq!(metadata.status, 0);
+        assert!(metadata.stdout.contains("Type: file"));
+        assert!(metadata.stdout.contains("Size: 6"));
         assert_eq!(
             session.execute_line("echo first | tee note.txt").stdout,
             "first\n"

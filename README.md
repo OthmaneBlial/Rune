@@ -20,7 +20,7 @@ working iOS application or a feature-parity claim.
 |---|---:|
 | Rust workspace | 70% |
 | Shell tokenizer/parser | 60% |
-| Command runtime | 74% |
+| Command runtime | 76% |
 | Sandboxed filesystem | 55% |
 | Sessions/history | 40% |
 | Configuration | 12% |
@@ -35,7 +35,7 @@ working iOS application or a feature-parity claim.
 The first Rust vertical slice is implemented and locally verified. It executes
 the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
-`setenv`, `basename`, `dirname`, `rmdir`, `unlink`, `tee`, `tr`, `xxd`,
+`setenv`, `basename`, `dirname`, `du`, `rmdir`, `stat`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`,
 `true`, `false`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `pkg`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
@@ -175,6 +175,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded terminal output channels
 - [x] Session-local virtual directory bookmarks
 - [x] Bounded portable utility commands
+- [x] Bounded virtual filesystem metadata and usage commands
 
 ### Phase 3 — Developer environment
 
