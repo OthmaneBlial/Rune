@@ -39,7 +39,8 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `alias`, `unalias`, `find`, `sed`,
 `true`, `false`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `pkg`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
-`help`, and `history` against a bounded filesystem, including basic `*`/`?` pathname
+`help`, `history`, `uname`, `which`, and `whoami` against a bounded filesystem,
+including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
 with quotes, variables, leading `NAME=value` assignments, pipes, redirections,
 word-boundary comments, sequencing, `&&`/`||` short-circuiting, separate

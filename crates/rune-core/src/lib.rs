@@ -1240,6 +1240,21 @@ mod tests {
     }
 
     #[test]
+    fn reports_portable_identity_and_registered_command_discovery() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("uname").stdout, "Rune\n");
+        assert_eq!(session.execute_line("uname -sn").stdout, "Rune rune\n");
+        assert_eq!(session.execute_line("whoami").stdout, "rune\n");
+        assert_eq!(session.execute_line("alias ll=ls").status, 0);
+        let discovered = session.execute_line("which ll echo missing");
+        assert_eq!(discovered.status, 1);
+        assert_eq!(discovered.stdout, "alias ll='ls'\necho: builtin\n");
+        assert_eq!(discovered.stderr, "which: missing: not found\n");
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn expands_bounded_session_aliases_and_rejects_compound_values() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));

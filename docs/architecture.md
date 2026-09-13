@@ -127,6 +127,12 @@ with a 10,000-entry limit and rejects symlinks; `mv` can move a directory
 without recursively traversing it. `du` reports a recursive byte total with a
 10,000-entry limit, and `stat` reports only metadata available through the VFS.
 
+The shell also provides deterministic `uname` and `whoami` identities for the
+portable session, and `which` reports aliases and registered built-ins. These
+commands never expose the host user's name or claim that arbitrary host
+executables are available; installed package discovery will be added when the
+package command index is defined.
+
 The Rust shell includes a bounded `printf` formatter for `%s`, `%c`, `%d`,
 `%i`, `%%`, and the `\\n`, `\\r`, `\\t`, and `\\\\` escapes. It deliberately
 rejects unsupported conversions and malformed integer arguments instead of

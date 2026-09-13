@@ -251,6 +251,21 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: wasm::wasm,
     },
     CommandDefinition {
+        name: "uname",
+        summary: "report the portable Rune identity",
+        handler: shell::uname,
+    },
+    CommandDefinition {
+        name: "which",
+        summary: "describe aliases and registered built-ins",
+        handler: shell::which,
+    },
+    CommandDefinition {
+        name: "whoami",
+        summary: "report the stable virtual session identity",
+        handler: shell::whoami,
+    },
+    CommandDefinition {
         name: "xxd",
         summary: "render bounded hexadecimal input",
         handler: utilities::xxd,

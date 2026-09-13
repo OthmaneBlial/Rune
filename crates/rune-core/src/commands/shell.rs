@@ -25,6 +25,76 @@ pub(super) fn pwd(context: &mut CommandContext<'_>) -> CommandOutput {
     CommandOutput::success(format!("{}\n", context.fs.current_dir_display()))
 }
 
+pub(super) fn uname(context: &mut CommandContext<'_>) -> CommandOutput {
+    let mut selected = Vec::new();
+    for argument in context.args {
+        let Some(flags) = argument.strip_prefix('-') else {
+            return usage("uname", "usage: uname [-asnrom]");
+        };
+        if flags.is_empty() {
+            return usage("uname", "usage: uname [-asnrom]");
+        }
+        for flag in flags.chars() {
+            if flag == 'a' {
+                selected = vec!['s', 'n', 'r', 'm', 'o'];
+                break;
+            }
+            if !matches!(flag, 's' | 'n' | 'r' | 'm' | 'o') {
+                return usage("uname", "usage: uname [-asnrom]");
+            }
+            if !selected.contains(&flag) {
+                selected.push(flag);
+            }
+        }
+    }
+    if selected.is_empty() {
+        selected.push('s');
+    }
+    let values = selected
+        .into_iter()
+        .map(|flag| match flag {
+            's' => "Rune".to_string(),
+            'n' => "rune".to_string(),
+            'r' => env!("CARGO_PKG_VERSION").to_string(),
+            'm' => std::env::consts::ARCH.to_string(),
+            'o' => std::env::consts::OS.to_string(),
+            _ => unreachable!("uname flags are validated above"),
+        })
+        .collect::<Vec<_>>();
+    CommandOutput::success(format!("{}\n", values.join(" ")))
+}
+
+pub(super) fn whoami(context: &mut CommandContext<'_>) -> CommandOutput {
+    if !context.args.is_empty() {
+        return usage("whoami", "usage: whoami");
+    }
+    // Rune exposes a stable virtual identity instead of leaking a host user
+    // name into the portable session or the iOS sandbox.
+    CommandOutput::success("rune\n")
+}
+
+pub(super) fn which(context: &mut CommandContext<'_>) -> CommandOutput {
+    if context.args.is_empty() {
+        return usage("which", "usage: which COMMAND ...");
+    }
+    let mut output = CommandOutput::success("");
+    for name in context.args {
+        if let Some(value) = context.aliases.get(name) {
+            let _ = writeln!(output.stdout, "alias {name}='{value}'");
+        } else if context
+            .command_definitions
+            .iter()
+            .any(|definition| definition.name == name)
+        {
+            let _ = writeln!(output.stdout, "{name}: builtin");
+        } else {
+            output.status = 1;
+            let _ = writeln!(output.stderr, "which: {name}: not found");
+        }
+    }
+    output
+}
+
 pub(super) fn clear(context: &mut CommandContext<'_>) -> CommandOutput {
     if !context.args.is_empty() {
         return usage("clear", "usage: clear");
