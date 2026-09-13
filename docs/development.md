@@ -147,8 +147,9 @@ writes staying in their respective approved roots.
 The source-only Apple check also parses the external-folder bookmark layer;
 that syntax check does not prove security-scoped access, entitlements, or Files
 picker behavior on a device.
-It also parses the source-only App Intent declarations; the AppIntents module,
-registration, entitlements, and Shortcuts runtime remain unverified here.
+It also parses the source-only App Intent declarations, including the named
+session action; the AppIntents module, registration, entitlements, and
+Shortcuts runtime remain unverified here.
 The same parse check covers the source-only workspace tab container; it does
 not prove SwiftUI rendering, tab lifecycle, iPad multi-window behavior, or
 Apple runtime integration.

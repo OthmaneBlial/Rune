@@ -22,9 +22,10 @@ preserving combined stdout, stderr, and the last status. Native Shortcuts
 registration remains unverified and is not included here.
 
 `RuneShortcuts.swift` now declares source-only `AppIntent` actions for command
-and script execution. They call the existing Rust FFI and return the real
-stdout/stderr/status result; App Intent registration, entitlements, and
-Shortcuts runtime behavior remain unverified without an Apple build.
+and script execution, including execution in a named persisted Rust session.
+They call the existing Rust FFI and return the real stdout/stderr/status
+result; App Intent registration, entitlements, and Shortcuts runtime behavior
+remain unverified without an Apple build.
 
 The same file declares UTF-8 text Put/Get actions. Put writes through the Rust
 VFS transfer API and Get reads through the binary-safe FFI before decoding as
@@ -143,8 +144,8 @@ open/openurl capability; the portable CLI remains launcher-disabled by default.
 - `RuneCoreBridge.swift` owns and frees Rust session handles/strings.
 - `RuneExternalFolderAccess.swift` owns bounded security-scoped bookmark
   storage and keeps approved folder access alive for a Rust session.
-- `RuneShortcuts.swift` declares Rust-backed command, script, and UTF-8 file
-  App Intents.
+- `RuneShortcuts.swift` declares Rust-backed command, named-session command,
+  script, and UTF-8 file App Intents.
 - `RuneWorkspaceView.swift` declares the source-only independent-session tab
   container.
 - `RuneTerminalView.swift` declares source-only Command-key shortcuts for

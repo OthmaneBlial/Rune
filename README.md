@@ -285,8 +285,8 @@ returns to the previous directory and prints the resulting virtual path, while
 bookmark jumps and aliases that change directories use the same state update.
 
 The FFI and Swift source boundary exposes bounded command and newline-delimited
-script execution for Shortcuts. Source-only App Intent declarations call that
-real Rust-backed API and return stdout/stderr/status as text; Rust rejects
+script execution for Shortcuts, including named persisted session namespaces.
+Source-only App Intent declarations call that real Rust-backed API and return stdout/stderr/status as text; Rust rejects
 scripts larger than 256 KiB or 1,024 lines and caps accumulated output per
 channel. App Intent registration, entitlements, and runtime behavior remain
 unverified without an Apple build/runtime.
@@ -470,7 +470,7 @@ git check-ignore -v base/a-shell
 - [x] Source-only typed iPad window routing
 - [x] Source-only native keyboard shortcuts
 - [ ] iPad multi-window behavior
-- [x] Source-only command/script/file App Intent declarations
+- [x] Source-only command/script/file and named-session App Intent declarations
 - [x] Source-only settings sheet and bounded input toolbar
 - [ ] Apple Shortcuts registration and runtime validation
 - [ ] Accessibility and VoiceOver validation

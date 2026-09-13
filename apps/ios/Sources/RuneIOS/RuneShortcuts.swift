@@ -3,29 +3,56 @@ import Foundation
 
 public enum RuneShortcutError: LocalizedError {
     case noDocumentsDirectory
+    case invalidSessionIdentifier
 
     public var errorDescription: String? {
         switch self {
         case .noDocumentsDirectory:
             return "Rune could not locate its Documents directory."
+        case .invalidSessionIdentifier:
+            return "Rune session identifiers must be 1–64 ASCII letters, digits, '.', '-' or '_'."
         }
     }
 }
 
-private func executeInDefaultSession(
+private func executeInSession(
+    _ sessionID: String?,
     _ operation: (RuneFFISession) throws -> RuneCommandResult
 ) throws -> String {
     guard let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
         throw RuneShortcutError.noDocumentsDirectory
+    }
+    if let sessionID, !isValidSessionIdentifier(sessionID) {
+        throw RuneShortcutError.invalidSessionIdentifier
     }
     let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
     let temporary = FileManager.default.temporaryDirectory
     let session = try RuneFFISession(
         rootURL: root,
         libraryURL: library,
-        temporaryURL: temporary
+        temporaryURL: temporary,
+        sessionID: sessionID
     )
     return formatShortcutResult(try operation(session))
+}
+
+private func executeInDefaultSession(
+    _ operation: (RuneFFISession) throws -> RuneCommandResult
+) throws -> String {
+    try executeInSession(nil, operation)
+}
+
+private func isValidSessionIdentifier(_ value: String) -> Bool {
+    !value.isEmpty
+        && value.count <= 64
+        && value.utf8.allSatisfy {
+            ($0 >= 65 && $0 <= 90)
+                || ($0 >= 97 && $0 <= 122)
+                || ($0 >= 48 && $0 <= 57)
+                || $0 == 95
+                || $0 == 45
+                || $0 == 46
+        }
 }
 
 private func formatShortcutResult(_ result: RuneCommandResult) -> String {
@@ -74,6 +101,30 @@ public struct RuneExecuteScriptIntent: AppIntent {
     public func perform() async throws -> some IntentResult & ReturnsValue<String> {
         .result(value: try executeInDefaultSession { session in
             session.executeScript(script)
+        })
+    }
+}
+
+public struct RuneExecuteCommandInSessionIntent: AppIntent {
+    public static let title: LocalizedStringResource = "Execute Rune Command in Session"
+    public static let description = IntentDescription(
+        "Run one command through a named, persisted Rune Rust session."
+    )
+
+    @Parameter(title: "Session ID")
+    public var sessionID: String
+
+    @Parameter(title: "Command")
+    public var command: String
+
+    public init() {
+        sessionID = "default"
+        command = ""
+    }
+
+    public func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        .result(value: try executeInSession(sessionID) { session in
+            session.execute(command)
         })
     }
 }
@@ -141,6 +192,12 @@ public struct RuneShortcuts: AppShortcutsProvider {
                 phrases: ["Execute a script in \(.applicationName)"],
                 shortTitle: "Execute Script",
                 systemImageName: "scroll"
+            )
+            AppShortcut(
+                intent: RuneExecuteCommandInSessionIntent(),
+                phrases: ["Execute a command in a Rune session in \(.applicationName)"],
+                shortTitle: "Execute in Session",
+                systemImageName: "rectangle.connected.to.line.below"
             )
             AppShortcut(
                 intent: RunePutFileIntent(),

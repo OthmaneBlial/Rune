@@ -167,9 +167,11 @@ the current virtual session; no host shell or process is started. Shell-script
 nesting shares the 16-level source limit and accepts at most 64 positional
 arguments.
 
-The Apple source layer declares command and script App Intents that construct a
-normal `RuneFFISession` rooted at the app Documents directory and return the
-Rust result without reimplementing command behavior in Swift. This is a real
+The Apple source layer declares command, script, and named-session command App
+Intents that construct a normal `RuneFFISession` rooted at the app Documents
+directory and return the Rust result without reimplementing command behavior in
+Swift. Named session identifiers are validated in Swift for early feedback and
+again in Rust before the persisted namespace is opened. This is a real
 automation boundary, but App Intent registration, entitlements, and Shortcuts
 runtime execution remain unverified until an Apple target can be built.
 
