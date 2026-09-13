@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 65%**
+**Overall progress: 66%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -103,9 +103,10 @@ and broader session recovery remain planned. Non-WASM language runtimes remain
 planned work.
 
 The Rust package boundary now validates a bounded, versioned JSON manifest and
-checks declared file bytes with SHA-256. There is deliberately no network
-transport, remote registry, or update flow yet; `pkg search` is an offline
-search over manifests already installed in the sandbox.
+checks declared file bytes with SHA-256. Local installation and update are
+available without network access; `pkg search` remains an offline search over
+manifests already installed in the sandbox. There is deliberately no remote
+registry or transport.
 
 The `wasm MODULE [arg ...]` built-in loads a module through the bounded virtual
 filesystem and executes WASI preview1 `_start` in Rust. It exposes

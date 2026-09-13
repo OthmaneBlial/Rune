@@ -158,7 +158,7 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
     },
     CommandDefinition {
         name: "pkg",
-        summary: "inspect, verify, install, search, list, or remove local packages",
+        summary: "inspect, verify, install, update, search, list, or remove local packages",
         handler: package::pkg,
     },
     CommandDefinition {
