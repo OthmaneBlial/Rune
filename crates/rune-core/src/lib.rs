@@ -739,6 +739,19 @@ mod tests {
             "alpha\n"
         );
         assert_eq!(
+            session.execute_line("sed 's/beta/Rune/g' lines.txt").stdout,
+            "Rune\nalpha\nRune\n"
+        );
+        assert_eq!(
+            session
+                .execute_line("echo one one | sed -n 's/one/two/gp'")
+                .stdout,
+            "two two\n"
+        );
+        let invalid_sed = session.execute_line("sed 's/beta/Rune/z' lines.txt");
+        assert_eq!(invalid_sed.status, 2);
+        assert!(invalid_sed.stderr.contains("unsupported substitution flag"));
+        assert_eq!(
             session.execute_line("uniq -c lines.txt").stdout,
             "      1 beta\n      1 alpha\n      1 beta\n"
         );

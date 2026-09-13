@@ -101,6 +101,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: filesystem::rm,
     },
     CommandDefinition {
+        name: "sed",
+        summary: "apply bounded literal substitutions to text",
+        handler: text::sed,
+    },
+    CommandDefinition {
         name: "sort",
         summary: "sort input lines",
         handler: text::sort,

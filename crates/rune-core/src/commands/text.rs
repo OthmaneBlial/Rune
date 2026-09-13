@@ -68,6 +68,38 @@ pub(super) fn grep(context: &mut CommandContext<'_>) -> CommandOutput {
     }
 }
 
+pub(super) fn sed(context: &mut CommandContext<'_>) -> CommandOutput {
+    let (suppress_default, script, paths) = match parse_sed_args(context.args) {
+        Ok(parsed) => parsed,
+        Err(output) => return output,
+    };
+    let script = match parse_substitution(&script) {
+        Ok(script) => script,
+        Err(message) => return usage("sed", &message),
+    };
+    let text = match read_inputs(context, "sed", &paths) {
+        Ok(text) => text,
+        Err(output) => return output,
+    };
+    let mut stdout = String::new();
+    for line in lines_with_endings(&text) {
+        let (body, ending) = line.strip_suffix('\n').map_or((line, ""), |line| {
+            line.strip_suffix('\r')
+                .map_or((line, "\n"), |line| (line, "\r\n"))
+        });
+        let (transformed, matched) = apply_substitution(body, &script);
+        if !suppress_default {
+            stdout.push_str(&transformed);
+            stdout.push_str(ending);
+        }
+        if script.print_on_match && matched {
+            stdout.push_str(&transformed);
+            stdout.push_str(ending);
+        }
+    }
+    CommandOutput::success(stdout)
+}
+
 pub(super) fn sort(context: &mut CommandContext<'_>) -> CommandOutput {
     let reverse = match parse_flag("sort", context.args, "r") {
         Ok(reverse) => reverse,
@@ -170,6 +202,116 @@ fn read_inputs(
         text.push_str(&String::from_utf8_lossy(&bytes));
     }
     Ok(text)
+}
+
+struct Substitution {
+    pattern: String,
+    replacement: String,
+    global: bool,
+    print_on_match: bool,
+}
+
+fn parse_sed_args(args: &[String]) -> Result<(bool, String, Vec<String>), CommandOutput> {
+    let mut suppress_default = false;
+    let mut index = 0;
+    if args.first().is_some_and(|argument| argument == "-n") {
+        suppress_default = true;
+        index += 1;
+    }
+    let Some(script) = args.get(index) else {
+        return Err(usage(
+            "sed",
+            "usage: sed [-n] 's/PATTERN/REPLACEMENT/[gp]' [file ...]",
+        ));
+    };
+    let paths = args[index + 1..].to_vec();
+    Ok((suppress_default, script.clone(), paths))
+}
+
+fn parse_substitution(script: &str) -> Result<Substitution, String> {
+    let mut characters = script.chars();
+    if characters.next() != Some('s') {
+        return Err("only s/// substitution scripts are supported".to_string());
+    }
+    let delimiter = characters
+        .next()
+        .ok_or_else(|| "substitution is missing its delimiter".to_string())?;
+    let pattern = read_script_section(&mut characters, delimiter)?;
+    if pattern.is_empty() {
+        return Err("substitution pattern must not be empty".to_string());
+    }
+    let replacement = read_script_section(&mut characters, delimiter)?;
+    let flags = characters.collect::<String>();
+    let mut global = false;
+    let mut print_on_match = false;
+    for flag in flags.chars() {
+        match flag {
+            'g' => global = true,
+            'p' => print_on_match = true,
+            _ => return Err(format!("unsupported substitution flag: {flag}")),
+        }
+    }
+    Ok(Substitution {
+        pattern,
+        replacement,
+        global,
+        print_on_match,
+    })
+}
+
+fn read_script_section(
+    characters: &mut impl Iterator<Item = char>,
+    delimiter: char,
+) -> Result<String, String> {
+    let mut section = String::new();
+    let mut escaped = false;
+    for character in characters {
+        if escaped {
+            section.push(character);
+            escaped = false;
+        } else if character == '\\' {
+            escaped = true;
+        } else if character == delimiter {
+            return Ok(section);
+        } else {
+            section.push(character);
+        }
+    }
+    Err("substitution is missing a delimiter".to_string())
+}
+
+fn apply_substitution(line: &str, script: &Substitution) -> (String, bool) {
+    if script.global {
+        let mut output = String::new();
+        let mut remaining = line;
+        let mut matched = false;
+        while let Some(index) = remaining.find(&script.pattern) {
+            matched = true;
+            output.push_str(&remaining[..index]);
+            output.push_str(&replacement_text(
+                &script.replacement,
+                &remaining[index..index + script.pattern.len()],
+            ));
+            remaining = &remaining[index + script.pattern.len()..];
+        }
+        output.push_str(remaining);
+        (output, matched)
+    } else if let Some(index) = line.find(&script.pattern) {
+        let mut output = String::new();
+        output.push_str(&line[..index]);
+        output.push_str(&replacement_text(
+            &script.replacement,
+            &line[index..index + script.pattern.len()],
+        ));
+        output.push_str(&line[index + script.pattern.len()..]);
+        (output, true)
+    } else {
+        (line.to_string(), false)
+    }
+}
+
+fn replacement_text(replacement: &str, matched: &str) -> String {
+    replacement.replace('&', matched)
 }
 
 fn lines_with_endings(text: &str) -> Vec<&str> {

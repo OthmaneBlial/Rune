@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 19%**
+**Overall progress: 20%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -20,7 +20,7 @@ working iOS application or a feature-parity claim.
 |---|---:|
 | Rust workspace | 70% |
 | Shell tokenizer/parser | 60% |
-| Command runtime | 65% |
+| Command runtime | 68% |
 | Sandboxed filesystem | 48% |
 | Sessions/history | 32% |
 | WASM | 0% |
@@ -34,7 +34,7 @@ working iOS application or a feature-parity claim.
 The first Rust vertical slice is implemented and locally verified. It executes
 the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `printenv`, `setenv`,
-`alias`, `unalias`, `find`,
+`alias`, `unalias`, `find`, `sed`,
 `true`, `false`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `clear`, `help`,
 and `history` against a bounded filesystem, including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
@@ -42,6 +42,9 @@ with quotes, variables, leading `NAME=value` assignments, pipes, redirections,
 sequencing, `&&`/`||` short-circuiting, separate stdout/stderr, and exit status.
 Assignments are expanded left-to-right, remain session-local, and can also be
 issued without a command.
+The text pipeline also supports a bounded literal `sed` substitution surface:
+`s///` with optional `g`/`p` flags and `-n`; regular expressions and addresses
+are not implemented yet.
 Environment changes are not serialized. A bounded `~/.rune_profile` is loaded
 on restore; its supported Rust built-ins can update the session environment and
 define aliases, with output surfaced to the CLI/native boundary without
@@ -122,6 +125,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded session-local command aliases
 - [x] `&&` and `||` conditional chaining
 - [x] Bounded recursive `find` traversal
+- [x] Bounded literal `sed` substitutions
 
 ### Phase 3 — Developer environment
 
