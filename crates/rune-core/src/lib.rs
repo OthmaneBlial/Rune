@@ -1918,29 +1918,8 @@ fn history_entry(line: &str) -> String {
     let Ok(plan) = parse(line) else {
         return line.to_string();
     };
-    let contains_environment_setter = plan.pipelines.iter().any(|pipeline| {
-        pipeline.commands.iter().any(|command| {
-            !command.assignments.is_empty()
-                || matches!(
-                    command.program.literal_value().as_deref(),
-                    Some("export" | "setenv")
-                )
-        })
-    });
-    let contains_network_request = plan.pipelines.iter().any(|pipeline| {
-        pipeline.commands.iter().any(|command| {
-            if command.program.literal_value().as_deref() == Some("curl") {
-                return true;
-            }
-            command.program.literal_value().as_deref() == Some("pkg")
-                && command.arguments.iter().any(|argument| {
-                    matches!(
-                        argument.literal_value().as_deref(),
-                        Some("--registry" | "--remote")
-                    )
-                })
-        })
-    });
+    let contains_environment_setter = plan_contains_environment_setter(&plan, 0);
+    let contains_network_request = plan_contains_network_request(&plan, 0);
     if contains_network_request {
         return "[redacted network command]".to_string();
     }
@@ -1949,6 +1928,78 @@ fn history_entry(line: &str) -> String {
     } else {
         line.to_string()
     }
+}
+
+fn plan_contains_environment_setter(plan: &ExecutionPlan, depth: usize) -> bool {
+    plan.pipelines.iter().any(|pipeline| {
+        pipeline.commands.iter().any(|command| {
+            !command.assignments.is_empty()
+                || matches!(
+                    command.program.literal_value().as_deref(),
+                    Some("export" | "setenv")
+                )
+                || command_words_contain(command, plan_contains_environment_setter, depth)
+        })
+    })
+}
+
+fn plan_contains_network_request(plan: &ExecutionPlan, depth: usize) -> bool {
+    plan.pipelines.iter().any(|pipeline| {
+        pipeline.commands.iter().any(|command| {
+            if command.program.literal_value().as_deref() == Some("curl") {
+                return true;
+            }
+            (command.program.literal_value().as_deref() == Some("pkg")
+                && command.arguments.iter().any(|argument| {
+                    matches!(
+                        argument.literal_value().as_deref(),
+                        Some("--registry" | "--remote")
+                    )
+                }))
+                || command_words_contain(command, plan_contains_network_request, depth)
+        })
+    })
+}
+
+fn command_words_contain(
+    command: &rune_shell::CommandPlan,
+    predicate: fn(&ExecutionPlan, usize) -> bool,
+    depth: usize,
+) -> bool {
+    if depth >= MAX_COMMAND_SUBSTITUTION_DEPTH {
+        return true;
+    }
+    command
+        .assignments
+        .iter()
+        .any(|assignment| word_contains(&assignment.value, predicate, depth))
+        || word_contains(&command.program, predicate, depth)
+        || command
+            .arguments
+            .iter()
+            .any(|argument| word_contains(argument, predicate, depth))
+        || command
+            .redirections
+            .iter()
+            .any(|redirection| match redirection {
+                Redirection::Stdin { path }
+                | Redirection::Stdout { path, .. }
+                | Redirection::Stderr { path, .. }
+                | Redirection::Both { path, .. } => word_contains(path, predicate, depth),
+                Redirection::StdoutToStderr | Redirection::StderrToStdout => false,
+            })
+}
+
+fn word_contains(word: &Word, predicate: fn(&ExecutionPlan, usize) -> bool, depth: usize) -> bool {
+    word.parts().iter().any(|part| {
+        let WordPart::CommandSubstitution(command) = part else {
+            return false;
+        };
+        let Ok(plan) = parse(command) else {
+            return true;
+        };
+        predicate(&plan, depth + 1)
+    })
 }
 
 fn limit_output(output: &mut CommandOutput) {
@@ -4830,6 +4881,13 @@ mod tests {
             session.environment().get("API_TOKEN").map(String::as_str),
             Some("super-secret-value")
         );
+        assert_eq!(
+            session.history().last().map(String::as_str),
+            Some("[redacted environment assignment]")
+        );
+        let nested = session.execute_line("echo $(export NESTED_TOKEN=nested-secret-value)");
+        assert_eq!(nested.status, 0);
+        assert!(!session.environment().contains_key("NESTED_TOKEN"));
         assert_eq!(
             session.history().last().map(String::as_str),
             Some("[redacted environment assignment]")
