@@ -6,13 +6,14 @@
 
 #![allow(unsafe_code)]
 
-use std::ffi::{CStr, CString};
+use std::ffi::{c_void, CStr, CString};
 use std::fmt::Write as _;
 use std::os::raw::c_char;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use rune_core::{CommandOutput, Session, MAX_FILE_TRANSFER_BYTES};
+use rune_core::{CommandEvent, CommandOutput, EventSink, Session, MAX_FILE_TRANSFER_BYTES};
 use rune_fs::{FsError, SandboxedFileSystem};
 
 /// An owned result crossing the C ABI.
@@ -32,9 +33,77 @@ pub struct RuneFile {
     pub message: *mut c_char,
 }
 
+/// A borrowed execution event delivered synchronously during a streamed call.
+/// The pointed-to strings are valid only for the duration of the callback.
+#[repr(C)]
+pub struct RuneEvent {
+    /// `1` is output and `2` is a completed status boundary.
+    pub kind: i32,
+    pub stdout: *const c_char,
+    pub stderr: *const c_char,
+    pub status: i32,
+    pub current_directory: *const c_char,
+}
+
+/// Callback used by the event-aware execution entry points.
+pub type RuneEventCallback =
+    Option<unsafe extern "C" fn(event: *const RuneEvent, user_data: *mut c_void)>;
+
+pub const RUNE_EVENT_OUTPUT: i32 = 1;
+pub const RUNE_EVENT_STATUS: i32 = 2;
+
 struct RuneSession {
     core: Session,
     cancellation: Arc<std::sync::atomic::AtomicBool>,
+}
+
+struct CallbackEventSink {
+    callback: unsafe extern "C" fn(event: *const RuneEvent, user_data: *mut c_void),
+    user_data: *mut c_void,
+    disabled: bool,
+}
+
+impl EventSink for CallbackEventSink {
+    fn emit(&mut self, event: CommandEvent) {
+        if self.disabled {
+            return;
+        }
+        let (kind, stdout, stderr, status, current_directory) = match event {
+            CommandEvent::Output { stdout, stderr } => {
+                (RUNE_EVENT_OUTPUT, stdout, stderr, 0, String::new())
+            }
+            CommandEvent::Status {
+                status,
+                current_directory,
+            } => (
+                RUNE_EVENT_STATUS,
+                String::new(),
+                String::new(),
+                status,
+                current_directory,
+            ),
+        };
+        let stdout = callback_string(&stdout);
+        let stderr = callback_string(&stderr);
+        let current_directory = callback_string(&current_directory);
+        let raw = RuneEvent {
+            kind,
+            stdout: stdout.as_ptr(),
+            stderr: stderr.as_ptr(),
+            status,
+            current_directory: current_directory.as_ptr(),
+        };
+        let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+            (self.callback)(&raw, self.user_data);
+        }));
+        if result.is_err() {
+            self.disabled = true;
+        }
+    }
+}
+
+fn callback_string(value: &str) -> CString {
+    CString::new(value.replace('\0', "�")).unwrap_or_default()
 }
 
 fn read_string(pointer: *const c_char) -> Option<String> {
@@ -219,6 +288,73 @@ pub extern "C" fn rune_session_execute_script(
     let output = core.execute_script(&script);
     let output = persist_after_execution(core, output);
     into_output(&output)
+}
+
+fn execute_with_events(
+    handle: *mut c_void,
+    input: *const c_char,
+    callback: RuneEventCallback,
+    user_data: *mut c_void,
+    script: bool,
+) -> RuneOutput {
+    let Some(input) = read_string(input) else {
+        let output = CommandOutput::failure(2, "rune: input is not valid UTF-8\n");
+        return into_output(&output);
+    };
+    if handle.is_null() {
+        let output = CommandOutput::failure(1, "rune: session is unavailable\n");
+        return into_output(&output);
+    }
+    // SAFETY: Swift serializes access to the opaque session handle and does
+    // not call this after rune_session_destroy.
+    let core = unsafe { &mut (*handle.cast::<RuneSession>()).core };
+    let output = match callback {
+        Some(callback) => {
+            let mut sink = CallbackEventSink {
+                callback,
+                user_data,
+                disabled: false,
+            };
+            if script {
+                core.execute_script_with_events(&input, &mut sink)
+            } else {
+                core.execute_line_with_events(&input, &mut sink)
+            }
+        }
+        None => {
+            if script {
+                core.execute_script(&input)
+            } else {
+                core.execute_line(&input)
+            }
+        }
+    };
+    let output = persist_after_execution(core, output);
+    into_output(&output)
+}
+
+/// Executes one command line and synchronously delivers bounded Rust events.
+/// Event strings are borrowed and must be copied by the callback if retained.
+#[no_mangle]
+pub extern "C" fn rune_session_execute_with_events(
+    handle: *mut c_void,
+    input: *const c_char,
+    callback: RuneEventCallback,
+    user_data: *mut c_void,
+) -> RuneOutput {
+    execute_with_events(handle, input, callback, user_data, false)
+}
+
+/// Executes a newline-delimited script and synchronously delivers bounded Rust
+/// events for each line and for the script boundary.
+#[no_mangle]
+pub extern "C" fn rune_session_execute_script_with_events(
+    handle: *mut c_void,
+    script: *const c_char,
+    callback: RuneEventCallback,
+    user_data: *mut c_void,
+) -> RuneOutput {
+    execute_with_events(handle, script, callback, user_data, true)
 }
 
 /// Writes a bounded binary file through the session's confined filesystem.
@@ -436,11 +572,12 @@ mod tests {
     use super::{
         rune_file_bytes_free, rune_session_cancel, rune_session_commands, rune_session_complete,
         rune_session_configuration, rune_session_current_directory, rune_session_destroy,
-        rune_session_execute, rune_session_execute_script, rune_session_get_file, rune_session_new,
+        rune_session_execute, rune_session_execute_script, rune_session_execute_script_with_events,
+        rune_session_execute_with_events, rune_session_get_file, rune_session_new,
         rune_session_new_named, rune_session_put_file, rune_session_startup_output,
-        rune_string_free,
+        rune_string_free, RuneEvent, RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS,
     };
-    use std::ffi::{CStr, CString};
+    use std::ffi::{c_void, CStr, CString};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -563,6 +700,99 @@ mod tests {
         unsafe {
             rune_string_free(output.stdout);
             rune_string_free(output.stderr);
+        }
+        rune_session_destroy(handle);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct EventRecord {
+        kind: i32,
+        stdout: String,
+        stderr: String,
+        status: i32,
+        current_directory: String,
+    }
+
+    unsafe extern "C" fn collect_event(event: *const RuneEvent, user_data: *mut c_void) {
+        if event.is_null() || user_data.is_null() {
+            return;
+        }
+        // SAFETY: Rune invokes this callback synchronously with a valid event
+        // and the test keeps the Vec alive for the whole call.
+        let event = unsafe { &*event };
+        let text = |pointer: *const std::os::raw::c_char| {
+            if pointer.is_null() {
+                String::new()
+            } else {
+                // SAFETY: event strings are NUL-terminated for this callback.
+                unsafe { CStr::from_ptr(pointer) }
+                    .to_string_lossy()
+                    .into_owned()
+            }
+        };
+        // SAFETY: user_data is the pointer to the test-owned Vec supplied to
+        // the event-aware FFI call.
+        let records = unsafe { &mut *user_data.cast::<Vec<EventRecord>>() };
+        records.push(EventRecord {
+            kind: event.kind,
+            stdout: text(event.stdout),
+            stderr: text(event.stderr),
+            status: event.status,
+            current_directory: text(event.current_directory),
+        });
+    }
+
+    #[test]
+    fn c_abi_delivers_borrowed_output_and_status_events() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rune-ffi-events-test-{suffix}"));
+        std::fs::create_dir_all(&root).expect("test root created");
+        let root_string = CString::new(root.to_string_lossy().as_bytes()).expect("valid root");
+        let handle = rune_session_new(root_string.as_ptr());
+        assert!(!handle.is_null());
+        let command = CString::new("echo first; false; echo last").expect("valid command");
+        let mut records: Vec<EventRecord> = Vec::new();
+        let output = rune_session_execute_with_events(
+            handle,
+            command.as_ptr(),
+            Some(collect_event),
+            std::ptr::addr_of_mut!(records).cast(),
+        );
+        assert_eq!(output.status, 0);
+        assert_eq!(records.len(), 4);
+        assert_eq!(records[0].kind, RUNE_EVENT_OUTPUT);
+        assert_eq!(records[0].stdout, "first\n");
+        assert_eq!(records[1].kind, RUNE_EVENT_OUTPUT);
+        assert_eq!(records[2].stdout, "last\n");
+        assert_eq!(records[3].kind, RUNE_EVENT_STATUS);
+        assert_eq!(records[3].status, 0);
+        assert_eq!(records[3].current_directory, "~");
+        // SAFETY: both pointers came from the event-aware FFI call.
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+
+        records.clear();
+        let script = CString::new("echo scripted\nfalse").expect("valid script");
+        let script_output = rune_session_execute_script_with_events(
+            handle,
+            script.as_ptr(),
+            Some(collect_event),
+            std::ptr::addr_of_mut!(records).cast(),
+        );
+        assert_eq!(script_output.status, 1);
+        assert!(records
+            .iter()
+            .any(|record| record.kind == RUNE_EVENT_STATUS && record.status == 1));
+        // SAFETY: both pointers came from the event-aware FFI call.
+        unsafe {
+            rune_string_free(script_output.stdout);
+            rune_string_free(script_output.stderr);
         }
         rune_session_destroy(handle);
         std::fs::remove_dir_all(root).expect("test root removed");

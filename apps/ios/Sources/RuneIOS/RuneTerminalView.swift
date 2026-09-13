@@ -144,10 +144,10 @@ public final class RuneTerminalModel: ObservableObject {
         }
         isExecuting = true
         executionTask = Task { [weak self, session] in
-            let result = await Task.detached(priority: .userInitiated) {
-                session.execute(line)
+            let execution = await Task.detached(priority: .userInitiated) {
+                session.executeWithEvents(line)
             }.value
-            self?.finishExecution(result, session: session)
+            self?.finishExecution(execution.0, events: execution.1, session: session)
         }
     }
 
@@ -156,8 +156,25 @@ public final class RuneTerminalModel: ObservableObject {
         session?.cancel()
     }
 
-    private func finishExecution(_ result: RuneCommandResult, session: RuneFFISession) {
-        append(result)
+    private func finishExecution(
+        _ result: RuneCommandResult,
+        events: [RuneExecutionEvent],
+        session: RuneFFISession
+    ) {
+        if events.isEmpty {
+            append(result)
+        } else {
+            events.forEach(append)
+            let reportedStatus = events.reversed().compactMap { event in
+                event.kind == .status ? event.status : nil
+            }.first
+            if reportedStatus != result.status {
+                appendOutput(stdout: "", stderr: result.stderr)
+                if result.status != 0 {
+                    appendEntry(.init(kind: .status, text: "[exit \(result.status)]"))
+                }
+            }
+        }
         currentDirectory = session.currentDirectory
         history = session.history()
         refreshConfiguration()
@@ -166,7 +183,28 @@ public final class RuneTerminalModel: ObservableObject {
     }
 
     private func append(_ result: RuneCommandResult) {
-        var stdout = result.stdout
+        appendOutput(stdout: result.stdout, stderr: result.stderr)
+        if result.status != 0 {
+            appendEntry(.init(kind: .status, text: "[exit \(result.status)]"))
+        }
+    }
+
+    private func append(_ event: RuneExecutionEvent) {
+        switch event.kind {
+        case .output:
+            appendOutput(stdout: event.stdout, stderr: event.stderr)
+        case .status:
+            if event.status != 0 {
+                appendEntry(.init(kind: .status, text: "[exit \(event.status)]"))
+            }
+        }
+        if !event.currentDirectory.isEmpty {
+            currentDirectory = event.currentDirectory
+        }
+    }
+
+    private func appendOutput(stdout value: String, stderr: String) {
+        var stdout = value
         if let clearRange = stdout.range(of: Self.clearSequence, options: .backwards) {
             clearTranscript()
             stdout = String(stdout[clearRange.upperBound...])
@@ -174,11 +212,8 @@ public final class RuneTerminalModel: ObservableObject {
         if !stdout.isEmpty {
             appendEntry(.init(kind: .stdout, text: stdout))
         }
-        if !result.stderr.isEmpty {
-            appendEntry(.init(kind: .stderr, text: result.stderr))
-        }
-        if result.status != 0 {
-            appendEntry(.init(kind: .status, text: "[exit \(result.status)]"))
+        if !stderr.isEmpty {
+            appendEntry(.init(kind: .stderr, text: stderr))
         }
     }
 

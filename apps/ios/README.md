@@ -50,6 +50,12 @@ files stored in the sandbox.
 the next command boundary returns status 130. It is a cancellation signal, not
 an unsafe force-stop of a synchronous operation.
 
+The bridge also exposes synchronous event-aware command/script calls. Rust
+delivers borrowed output and status events through a C callback; Swift copies
+them before the callback returns and the terminal model renders the ordered
+boundary events when execution returns. This is boundary-level event delivery,
+not live UI rendering or byte-level streaming from inside a WASM call.
+
 The FFI session serializes mutable calls with a lock while allowing the atomic
 cancellation signal to arrive from the UI thread. `RuneTerminalModel` runs
 command execution in a detached task and reconnects the result to SwiftUI on

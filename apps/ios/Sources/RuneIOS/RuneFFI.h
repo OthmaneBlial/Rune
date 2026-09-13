@@ -17,6 +17,19 @@ typedef struct {
     char *message;
 } RuneFile;
 
+typedef struct {
+    int32_t kind;
+    const char *stdout;
+    const char *stderr;
+    int32_t status;
+    const char *current_directory;
+} RuneEvent;
+
+typedef void (*RuneEventCallback)(const RuneEvent *event, void *user_data);
+
+#define RUNE_EVENT_OUTPUT 1
+#define RUNE_EVENT_STATUS 2
+
 void *rune_session_new(const char *root);
 // Create a session with an independent bounded persistence namespace.
 void *rune_session_new_named(const char *root, const char *session_id);
@@ -34,6 +47,20 @@ RuneFile rune_session_get_file(const void *handle, const char *path);
 RuneOutput rune_session_execute(void *handle, const char *input);
 // Execute a newline-delimited script and persist the session before returning.
 RuneOutput rune_session_execute_script(void *handle, const char *script);
+// Execute and synchronously deliver borrowed output/status events.
+RuneOutput rune_session_execute_with_events(
+    void *handle,
+    const char *input,
+    RuneEventCallback callback,
+    void *user_data
+);
+// Execute a script and synchronously deliver borrowed output/status events.
+RuneOutput rune_session_execute_script_with_events(
+    void *handle,
+    const char *script,
+    RuneEventCallback callback,
+    void *user_data
+);
 char *rune_session_current_directory(const void *handle);
 char *rune_session_history(const void *handle);
 char *rune_session_configuration(const void *handle);

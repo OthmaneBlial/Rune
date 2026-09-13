@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 55%**
+**Overall progress: 56%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -20,13 +20,13 @@ working iOS application or a feature-parity claim.
 |---|---:|
 | Rust workspace | 70% |
 | Shell tokenizer/parser | 63% |
-| Command runtime | 82% |
+| Command runtime | 85% |
 | Sandboxed filesystem | 64% |
 | Sessions/history | 62% |
 | Configuration | 23% |
-| WASM | 38% |
-| Native iOS UI | 42% |
-| Swift/Rust bridge | 34% |
+| WASM | 40% |
+| Native iOS UI | 44% |
+| Swift/Rust bridge | 41% |
 | Package manager | 36% |
 | Compatibility evidence | 2% |
 
@@ -63,6 +63,11 @@ is capped at 16 levels.
 The Rust session and C/Swift bridge also expose cooperative cancellation at
 command, pipeline, and script boundaries, returning status 130; an operation
 already running synchronously is allowed to finish.
+The event-aware Rust/FFI execution path delivers bounded output after each
+completed pipeline and status/directory events at command boundaries. Swift
+copies those borrowed callback strings and renders them through the same
+bounded transcript policy; this is boundary-level event delivery, not live UI
+rendering or byte-level WASM streaming.
 Environment changes are not serialized. A bounded `~/.rune_profile` is loaded
 on restore; its supported Rust built-ins can update the session environment and
 define aliases, with output surfaced to the CLI/native boundary without

@@ -6,11 +6,72 @@ private struct RuneFFIOutput {
     let status: Int32
 }
 
+private struct RuneFFIEvent {
+    let kind: Int32
+    let stdout: UnsafePointer<CChar>?
+    let stderr: UnsafePointer<CChar>?
+    let status: Int32
+    let currentDirectory: UnsafePointer<CChar>?
+}
+
+private typealias RuneEventCallback = @convention(c) (
+    UnsafePointer<RuneFFIEvent>?,
+    UnsafeMutableRawPointer?
+) -> Void
+
 private struct RuneFFIFile {
     let data: UnsafeMutablePointer<UInt8>?
     let length: Int
     let status: Int32
     let message: UnsafeMutablePointer<CChar>?
+}
+
+public enum RuneExecutionEventKind: Int32, Sendable {
+    case output = 1
+    case status = 2
+}
+
+public struct RuneExecutionEvent: Sendable {
+    public let kind: RuneExecutionEventKind
+    public let stdout: String
+    public let stderr: String
+    public let status: Int32
+    public let currentDirectory: String
+
+    public init(
+        kind: RuneExecutionEventKind,
+        stdout: String,
+        stderr: String,
+        status: Int32,
+        currentDirectory: String
+    ) {
+        self.kind = kind
+        self.stdout = stdout
+        self.stderr = stderr
+        self.status = status
+        self.currentDirectory = currentDirectory
+    }
+}
+
+private final class RuneEventCollector {
+    var events: [RuneExecutionEvent] = []
+}
+
+private let runeEventCallback: RuneEventCallback = { event, userData in
+    guard let event, let userData else { return }
+    let collector = Unmanaged<RuneEventCollector>
+        .fromOpaque(userData)
+        .takeUnretainedValue()
+    guard let kind = RuneExecutionEventKind(rawValue: event.pointee.kind) else {
+        return
+    }
+    collector.events.append(RuneExecutionEvent(
+        kind: kind,
+        stdout: event.pointee.stdout.map { String(cString: $0) } ?? "",
+        stderr: event.pointee.stderr.map { String(cString: $0) } ?? "",
+        status: event.pointee.status,
+        currentDirectory: event.pointee.currentDirectory.map { String(cString: $0) } ?? ""
+    ))
 }
 
 @_silgen_name("rune_session_new")
@@ -38,6 +99,22 @@ private func rune_session_execute(
 private func rune_session_execute_script(
     _ handle: OpaquePointer?,
     _ script: UnsafePointer<CChar>
+) -> RuneFFIOutput
+
+@_silgen_name("rune_session_execute_with_events")
+private func rune_session_execute_with_events(
+    _ handle: OpaquePointer?,
+    _ input: UnsafePointer<CChar>,
+    _ callback: RuneEventCallback?,
+    _ userData: UnsafeMutableRawPointer?
+) -> RuneFFIOutput
+
+@_silgen_name("rune_session_execute_script_with_events")
+private func rune_session_execute_script_with_events(
+    _ handle: OpaquePointer?,
+    _ script: UnsafePointer<CChar>,
+    _ callback: RuneEventCallback?,
+    _ userData: UnsafeMutableRawPointer?
 ) -> RuneFFIOutput
 
 @_silgen_name("rune_session_put_file")
@@ -155,10 +232,43 @@ public final class RuneFFISession: @unchecked Sendable {
         }
     }
 
+    /// Executes a command while collecting bounded Rust events synchronously.
+    /// Event strings are copied before the callback returns.
+    public func executeWithEvents(_ command: String) -> (RuneCommandResult, [RuneExecutionEvent]) {
+        withLock {
+            let collector = RuneEventCollector()
+            let raw = command.withCString { input in
+                rune_session_execute_with_events(
+                    handle,
+                    input,
+                    runeEventCallback,
+                    Unmanaged.passUnretained(collector).toOpaque()
+                )
+            }
+            return (consume(raw), collector.events)
+        }
+    }
+
     public func executeScript(_ script: String) -> RuneCommandResult {
         withLock {
             let raw = script.withCString { rune_session_execute_script(handle, $0) }
             return consume(raw)
+        }
+    }
+
+    /// Executes a script while collecting bounded Rust events synchronously.
+    public func executeScriptWithEvents(_ script: String) -> (RuneCommandResult, [RuneExecutionEvent]) {
+        withLock {
+            let collector = RuneEventCollector()
+            let raw = script.withCString { input in
+                rune_session_execute_script_with_events(
+                    handle,
+                    input,
+                    runeEventCallback,
+                    Unmanaged.passUnretained(collector).toOpaque()
+                )
+            }
+            return (consume(raw), collector.events)
         }
     }
 

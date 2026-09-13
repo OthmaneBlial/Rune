@@ -38,9 +38,11 @@ they own a coherent capability with tests.
 
 The first execution engine is synchronous and deterministic so behavior can be
 tested easily. Its result model already separates stdout, stderr, and exit
-status. Later async execution and streaming can be introduced behind the same
-conceptual event boundary once iOS cancellation and rendering requirements are
-specified.
+status. An event sink can receive bounded output after each completed pipeline
+and a status/directory event at each command boundary; the C ABI forwards this
+as borrowed callback data for Swift to copy. This is boundary-level event
+delivery, not live UI rendering or byte-level streaming from an in-flight WASM
+call.
 
 A synchronous command response is capped at 1 MiB per stdout or stderr
 channel. The cap is applied after redirections, so terminal rendering cannot

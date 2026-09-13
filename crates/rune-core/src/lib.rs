@@ -1,7 +1,7 @@
 //! Portable Rune command engine and session model.
 //!
 //! The engine is deliberately independent of the native Apple frontend. A
-//! future FFI crate can expose its command/event model without moving shell
+//! FFI consumers can expose its command/event model without moving shell
 //! semantics into Swift.
 
 mod commands;
@@ -115,6 +115,53 @@ impl CommandOutput {
             stderr: stderr.into(),
             status,
         }
+    }
+}
+
+/// A bounded event emitted at a Rust execution boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommandEvent {
+    /// Output visible after one pipeline has completed. Redirections have
+    /// already been applied, so redirected bytes are not emitted here.
+    Output { stdout: String, stderr: String },
+    /// Status and virtual directory after one command line or script line.
+    Status {
+        status: i32,
+        current_directory: String,
+    },
+}
+
+/// Receives execution events without owning or mutating a [`Session`].
+pub trait EventSink {
+    fn emit(&mut self, event: CommandEvent);
+}
+
+struct NoopEventSink;
+
+impl EventSink for NoopEventSink {
+    fn emit(&mut self, _event: CommandEvent) {}
+}
+
+struct TrackingEventSink<'a> {
+    sink: &'a mut dyn EventSink,
+    output_emitted: bool,
+}
+
+impl<'a> TrackingEventSink<'a> {
+    fn new(sink: &'a mut dyn EventSink) -> Self {
+        Self {
+            sink,
+            output_emitted: false,
+        }
+    }
+}
+
+impl EventSink for TrackingEventSink<'_> {
+    fn emit(&mut self, event: CommandEvent) {
+        if matches!(event, CommandEvent::Output { .. }) {
+            self.output_emitted = true;
+        }
+        self.sink.emit(event);
     }
 }
 
@@ -516,7 +563,17 @@ impl Session {
 
     /// Executes one parsed command line and returns separate output channels.
     pub fn execute_line(&mut self, input: &str) -> CommandOutput {
-        self.execute_line_internal(input, true, 0)
+        let mut sink = NoopEventSink;
+        self.execute_line_internal(input, true, 0, &mut sink)
+    }
+
+    /// Executes one command line and emits bounded output/status events.
+    pub fn execute_line_with_events(
+        &mut self,
+        input: &str,
+        sink: &mut dyn EventSink,
+    ) -> CommandOutput {
+        self.execute_line_internal(input, true, 0, sink)
     }
 
     /// Executes a bounded newline-delimited automation script.
@@ -526,7 +583,17 @@ impl Session {
     /// continues after a failed line so automation can observe the complete
     /// output. The returned status is the status of the last executed line.
     pub fn execute_script(&mut self, script: &str) -> CommandOutput {
-        self.execute_script_internal(script, true, 0)
+        let mut sink = NoopEventSink;
+        self.execute_script_internal(script, true, 0, &mut sink)
+    }
+
+    /// Executes a bounded script and emits events for each executed line.
+    pub fn execute_script_with_events(
+        &mut self,
+        script: &str,
+        sink: &mut dyn EventSink,
+    ) -> CommandOutput {
+        self.execute_script_internal(script, true, 0, sink)
     }
 
     fn execute_script_internal(
@@ -534,6 +601,29 @@ impl Session {
         script: &str,
         record_history: bool,
         source_depth: usize,
+        sink: &mut dyn EventSink,
+    ) -> CommandOutput {
+        let mut tracking = TrackingEventSink::new(sink);
+        let output = self.execute_script_body(script, record_history, source_depth, &mut tracking);
+        if !tracking.output_emitted && (!output.stdout.is_empty() || !output.stderr.is_empty()) {
+            tracking.emit(CommandEvent::Output {
+                stdout: output.stdout.clone(),
+                stderr: output.stderr.clone(),
+            });
+        }
+        tracking.emit(CommandEvent::Status {
+            status: output.status,
+            current_directory: self.filesystem.current_dir_display(),
+        });
+        output
+    }
+
+    fn execute_script_body(
+        &mut self,
+        script: &str,
+        record_history: bool,
+        source_depth: usize,
+        sink: &mut dyn EventSink,
     ) -> CommandOutput {
         if script.len() > MAX_SCRIPT_BYTES {
             let output = CommandOutput::failure(
@@ -561,7 +651,7 @@ impl Session {
                 output.status = cancellation.status;
                 break;
             }
-            let line_output = self.execute_line_internal(line, record_history, source_depth);
+            let line_output = self.execute_line_internal(line, record_history, source_depth, sink);
             output.stdout.push_str(&line_output.stdout);
             output.stderr.push_str(&line_output.stderr);
             output.status = line_output.status;
@@ -575,6 +665,29 @@ impl Session {
         input: &str,
         record_history: bool,
         source_depth: usize,
+        sink: &mut dyn EventSink,
+    ) -> CommandOutput {
+        let mut tracking = TrackingEventSink::new(sink);
+        let output = self.execute_line_body(input, record_history, source_depth, &mut tracking);
+        if !tracking.output_emitted && (!output.stdout.is_empty() || !output.stderr.is_empty()) {
+            tracking.emit(CommandEvent::Output {
+                stdout: output.stdout.clone(),
+                stderr: output.stderr.clone(),
+            });
+        }
+        tracking.emit(CommandEvent::Status {
+            status: output.status,
+            current_directory: self.filesystem.current_dir_display(),
+        });
+        output
+    }
+
+    fn execute_line_body(
+        &mut self,
+        input: &str,
+        record_history: bool,
+        source_depth: usize,
+        sink: &mut dyn EventSink,
     ) -> CommandOutput {
         if input.len() > MAX_COMMAND_INPUT_BYTES {
             let output = CommandOutput::failure(
@@ -613,7 +726,7 @@ impl Session {
         if plan.is_empty() {
             return CommandOutput::success("");
         }
-        let mut output = self.execute_plan(&plan, record_history, source_depth);
+        let mut output = self.execute_plan(&plan, record_history, source_depth, sink);
         limit_output(&mut output);
         output
     }
@@ -627,8 +740,9 @@ impl Session {
                 return;
             }
         };
+        let mut sink = NoopEventSink;
         for (index, line) in lines.iter().enumerate() {
-            let output = self.execute_line_internal(line, false, 0);
+            let output = self.execute_line_internal(line, false, 0, &mut sink);
             self.startup_output.stdout.push_str(&output.stdout);
             self.startup_output.stderr.push_str(&output.stderr);
             if output.status != 0 {
@@ -648,6 +762,7 @@ impl Session {
         plan: &ExecutionPlan,
         record_history: bool,
         source_depth: usize,
+        sink: &mut dyn EventSink,
     ) -> CommandOutput {
         let mut output = CommandOutput::success("");
         for (index, pipeline) in plan.pipelines.iter().enumerate() {
@@ -667,7 +782,14 @@ impl Session {
                     continue;
                 }
             }
-            let pipeline_output = self.execute_pipeline(pipeline, record_history, source_depth);
+            let pipeline_output =
+                self.execute_pipeline(pipeline, record_history, source_depth, sink);
+            let mut event_output = pipeline_output.clone();
+            limit_output(&mut event_output);
+            sink.emit(CommandEvent::Output {
+                stdout: event_output.stdout,
+                stderr: event_output.stderr,
+            });
             output.stdout.push_str(&pipeline_output.stdout);
             output.stderr.push_str(&pipeline_output.stderr);
             output.status = pipeline_output.status;
@@ -681,6 +803,7 @@ impl Session {
         pipeline: &rune_shell::PipelinePlan,
         record_history: bool,
         source_depth: usize,
+        sink: &mut dyn EventSink,
     ) -> CommandOutput {
         let mut stdin = String::new();
         let mut stderr = String::new();
@@ -689,7 +812,7 @@ impl Session {
             if let Some(output) = self.take_cancellation() {
                 return output;
             }
-            let result = self.execute_command(command, &stdin, record_history, source_depth);
+            let result = self.execute_command(command, &stdin, record_history, source_depth, sink);
             stdin = result.stdout;
             stderr.push_str(&result.stderr);
             status = result.status;
@@ -707,8 +830,16 @@ impl Session {
         external_stdin: &str,
         record_history: bool,
         source_depth: usize,
+        sink: &mut dyn EventSink,
     ) -> CommandOutput {
-        self.execute_command_with_aliases(command, external_stdin, 0, record_history, source_depth)
+        self.execute_command_with_aliases(
+            command,
+            external_stdin,
+            0,
+            record_history,
+            source_depth,
+            sink,
+        )
     }
 
     fn execute_command_with_aliases(
@@ -718,6 +849,7 @@ impl Session {
         depth: usize,
         record_history: bool,
         source_depth: usize,
+        sink: &mut dyn EventSink,
     ) -> CommandOutput {
         let previous_directory = self.filesystem.current_dir_display();
         let expanded_command = match self.expand_alias(command, depth) {
@@ -731,6 +863,7 @@ impl Session {
                 depth + 1,
                 record_history,
                 source_depth,
+                sink,
             );
         }
 
@@ -772,7 +905,7 @@ impl Session {
         let mut output = if command.program.parts().is_empty() && !command.assignments.is_empty() {
             CommandOutput::success("")
         } else if source_command {
-            self.execute_source(&program, &arguments, record_history, source_depth)
+            self.execute_source(&program, &arguments, record_history, source_depth, sink)
         } else if let Some(handler) = self.registry.find(&program) {
             let filesystem_root = self.filesystem.host_root().map(PathBuf::from);
             let mut context = CommandContext {
@@ -822,6 +955,7 @@ impl Session {
         arguments: &[String],
         record_history: bool,
         source_depth: usize,
+        sink: &mut dyn EventSink,
     ) -> CommandOutput {
         if arguments.len() != 1 {
             return usage(command, &format!("usage: {command} FILE"));
@@ -846,7 +980,7 @@ impl Session {
         let Ok(script) = String::from_utf8(bytes) else {
             return CommandOutput::failure(2, format!("{command}: file is not valid UTF-8\n"));
         };
-        self.execute_script_internal(&script, record_history, source_depth + 1)
+        self.execute_script_internal(&script, record_history, source_depth + 1, sink)
     }
 
     fn apply_redirections(
@@ -1162,8 +1296,8 @@ fn package_runtime_failure(command: &str, error: &rune_package::PackageError) ->
 #[cfg(test)]
 mod tests {
     use super::{
-        persistence::MAX_HISTORY_BYTES, Session, CANCELLED_STATUS, MAX_BOOKMARKS,
-        MAX_BOOKMARK_NAME_CHARS, MAX_COMMAND_INPUT_BYTES, MAX_FILE_TRANSFER_BYTES,
+        persistence::MAX_HISTORY_BYTES, CommandEvent, EventSink, Session, CANCELLED_STATUS,
+        MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS, MAX_COMMAND_INPUT_BYTES, MAX_FILE_TRANSFER_BYTES,
         MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES, MAX_SOURCE_DEPTH,
         OUTPUT_TRUNCATION_MARKER,
     };
@@ -1189,6 +1323,87 @@ mod tests {
                 Err(error) => panic!("test root could not be created: {error}"),
             }
         }
+    }
+
+    #[derive(Default)]
+    struct RecordingEventSink {
+        events: Vec<CommandEvent>,
+    }
+
+    impl EventSink for RecordingEventSink {
+        fn emit(&mut self, event: CommandEvent) {
+            self.events.push(event);
+        }
+    }
+
+    #[test]
+    fn emits_pipeline_output_and_line_status_events() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let mut sink = RecordingEventSink::default();
+
+        let output = session.execute_line_with_events("echo first; false; echo last", &mut sink);
+        assert_eq!(output.stdout, "first\nlast\n");
+        assert_eq!(output.status, 0);
+        assert_eq!(
+            sink.events,
+            vec![
+                CommandEvent::Output {
+                    stdout: "first\n".to_string(),
+                    stderr: String::new(),
+                },
+                CommandEvent::Output {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                },
+                CommandEvent::Output {
+                    stdout: "last\n".to_string(),
+                    stderr: String::new(),
+                },
+                CommandEvent::Status {
+                    status: 0,
+                    current_directory: "~".to_string(),
+                },
+            ]
+        );
+
+        sink.events.clear();
+        let parse_error = session.execute_line_with_events("echo 'unfinished", &mut sink);
+        assert_eq!(parse_error.status, 2);
+        assert!(matches!(
+            sink.events.as_slice(),
+            [
+                CommandEvent::Output { stderr, .. },
+                CommandEvent::Status { status: 2, .. }
+            ] if stderr.contains("unclosed single quote")
+        ));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn emits_events_for_each_script_line() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let mut sink = RecordingEventSink::default();
+
+        let output = session.execute_script_with_events("echo first\nfalse\necho last", &mut sink);
+        assert_eq!(output.stdout, "first\nlast\n");
+        assert_eq!(output.status, 0);
+        assert_eq!(
+            sink.events
+                .iter()
+                .filter(|event| matches!(event, CommandEvent::Status { .. }))
+                .count(),
+            4
+        );
+        assert_eq!(
+            sink.events
+                .iter()
+                .filter(|event| matches!(event, CommandEvent::Output { .. }))
+                .count(),
+            3
+        );
+        std::fs::remove_dir_all(root).expect("test root removed");
     }
 
     #[test]
