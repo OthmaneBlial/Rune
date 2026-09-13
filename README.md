@@ -68,7 +68,9 @@ scripts have their separate 256 KiB/1,024-line input boundary.
 `source FILE [ARG ...]` and `. FILE [ARG ...]` execute bounded UTF-8 script files
 through the same Rust parser, session environment, VFS, status, and history
 path. Scripts receive bounded positional values as `$0`, `$1...`, `$#`, and
-`$@`; nested sourcing is capped at 16 levels and accepts at most 64 arguments.
+`$@`; stdin from an enclosing pipeline is preserved for the script's first
+command. Nested sourcing is capped at 16 levels and accepts at most 64
+arguments.
 The Rust session and C/Swift bridge also expose cooperative cancellation at
 command, pipeline, script, and bounded traversal boundaries, returning status
 130; an operation already running synchronously is allowed to finish.
