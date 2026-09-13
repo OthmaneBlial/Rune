@@ -131,7 +131,23 @@ fn is_rune_script_entry(entry: &str) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("rune"))
 }
 
-type AppliedRedirections = (String, Option<(String, bool)>, Option<(String, bool)>);
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum OutputTarget {
+    Stdout,
+    Stderr,
+    File {
+        path: String,
+        append: bool,
+        descriptor: usize,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AppliedRedirections {
+    stdin: String,
+    stdout: OutputTarget,
+    stderr: OutputTarget,
+}
 
 /// The result of one command or complete command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1056,11 +1072,10 @@ impl Session {
             Ok(expanded) => expanded,
             Err(output) => return output,
         };
-        let (stdin, stdout_redirect, stderr_redirect) =
-            match self.apply_redirections(command, &program, external_stdin) {
-                Ok(redirections) => redirections,
-                Err(output) => return output,
-            };
+        let redirections = match self.apply_redirections(command, &program, external_stdin) {
+            Ok(redirections) => redirections,
+            Err(output) => return output,
+        };
 
         let source_command = matches!(program.as_str(), "source" | ".");
         let installed_command = if source_command
@@ -1082,16 +1097,16 @@ impl Session {
                 &arguments,
                 record_history,
                 source_depth,
-                &stdin,
+                &redirections.stdin,
                 sink,
             )
         } else if let Some(handler) = self.registry.find(&program) {
-            self.execute_builtin(&arguments, &stdin, handler)
+            self.execute_builtin(&arguments, &redirections.stdin, handler)
         } else if let Some(installed_command) = installed_command {
             let mut invocation = InstalledInvocation {
                 program: &program,
                 arguments: &arguments,
-                stdin: &stdin,
+                stdin: &redirections.stdin,
                 record_history,
                 source_depth,
                 sink,
@@ -1103,21 +1118,7 @@ impl Session {
         };
         self.apply_history_limit();
         self.update_directory_environment(previous_directory);
-
-        if let Some((path, append)) = stdout_redirect {
-            let content = std::mem::take(&mut output.stdout);
-            if let Err(error) = self.filesystem.write(&path, content.as_bytes(), append) {
-                output.status = 1;
-                let _ = writeln!(output.stderr, "{program}: {error}");
-            }
-        }
-        if let Some((path, append)) = stderr_redirect {
-            let content = std::mem::take(&mut output.stderr);
-            if let Err(error) = self.filesystem.write(&path, content.as_bytes(), append) {
-                output.status = 1;
-                let _ = writeln!(output.stderr, "{program}: {error}");
-            }
-        }
+        self.apply_output_redirections(&program, &mut output, redirections);
         self.last_status = output.status;
         output
     }
@@ -1210,10 +1211,10 @@ impl Session {
         external_stdin: &str,
     ) -> Result<AppliedRedirections, CommandOutput> {
         let mut stdin = external_stdin.to_string();
-        let mut stdout_redirect = None;
-        let mut stderr_redirect = None;
-        for redirection in &command.redirections {
-            let (path, append) = match redirection {
+        let mut stdout = OutputTarget::Stdout;
+        let mut stderr = OutputTarget::Stderr;
+        for (descriptor, redirection) in command.redirections.iter().enumerate() {
+            match redirection {
                 Redirection::Stdin { path } => {
                     let path = expand_word(
                         path,
@@ -1226,26 +1227,101 @@ impl Session {
                         Ok(content) => stdin = String::from_utf8_lossy(&content).into_owned(),
                         Err(error) => return Err(fs_failure(program, &error)),
                     }
-                    continue;
                 }
-                Redirection::Stdout { path, append } | Redirection::Stderr { path, append } => {
-                    (path, *append)
+                Redirection::Stdout { path, append } => {
+                    let path = expand_word(
+                        path,
+                        &self.environment,
+                        self.last_status,
+                        &self.script_parameters,
+                    )
+                    .value;
+                    stdout = OutputTarget::File {
+                        path,
+                        append: *append,
+                        descriptor,
+                    };
                 }
-            };
-            let path = expand_word(
-                path,
-                &self.environment,
-                self.last_status,
-                &self.script_parameters,
-            )
-            .value;
-            match redirection {
-                Redirection::Stdout { .. } => stdout_redirect = Some((path, append)),
-                Redirection::Stderr { .. } => stderr_redirect = Some((path, append)),
-                Redirection::Stdin { .. } => unreachable!("stdin redirection handled above"),
+                Redirection::Stderr { path, append } => {
+                    let path = expand_word(
+                        path,
+                        &self.environment,
+                        self.last_status,
+                        &self.script_parameters,
+                    )
+                    .value;
+                    stderr = OutputTarget::File {
+                        path,
+                        append: *append,
+                        descriptor,
+                    };
+                }
+                Redirection::Both { path, append } => {
+                    let path = expand_word(
+                        path,
+                        &self.environment,
+                        self.last_status,
+                        &self.script_parameters,
+                    )
+                    .value;
+                    let target = OutputTarget::File {
+                        path,
+                        append: *append,
+                        descriptor,
+                    };
+                    stdout = target.clone();
+                    stderr = target;
+                }
+                Redirection::StdoutToStderr => stdout = stderr.clone(),
+                Redirection::StderrToStdout => stderr = stdout.clone(),
             }
         }
-        Ok((stdin, stdout_redirect, stderr_redirect))
+        Ok(AppliedRedirections {
+            stdin,
+            stdout,
+            stderr,
+        })
+    }
+
+    fn apply_output_redirections(
+        &mut self,
+        program: &str,
+        output: &mut CommandOutput,
+        redirections: AppliedRedirections,
+    ) {
+        let stdout = std::mem::take(&mut output.stdout);
+        let stderr = std::mem::take(&mut output.stderr);
+        if redirections.stdout == redirections.stderr {
+            let mut combined = stdout;
+            combined.push_str(&stderr);
+            self.route_output(program, output, redirections.stdout, &combined);
+        } else {
+            self.route_output(program, output, redirections.stdout, &stdout);
+            self.route_output(program, output, redirections.stderr, &stderr);
+        }
+    }
+
+    fn route_output(
+        &mut self,
+        program: &str,
+        output: &mut CommandOutput,
+        target: OutputTarget,
+        content: &str,
+    ) {
+        match target {
+            OutputTarget::Stdout => output.stdout.push_str(content),
+            OutputTarget::Stderr => output.stderr.push_str(content),
+            OutputTarget::File {
+                path,
+                append,
+                descriptor: _,
+            } => {
+                if let Err(error) = self.filesystem.write(&path, content.as_bytes(), append) {
+                    output.status = 1;
+                    let _ = writeln!(output.stderr, "{program}: {error}");
+                }
+            }
+        }
     }
 
     fn apply_history_limit(&mut self) {
@@ -1855,6 +1931,53 @@ mod tests {
             restored.history().last().map(String::as_str),
             Some("cat moved/nested/value.txt")
         );
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn applies_ordered_stream_duplication_and_append_redirections() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+
+        let merged = session.execute_line("cat missing.txt 2>&1");
+        assert_eq!(merged.status, 1);
+        assert!(merged.stdout.contains("no such file or directory"));
+        assert!(merged.stderr.is_empty());
+
+        let ordered = session.execute_line("cat missing.txt 2>&1 > only-stdout.txt");
+        assert_eq!(ordered.status, 1);
+        assert!(ordered.stdout.contains("no such file or directory"));
+        assert!(ordered.stderr.is_empty());
+        assert!(session
+            .execute_line("cat only-stdout.txt")
+            .stdout
+            .is_empty());
+
+        let both = session.execute_line("cat missing.txt &> all-output.txt");
+        assert_eq!(both.status, 1);
+        assert!(both.stdout.is_empty());
+        assert!(both.stderr.is_empty());
+        let all_output = session.execute_line("cat all-output.txt");
+        assert_eq!(all_output.status, 0);
+        assert!(all_output.stdout.contains("no such file or directory"));
+
+        assert_eq!(session.execute_line("echo first > append.txt").status, 0);
+        assert_eq!(session.execute_line("echo second >> append.txt").status, 0);
+        assert_eq!(
+            session.execute_line("cat append.txt").stdout,
+            "first\nsecond\n"
+        );
+
+        let to_stderr = session.execute_line("echo redirected 1>&2");
+        assert_eq!(to_stderr.status, 0);
+        assert!(to_stderr.stdout.is_empty());
+        assert_eq!(to_stderr.stderr, "redirected\n");
+
+        let piped = session.execute_line("cat missing-again.txt 2>&1 | cat");
+        assert_eq!(piped.status, 0);
+        assert!(piped.stdout.contains("no such file or directory"));
+        assert!(piped.stderr.is_empty());
+
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

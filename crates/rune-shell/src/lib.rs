@@ -57,6 +57,9 @@ pub enum Token {
     Or,
     RedirectStdout { append: bool },
     RedirectStderr { append: bool },
+    RedirectBoth { append: bool },
+    RedirectStdoutToStderr,
+    RedirectStderrToStdout,
     RedirectStdin,
 }
 
@@ -66,6 +69,9 @@ pub enum Redirection {
     Stdin { path: Word },
     Stdout { path: Word, append: bool },
     Stderr { path: Word, append: bool },
+    Both { path: Word, append: bool },
+    StdoutToStderr,
+    StderrToStdout,
 }
 
 /// An environment assignment applied before a command runs.
@@ -381,20 +387,41 @@ pub fn tokenize(input: &str) -> Result<Vec<(Token, Option<Word>)>, ParseError> {
                     index += 1;
                 } else {
                     let operator = match character {
+                        '1' if characters.get(index + 1) == Some(&'>')
+                            && characters.get(index + 2) == Some(&'&')
+                            && characters.get(index + 3) == Some(&'2') =>
+                        {
+                            Some((Token::RedirectStdoutToStderr, 4))
+                        }
                         '|' if characters.get(index + 1) == Some(&'|') => Some((Token::Or, 2)),
                         '|' => Some((Token::Pipe, 1)),
                         ';' => Some((Token::Sequence, 1)),
                         '<' => Some((Token::RedirectStdin, 1)),
                         '>' => {
-                            if characters.get(index + 1) == Some(&'>') {
+                            if characters.get(index + 1) == Some(&'&')
+                                && characters.get(index + 2) == Some(&'2')
+                            {
+                                Some((Token::RedirectStdoutToStderr, 3))
+                            } else if characters.get(index + 1) == Some(&'>') {
                                 Some((Token::RedirectStdout { append: true }, 2))
                             } else {
                                 Some((Token::RedirectStdout { append: false }, 1))
                             }
                         }
                         '&' if characters.get(index + 1) == Some(&'&') => Some((Token::And, 2)),
-                        '2' if matches!(characters.get(index + 1), Some('>')) => {
+                        '&' if characters.get(index + 1) == Some(&'>') => {
                             if characters.get(index + 2) == Some(&'>') {
+                                Some((Token::RedirectBoth { append: true }, 3))
+                            } else {
+                                Some((Token::RedirectBoth { append: false }, 2))
+                            }
+                        }
+                        '2' if matches!(characters.get(index + 1), Some('>')) => {
+                            if characters.get(index + 2) == Some(&'&')
+                                && characters.get(index + 3) == Some(&'1')
+                            {
+                                Some((Token::RedirectStderrToStdout, 4))
+                            } else if characters.get(index + 2) == Some(&'>') {
                                 Some((Token::RedirectStderr { append: true }, 3))
                             } else {
                                 Some((Token::RedirectStderr { append: false }, 2))
@@ -443,6 +470,10 @@ fn token_name(token: Token) -> String {
         Token::RedirectStdout { append: true } => ">>".to_string(),
         Token::RedirectStderr { append: false } => "2>".to_string(),
         Token::RedirectStderr { append: true } => "2>>".to_string(),
+        Token::RedirectBoth { append: false } => "&>".to_string(),
+        Token::RedirectBoth { append: true } => "&>>".to_string(),
+        Token::RedirectStdoutToStderr => ">&2".to_string(),
+        Token::RedirectStderrToStdout => "2>&1".to_string(),
         Token::RedirectStdin => "<".to_string(),
     }
 }
@@ -541,6 +572,27 @@ pub fn parse(input: &str) -> Result<ExecutionPlan, ParseError> {
                             path: target,
                             append,
                         });
+                        index += 1;
+                    }
+                    Token::RedirectBoth { append } => {
+                        let append = *append;
+                        index += 1;
+                        let target = tokens
+                            .get(index)
+                            .and_then(|(_, word)| word.clone())
+                            .ok_or(ParseError::MissingRedirectionTarget)?;
+                        redirections.push(Redirection::Both {
+                            path: target,
+                            append,
+                        });
+                        index += 1;
+                    }
+                    Token::RedirectStdoutToStderr => {
+                        redirections.push(Redirection::StdoutToStderr);
+                        index += 1;
+                    }
+                    Token::RedirectStderrToStdout => {
+                        redirections.push(Redirection::StderrToStdout);
                         index += 1;
                     }
                     Token::Pipe | Token::Sequence | Token::And | Token::Or => break,
@@ -692,6 +744,40 @@ mod tests {
 
         let logical = parse("false || echo fallback && echo done").expect("logical plan");
         assert_eq!(logical.connectors, vec![Connector::Or, Connector::And]);
+    }
+
+    #[test]
+    fn parses_both_stream_and_descriptor_duplication_redirections() {
+        let tokens = tokenize("echo output 2>&1 >result &>>log").expect("valid redirections");
+        assert_eq!(
+            tokens.iter().map(|(token, _)| *token).collect::<Vec<_>>(),
+            vec![
+                Token::Word,
+                Token::Word,
+                Token::RedirectStderrToStdout,
+                Token::RedirectStdout { append: false },
+                Token::Word,
+                Token::RedirectBoth { append: true },
+                Token::Word,
+            ]
+        );
+
+        let plan = parse("echo output 2>&1 >result &>combined 1>&2").expect("valid plan");
+        assert_eq!(
+            plan.pipelines[0].commands[0].redirections,
+            vec![
+                Redirection::StderrToStdout,
+                Redirection::Stdout {
+                    path: super::Word::new(vec![WordPart::Literal("result".to_string())]),
+                    append: false,
+                },
+                Redirection::Both {
+                    path: super::Word::new(vec![WordPart::Literal("combined".to_string())]),
+                    append: false,
+                },
+                Redirection::StdoutToStderr,
+            ]
+        );
     }
 
     #[test]

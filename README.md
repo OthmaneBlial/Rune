@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 81%**
+**Overall progress: 82%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -19,8 +19,8 @@ working iOS application or a feature-parity claim.
 | Area | Progress |
 |---|---:|
 | Rust workspace | 80% |
-| Shell tokenizer/parser | 65% |
-| Command runtime | 96% |
+| Shell tokenizer/parser | 70% |
+| Command runtime | 97% |
 | Sandboxed filesystem | 70% |
 | Sessions/history | 66% |
 | Configuration | 66% |
@@ -64,6 +64,9 @@ its status remains 0 for a match, 1 for no match, and 2 for invalid usage.
 `diff [-u|--unified] FILE1 FILE2` compares two bounded UTF-8 VFS files with a
 whole-file unified view, returning status 0 when equal, 1 when different, and
 2 when input, comparison size, or usage bounds are rejected.
+Redirections also support bounded stream duplication with `2>&1`, `1>&2`,
+`>&2`, and `&>`/`&>>`; the Rust plan preserves their left-to-right target
+semantics for pipelines and captured stdout/stderr.
 A synchronous command response and each intermediate pipeline channel are
 capped at 1 MiB per output channel; a truncation marker is emitted rather
 than allowing unbounded terminal output.

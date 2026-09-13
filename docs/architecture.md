@@ -50,6 +50,10 @@ applied after redirections, so terminal rendering cannot receive unbounded
 output; a visible truncation marker is emitted and the underlying command
 status is preserved. Individual command lines are capped at 64 KiB before
 parsing; automation scripts have separate 256 KiB and 1,024-line limits.
+The shell plan also models `2>&1`, `1>&2`, `>&2`, and `&>`/`&>>` as ordered
+stream targets. Duplicated streams share one bounded file write or captured
+channel; because the core stores stdout and stderr separately, a merged result
+is deterministic stdout-then-stderr text rather than a byte-level interleave.
 
 Session cancellation is cooperative. Rust owns an atomic cancellation request,
 observes it before commands and between pipelines/script lines, and bounded
