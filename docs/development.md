@@ -41,6 +41,8 @@ Clipboard tests also cover the disabled default provider, a real pipe through
 1 MiB UTF-8 payload limit.
 The `diff` tests cover equal and different confined files, unified output,
 missing files, invalid UTF-8, and rejected options with distinct statuses.
+Base64 tests cover stdin encode/decode, padded input, malformed characters,
+non-UTF-8 decoded output, usage errors, and the 768 KiB input bound.
 Redirection tests cover append writes, `2>&1`, `1>&2`, `&>`, left-to-right
 duplication order, and carrying merged stderr through a pipeline.
 Script tests also cover bounded positional arguments (`$0`, `$1...`, `$#`, and

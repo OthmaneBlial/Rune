@@ -33,7 +33,7 @@ working iOS application or a feature-parity claim.
 ## Current status
 
 The first Rust vertical slice is implemented and locally verified. It executes
-the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `curl`, `echo`, `mkdir`,
+the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `curl`, `echo`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
 `setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
@@ -67,6 +67,9 @@ whole-file unified view, returning status 0 when equal, 1 when different, and
 Redirections also support bounded stream duplication with `2>&1`, `1>&2`,
 `>&2`, and `&>`/`&>>`; the Rust plan preserves their left-to-right target
 semantics for pipelines and captured stdout/stderr.
+`base64` encodes stdin or one confined file and decodes strict standard Base64
+back to UTF-8, with a 768 KiB input bound and explicit errors for malformed or
+non-text decoded data.
 A synchronous command response and each intermediate pipeline channel are
 capped at 1 MiB per output channel; a truncation marker is emitted rather
 than allowing unbounded terminal output.

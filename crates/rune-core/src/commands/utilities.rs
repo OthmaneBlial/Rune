@@ -4,7 +4,57 @@ use crate::{fs_failure, usage, CommandContext, CommandOutput};
 use rune_package::sha256_hex;
 
 const MAX_HEXDUMP_INPUT: usize = 256 * 1024;
+const MAX_BASE64_INPUT: usize = 768 * 1024;
 const MAX_DISK_USAGE_ENTRIES: usize = 10_000;
+
+const BASE64_ALPHABET: &[u8; 64] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+pub(super) fn base64(context: &mut CommandContext<'_>) -> CommandOutput {
+    let mut decode = false;
+    let mut path = None;
+    let mut parse_options = true;
+    for argument in context.args {
+        if parse_options && argument == "--" {
+            parse_options = false;
+        } else if parse_options && matches!(argument.as_str(), "-d" | "-D" | "--decode") {
+            decode = true;
+        } else if (parse_options && argument.starts_with('-')) || path.is_some() {
+            return usage("base64", "usage: base64 [-d|--decode] [--] [FILE]");
+        } else {
+            path = Some(argument.as_str());
+        }
+    }
+
+    let path = path.unwrap_or("-");
+    let bytes = if path == "-" {
+        context.stdin.as_bytes().to_vec()
+    } else {
+        match context.fs.read(path) {
+            Ok(bytes) => bytes,
+            Err(error) => return fs_failure("base64", &error),
+        }
+    };
+    if bytes.len() > MAX_BASE64_INPUT {
+        return CommandOutput::failure(
+            1,
+            format!("base64: input exceeds {MAX_BASE64_INPUT} bytes\n"),
+        );
+    }
+
+    if decode {
+        let decoded = match decode_base64(&bytes) {
+            Ok(decoded) => decoded,
+            Err(message) => return CommandOutput::failure(1, format!("base64: {message}\n")),
+        };
+        return match String::from_utf8(decoded) {
+            Ok(text) => CommandOutput::success(text),
+            Err(_) => CommandOutput::failure(1, "base64: decoded output is not valid UTF-8\n"),
+        };
+    }
+
+    CommandOutput::success(encode_base64(&bytes))
+}
 
 pub(super) fn basename(context: &mut CommandContext<'_>) -> CommandOutput {
     if !(1..=2).contains(&context.args.len()) || context.args[0].is_empty() {
@@ -17,6 +67,75 @@ pub(super) fn basename(context: &mut CommandContext<'_>) -> CommandOutput {
         }
     }
     CommandOutput::success(format!("{name}\n"))
+}
+
+fn encode_base64(bytes: &[u8]) -> String {
+    let mut output = String::with_capacity(bytes.len().div_ceil(3) * 4 + 1);
+    for chunk in bytes.chunks(3) {
+        let first = chunk[0];
+        let second = chunk.get(1).copied();
+        let third = chunk.get(2).copied();
+        output.push(char::from(BASE64_ALPHABET[usize::from(first >> 2)]));
+        output.push(char::from(
+            BASE64_ALPHABET[usize::from((first & 0x03) << 4 | second.unwrap_or(0) >> 4)],
+        ));
+        output.push(match second {
+            Some(second) => char::from(
+                BASE64_ALPHABET[usize::from((second & 0x0f) << 2 | third.unwrap_or(0) >> 6)],
+            ),
+            None => '=',
+        });
+        output.push(match third {
+            Some(third) => char::from(BASE64_ALPHABET[usize::from(third & 0x3f)]),
+            None => '=',
+        });
+    }
+    output.push('\n');
+    output
+}
+
+fn decode_base64(bytes: &[u8]) -> Result<Vec<u8>, &'static str> {
+    let compact = bytes
+        .iter()
+        .copied()
+        .filter(|byte| !byte.is_ascii_whitespace())
+        .collect::<Vec<_>>();
+    if compact.len() % 4 != 0 {
+        return Err("input length is not a multiple of four");
+    }
+
+    let mut output = Vec::with_capacity(compact.len() / 4 * 3);
+    for (index, chunk) in compact.chunks(4).enumerate() {
+        let last = (index + 1) * 4 == compact.len();
+        let first = base64_value(chunk[0]).ok_or("invalid input character")?;
+        let second = base64_value(chunk[1]).ok_or("invalid input character")?;
+        if chunk[2] == b'=' {
+            if chunk[3] != b'=' || !last || second & 0x0f != 0 {
+                return Err("invalid padding");
+            }
+            output.push((first << 2) | (second >> 4));
+            continue;
+        }
+        let third = base64_value(chunk[2]).ok_or("invalid input character")?;
+        output.push((first << 2) | (second >> 4));
+        output.push((second << 4) | (third >> 2));
+        if chunk[3] == b'=' {
+            if !last || third & 0x03 != 0 {
+                return Err("invalid padding");
+            }
+        } else {
+            let fourth = base64_value(chunk[3]).ok_or("invalid input character")?;
+            output.push((third << 6) | fourth);
+        }
+    }
+    Ok(output)
+}
+
+fn base64_value(byte: u8) -> Option<u8> {
+    BASE64_ALPHABET
+        .iter()
+        .position(|candidate| *candidate == byte)
+        .and_then(|index| u8::try_from(index).ok())
 }
 
 pub(super) fn dirname(context: &mut CommandContext<'_>) -> CommandOutput {

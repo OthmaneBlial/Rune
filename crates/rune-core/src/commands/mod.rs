@@ -18,6 +18,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::source,
     },
     CommandDefinition {
+        name: "base64",
+        summary: "encode or decode bounded base64 input",
+        handler: utilities::base64,
+    },
+    CommandDefinition {
         name: "alias",
         summary: "define or print session-local command aliases",
         handler: shell::alias,

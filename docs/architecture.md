@@ -243,13 +243,15 @@ at 10,000 visited entries and does not follow symlink entries, keeping a
 malicious or cyclic tree from turning a synchronous command into unbounded
 work.
 
-The portable utility slice adds bounded `basename`, `dirname`, `du`, `realpath`,
-`rmdir`, `sha256`, `stat`, `unlink`, `tee`, `tr`, and `xxd` commands, plus
+The portable utility slice adds bounded `base64`, `basename`, `dirname`, `du`,
+`realpath`, `rmdir`, `sha256`, `stat`, `unlink`, `tee`, `tr`, and `xxd` commands, plus
 `ln -s`/`readlink` and
 the `unsetenv` spelling for environment removal. They operate on Rune's virtual filesystem or pipeline
 stdin only; they do not invoke host executables. `tr` supports literal Unicode
 character translation/deletion, while `xxd` supports plain and classic hex
-output with a 256 KiB input limit. `cp -r` copies regular-file directory trees
+output with a 256 KiB input limit. `base64` uses standard alphabet/padding,
+accepts `-d`/`--decode`, and limits input to 768 KiB; decoded bytes must be
+valid UTF-8 because the core output boundary is text-based. `cp -r` copies regular-file directory trees
 with a 10,000-entry limit and rejects symlinks; `mv` can move a directory
 without recursively traversing it. `du` reports a recursive byte total with a
 10,000-entry limit, and `stat` reports only metadata available through the VFS.
