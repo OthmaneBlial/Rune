@@ -144,9 +144,11 @@ The source-only workspace tab layer creates the default session for the first
 tab and named Rust sessions for additional tabs. Swift owns tab selection and
 presentation; Rust owns each tab's shell state and persistence. Swift persists
 only bounded tab metadata in UserDefaults, excluding external paths and Apple
-bookmark bytes, and the app declares a named WindowGroup for later scene
-routing. This does not yet prove SwiftUI lifecycle behavior, iPad multi-window
-support, scene restoration, or device runtime behavior.
+bookmark bytes. The named WindowGroup accepts a typed window route: each
+additional iPad window receives its own Rust session namespace and its own
+bounded tab metadata key, while the default window preserves the legacy key.
+This is source/API evidence for routing; it does not yet prove SwiftUI
+lifecycle behavior, scene restoration, or device runtime behavior.
 
 Interactive command calls use a lock-protected Swift FFI handle and run away
 from the SwiftUI main actor. The cancellation method intentionally bypasses

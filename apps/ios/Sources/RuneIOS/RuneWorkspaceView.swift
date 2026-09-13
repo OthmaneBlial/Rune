@@ -1,6 +1,15 @@
 import SwiftUI
 import Foundation
 
+/// Value routed by SwiftUI when a second Rune window is opened.
+public struct RuneWindowRoute: Codable, Hashable, Sendable {
+    public let sessionID: String
+
+    public init(sessionID: String) {
+        self.sessionID = sessionID
+    }
+}
+
 private struct RuneWorkspaceTab: Identifiable, Hashable {
     let id: UUID
     let title: String
@@ -18,17 +27,30 @@ private struct RuneStoredTab: Codable {
 /// the terminal view remains responsible for command rendering and input.
 public struct RuneWorkspaceView: View {
     private static let persistedTabsKey = "rune.workspace-tabs.v1"
+    private static let windowTabsKeyPrefix = "rune.workspace-tabs.window."
     private static let maximumPersistedTabs = 32
     private static let maximumTitleCharacters = 64
 
+    @Environment(\.openWindow) private var openWindow
     @State private var tabs: [RuneWorkspaceTab]
     @State private var selectedTabID: UUID
     private let rootURL: URL?
+    private let storageKey: String
 
     public init(rootURL: URL? = nil) {
+        self.init(rootURL: rootURL, sessionID: nil)
+    }
+
+    public init(rootURL: URL? = nil, sessionID: String?) {
         let firstID = UUID()
         self.rootURL = rootURL
-        let restoredTabs = Self.restoreTabs(rootURL: rootURL, fallbackID: firstID)
+        self.storageKey = Self.storageKey(for: sessionID)
+        let restoredTabs = Self.restoreTabs(
+            rootURL: rootURL,
+            fallbackID: firstID,
+            fallbackSessionID: sessionID,
+            storageKey: storageKey
+        )
         _tabs = State(initialValue: restoredTabs)
         _selectedTabID = State(initialValue: restoredTabs[0].id)
     }
@@ -84,6 +106,14 @@ public struct RuneWorkspaceView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("New Rune session")
+            Button {
+                openWindow(value: RuneWindowRoute(sessionID: UUID().uuidString.lowercased()))
+            } label: {
+                Image(systemName: "rectangle.on.rectangle")
+                    .font(.system(size: 13, weight: .bold))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open a new Rune window")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
@@ -120,13 +150,23 @@ public struct RuneWorkspaceView: View {
             RuneStoredTab(id: $0.id, title: $0.title, sessionID: $0.sessionID)
         }
         guard let data = try? JSONEncoder().encode(stored) else { return }
-        UserDefaults.standard.set(data, forKey: Self.persistedTabsKey)
+        UserDefaults.standard.set(data, forKey: storageKey)
     }
 
-    private static func restoreTabs(rootURL: URL?, fallbackID: UUID) -> [RuneWorkspaceTab] {
-        guard let data = UserDefaults.standard.data(forKey: persistedTabsKey),
+    private static func restoreTabs(
+        rootURL: URL?,
+        fallbackID: UUID,
+        fallbackSessionID: String?,
+        storageKey: String
+    ) -> [RuneWorkspaceTab] {
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
               let stored = try? JSONDecoder().decode([RuneStoredTab].self, from: data) else {
-            return [RuneWorkspaceTab(id: fallbackID, title: "Main", rootURL: rootURL, sessionID: nil)]
+            return [RuneWorkspaceTab(
+                id: fallbackID,
+                title: "Main",
+                rootURL: rootURL,
+                sessionID: fallbackSessionID
+            )]
         }
         let valid = stored.prefix(maximumPersistedTabs).filter { tab in
             !tab.title.isEmpty
@@ -134,11 +174,23 @@ public struct RuneWorkspaceView: View {
                 && tab.sessionID.map(isValidSessionID) ?? true
         }
         guard !valid.isEmpty else {
-            return [RuneWorkspaceTab(id: fallbackID, title: "Main", rootURL: rootURL, sessionID: nil)]
+            return [RuneWorkspaceTab(
+                id: fallbackID,
+                title: "Main",
+                rootURL: rootURL,
+                sessionID: fallbackSessionID
+            )]
         }
         return valid.map {
             RuneWorkspaceTab(id: $0.id, title: $0.title, rootURL: rootURL, sessionID: $0.sessionID)
         }
+    }
+
+    private static func storageKey(for sessionID: String?) -> String {
+        guard let sessionID, isValidSessionID(sessionID) else {
+            return persistedTabsKey
+        }
+        return windowTabsKeyPrefix + sessionID
     }
 
     private static func isValidSessionID(_ value: String) -> Bool {

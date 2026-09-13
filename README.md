@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 53%**
+**Overall progress: 54%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -25,7 +25,7 @@ working iOS application or a feature-parity claim.
 | Sessions/history | 62% |
 | Configuration | 23% |
 | WASM | 38% |
-| Native iOS UI | 39% |
+| Native iOS UI | 41% |
 | Swift/Rust bridge | 34% |
 | Package manager | 36% |
 | Compatibility evidence | 2% |
@@ -144,8 +144,10 @@ validated as bounded opaque names (up to 64 ASCII characters from `A-Z`,
 The source-only Swift workspace uses this FFI boundary for independent
 terminal tabs. Rust persists each named session's state, while Swift persists
 only bounded tab metadata and does not store external paths or bookmark bytes;
-SwiftUI rendering, scene restoration, iPad multi-window behavior, and Apple
-runtime behavior remain unverified without an Apple build toolchain.
+the named WindowGroup routes additional windows to independent Rust session
+namespaces and separate tab metadata. SwiftUI rendering, scene restoration,
+iPad runtime behavior, and Apple runtime behavior remain unverified without an
+Apple build toolchain.
 
 Directory changes update the Rust-owned `PWD` and `OLDPWD` values. `cd -`
 returns to the previous directory and prints the resulting virtual path, while
@@ -285,6 +287,7 @@ git check-ignore -v base/a-shell
 - [ ] Fast native terminal rendering
 - [x] Source-only external folders and bounded security-scoped bookmarks
 - [x] Rust-namespaced sessions and source-only terminal tabs
+- [x] Source-only typed iPad window routing
 - [ ] iPad multi-window behavior
 - [x] Source-only command/script/file App Intent declarations
 - [ ] Apple Shortcuts registration and runtime validation

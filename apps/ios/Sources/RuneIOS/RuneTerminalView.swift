@@ -536,8 +536,8 @@ public struct RuneIOSApp: App {
     public init() {}
 
     public var body: some Scene {
-        WindowGroup(id: "rune-terminal") {
-            RuneWorkspaceView()
+        WindowGroup(id: "rune-terminal", for: RuneWindowRoute.self) { route in
+            RuneWorkspaceView(sessionID: route.wrappedValue?.sessionID)
         }
     }
 }
