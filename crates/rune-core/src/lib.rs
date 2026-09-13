@@ -89,6 +89,30 @@ struct InstalledCommand {
     filesystem_access: bool,
 }
 
+struct InstalledInvocation<'a> {
+    program: &'a str,
+    arguments: &'a [String],
+    stdin: &'a str,
+    record_history: bool,
+    source_depth: usize,
+    sink: &'a mut dyn EventSink,
+    command: &'a InstalledCommand,
+}
+
+fn is_wasm_entry(entry: &str) -> bool {
+    std::path::Path::new(entry)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("wasm"))
+}
+
+fn is_rune_script_entry(entry: &str) -> bool {
+    std::path::Path::new(entry)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("rune"))
+}
+
 type AppliedRedirections = (String, Option<(String, bool)>, Option<(String, bool)>);
 
 /// The result of one command or complete command line.
@@ -965,7 +989,16 @@ impl Session {
             };
             handler(&mut context)
         } else if let Some(installed_command) = installed_command {
-            self.execute_installed_command(&program, &arguments, &stdin, &installed_command)
+            let mut invocation = InstalledInvocation {
+                program: &program,
+                arguments: &arguments,
+                stdin: &stdin,
+                record_history,
+                source_depth,
+                sink,
+                command: &installed_command,
+            };
+            self.execute_installed(&mut invocation)
         } else {
             CommandOutput::failure(127, format!("{program}: command not found\n"))
         };
@@ -1124,39 +1157,26 @@ impl Session {
         find_installed_command_in_filesystem(self.filesystem.as_ref(), name)
     }
 
-    fn execute_installed_command(
+    fn execute_installed_wasm(
         &mut self,
         program: &str,
         arguments: &[String],
         stdin: &str,
         installed_command: &InstalledCommand,
     ) -> CommandOutput {
-        if !std::path::Path::new(&installed_command.entry)
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("wasm"))
-        {
+        if !is_wasm_entry(&installed_command.entry) {
             return CommandOutput::failure(
                 126,
                 format!(
-                    "{program}: package {} exposes unsupported entry {}; only WASM is available\n",
+                    "{program}: package {} exposes unsupported entry {}; only WASM and Rune scripts are available\n",
                     installed_command.package, installed_command.entry
                 ),
             );
         }
-        let module = match self.filesystem.read(&installed_command.module_path) {
+        let module = match self.verified_installed_entry(program, installed_command) {
             Ok(module) => module,
-            Err(error) => return fs_failure(program, &error),
+            Err(output) => return output,
         };
-        let manifest = match self.filesystem.read(&installed_command.manifest_path) {
-            Ok(bytes) => match PackageManifest::parse(&bytes) {
-                Ok(manifest) => manifest,
-                Err(error) => return package_runtime_failure(program, &error),
-            },
-            Err(error) => return fs_failure(program, &error),
-        };
-        if let Err(error) = manifest.verify_file(&installed_command.entry, &module) {
-            return package_runtime_failure(program, &error);
-        }
         let request = RuntimeRequest::new(
             RuntimeKind::Wasm,
             program,
@@ -1183,6 +1203,85 @@ impl Session {
                 format!("{program}: installed package runtime failed: {error}\n"),
             ),
         }
+    }
+
+    fn execute_installed(&mut self, invocation: &mut InstalledInvocation<'_>) -> CommandOutput {
+        if is_rune_script_entry(invocation.command.entry.as_str()) {
+            self.execute_installed_script(
+                invocation.program,
+                invocation.arguments,
+                invocation.record_history,
+                invocation.source_depth,
+                invocation.sink,
+                invocation.command,
+            )
+        } else {
+            self.execute_installed_wasm(
+                invocation.program,
+                invocation.arguments,
+                invocation.stdin,
+                invocation.command,
+            )
+        }
+    }
+
+    fn execute_installed_script(
+        &mut self,
+        program: &str,
+        arguments: &[String],
+        record_history: bool,
+        source_depth: usize,
+        sink: &mut dyn EventSink,
+        installed_command: &InstalledCommand,
+    ) -> CommandOutput {
+        if source_depth >= MAX_SOURCE_DEPTH {
+            return CommandOutput::failure(
+                2,
+                format!(
+                    "{program}: package script nesting exceeds the {MAX_SOURCE_DEPTH}-level limit\n"
+                ),
+            );
+        }
+        let module = match self.verified_installed_entry(program, installed_command) {
+            Ok(module) => module,
+            Err(output) => return output,
+        };
+        let Ok(script) = String::from_utf8(module) else {
+            return CommandOutput::failure(
+                126,
+                format!("{program}: installed package script is not valid UTF-8\n"),
+            );
+        };
+        let mut parameters = Vec::with_capacity(arguments.len() + 1);
+        parameters.push(program.to_string());
+        parameters.extend(arguments.iter().cloned());
+        let previous_parameters = std::mem::replace(&mut self.script_parameters, parameters);
+        let output = self.execute_script_internal(&script, record_history, source_depth + 1, sink);
+        self.script_parameters = previous_parameters;
+        output
+    }
+
+    fn verified_installed_entry(
+        &self,
+        program: &str,
+        installed_command: &InstalledCommand,
+    ) -> Result<Vec<u8>, CommandOutput> {
+        let module = self
+            .filesystem
+            .read(&installed_command.module_path)
+            .map_err(|error| fs_failure(program, &error))?;
+        let manifest = self
+            .filesystem
+            .read(&installed_command.manifest_path)
+            .map_err(|error| fs_failure(program, &error))
+            .and_then(|bytes| {
+                PackageManifest::parse(&bytes)
+                    .map_err(|error| package_runtime_failure(program, &error))
+            })?;
+        manifest
+            .verify_file(&installed_command.entry, &module)
+            .map_err(|error| package_runtime_failure(program, &error))?;
+        Ok(module)
     }
 
     fn expand_alias(
@@ -2573,6 +2672,46 @@ mod tests {
                 .status,
             1
         );
+
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn executes_a_verified_rune_script_from_a_local_package() {
+        let root = test_root();
+        let package_root = root.join("script-bundle/bin");
+        std::fs::create_dir_all(&package_root).expect("package directories created");
+        let script = b"echo \"$0|$1|$2|$#\"\n";
+        let digest = rune_package::sha256_hex(script);
+        std::fs::write(package_root.join("hello.rune"), script).expect("script written");
+        let manifest = format!(
+            r#"{{
+                "schema_version": 1,
+                "name": "local-script",
+                "version": "0.1.0",
+                "description": "A local Rune script package",
+                "files": [{{"path": "bin/hello.rune", "sha256": "{digest}"}}],
+                "commands": [{{"name": "local-script", "entry": "bin/hello.rune"}}]
+            }}"#
+        );
+        std::fs::write(root.join("script-bundle/manifest.json"), manifest)
+            .expect("manifest written");
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+
+        let installed = session.execute_line("pkg install script-bundle/manifest.json");
+        assert_eq!(installed.status, 0);
+        let output = session.execute_line("local-script one two");
+        assert_eq!(output.status, 0, "{output:?}");
+        assert_eq!(output.stdout, "local-script|one|two|2\n");
+
+        std::fs::write(
+            root.join(".rune/packages/local-script/0.1.0/bin/hello.rune"),
+            b"echo tampered\n",
+        )
+        .expect("installed script modified");
+        let tampered = session.execute_line("local-script");
+        assert_eq!(tampered.status, 126);
+        assert!(tampered.stderr.contains("integrity failure"));
 
         std::fs::remove_dir_all(root).expect("test root removed");
     }

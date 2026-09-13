@@ -311,8 +311,10 @@ those installed manifests and `pkg remove` deletes an explicitly named package
 or version. `pkg update MANIFEST` verifies a different local version, writes it
 alongside the current version, and removes the old version only after the new
 tree is complete; verification or materialization failure leaves the old
-version installed. Only declared `.wasm` command entries are executable today,
-and installed module bytes are verified again before execution. There is no
+version installed. Declared `.wasm` command entries run through the bounded
+WASI provider; declared `.rune` entries run through the same Rust parser and
+script limits as `source`. Installed module/script bytes are verified again
+before execution. There is no
 network client or remote registry. `pkg search QUERY` performs a bounded,
 case-insensitive search over installed package names, versions,
 descriptions, and command names. Installed WASM commands receive no filesystem

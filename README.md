@@ -27,7 +27,7 @@ working iOS application or a feature-parity claim.
 | WASM | 45% |
 | Native iOS UI | 56% |
 | Swift/Rust bridge | 48% |
-| Package manager | 45% |
+| Package manager | 52% |
 | Compatibility evidence | 2% |
 
 ## Current status
@@ -127,7 +127,7 @@ QUERY`, and `pkg remove NAME [VERSION]`. Once installed, `pkg info NAME` resolve
 installed version; an explicit version is required when multiple versions are
 present. Install
 copies only SHA-256-verified files into `~/.rune/packages`; declared `.wasm`
-commands can then run through the bounded WASI runtime, and `which` discovers
+commands and `.rune` scripts can then run through Rust, and `which` discovers
 their installed command names from the local package manifests. Installed
 WASM commands receive no filesystem preopen by default; a manifest must
 explicitly declare `permissions.filesystem: true` to request the approved Rune

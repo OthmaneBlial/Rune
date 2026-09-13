@@ -23,6 +23,8 @@ The package search test is local-only as well and searches installed
 manifests without network access. The package update test verifies that an
 invalid replacement leaves the old version runnable, while a verified local
 replacement is materialized before the old version is retired.
+Package command tests also cover a SHA-256-verified `.rune` script, bounded
+positional arguments, and rejection after installed content is tampered with.
 Configuration tests are local-only as well and verify bounded history, font
 size, scrollback, and theme settings without requiring an Apple runtime. The
 scrollback setting accepts 128–8,192 rendered entries and remains subject to
