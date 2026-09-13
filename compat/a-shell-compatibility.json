@@ -40,7 +40,7 @@
     },
     "history": {
       "status": "partial",
-      "rune_evidence": ["crates/rune-core/src/persistence.rs", "crates/rune-core/src/lib.rs"],
+      "rune_evidence": ["crates/rune-core/src/persistence.rs", "crates/rune-core/src/lib.rs", "crates/rune-ffi/src/lib.rs", "apps/ios/Sources/RuneIOS/RuneCoreBridge.swift"],
       "reference_comparison": "pending"
     },
     "multi-window": {

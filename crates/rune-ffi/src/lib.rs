@@ -691,6 +691,28 @@ pub extern "C" fn rune_session_history(handle: *const std::ffi::c_void) -> *mut 
     into_owned_c_string(&history)
 }
 
+/// Returns newest-first bounded history matches as one newline-separated
+/// owned string. An oversized or invalid query returns null and never mutates
+/// the session or records a synthetic command.
+#[no_mangle]
+pub extern "C" fn rune_session_history_search(
+    handle: *const std::ffi::c_void,
+    query: *const c_char,
+) -> *mut c_char {
+    let Some(query) = read_string(query) else {
+        return std::ptr::null_mut();
+    };
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the pointer is read-only and owned by the Swift session.
+    let session = unsafe { &*handle.cast::<RuneSession>() };
+    let Some(matches) = session.core.search_history(&query) else {
+        return std::ptr::null_mut();
+    };
+    into_owned_c_string(&matches.join("\n"))
+}
+
 /// Returns the portable Rust-owned session configuration as newline-delimited
 /// key/value text.
 #[no_mangle]
@@ -811,10 +833,11 @@ mod tests {
         rune_session_configuration, rune_session_current_directory, rune_session_destroy,
         rune_session_execute, rune_session_execute_script, rune_session_execute_script_with_events,
         rune_session_execute_with_events, rune_session_get_file, rune_session_history,
-        rune_session_new, rune_session_new_named, rune_session_new_with_layout,
-        rune_session_put_file, rune_session_reset_configuration, rune_session_set_configuration,
-        rune_session_set_network_callback, rune_session_startup_output, rune_string_free,
-        RuneEvent, RuneNetworkResponse, RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS,
+        rune_session_history_search, rune_session_new, rune_session_new_named,
+        rune_session_new_with_layout, rune_session_put_file, rune_session_reset_configuration,
+        rune_session_set_configuration, rune_session_set_network_callback,
+        rune_session_startup_output, rune_string_free, RuneEvent, RuneNetworkResponse,
+        RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS,
     };
     use std::ffi::{c_void, CStr, CString};
     use std::os::raw::c_char;
@@ -1036,6 +1059,11 @@ mod tests {
         assert_eq!(c_string(history), "echo keep");
         // SAFETY: history came from rune_session_history.
         unsafe { rune_string_free(history) };
+        let search_query = CString::new("keep").expect("valid history query");
+        let matches = rune_session_history_search(handle, search_query.as_ptr());
+        assert_eq!(c_string(matches), "echo keep");
+        // SAFETY: matches came from rune_session_history_search.
+        unsafe { rune_string_free(matches) };
 
         let bad_key = CString::new("theme").expect("valid key");
         let bad_value = CString::new("paper").expect("valid value");

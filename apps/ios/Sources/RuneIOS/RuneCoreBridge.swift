@@ -170,6 +170,12 @@ private func rune_session_current_directory(_ handle: OpaquePointer?) -> UnsafeM
 @_silgen_name("rune_session_history")
 private func rune_session_history(_ handle: OpaquePointer?) -> UnsafeMutablePointer<CChar>?
 
+@_silgen_name("rune_session_history_search")
+private func rune_session_history_search(
+    _ handle: OpaquePointer?,
+    _ query: UnsafePointer<CChar>
+) -> UnsafeMutablePointer<CChar>?
+
 @_silgen_name("rune_session_configuration")
 private func rune_session_configuration(_ handle: OpaquePointer?) -> UnsafeMutablePointer<CChar>?
 
@@ -401,6 +407,23 @@ public final class RuneFFISession: @unchecked Sendable {
     public func history() -> [String] {
         withLock {
             guard let pointer = rune_session_history(handle) else {
+                return []
+            }
+            defer { rune_string_free(pointer) }
+            let value = String(cString: pointer)
+            guard !value.isEmpty else { return [] }
+            return value.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        }
+    }
+
+    /// Returns newest-first bounded history matches without recording a
+    /// synthetic search command in the Rust session.
+    public func historySearch(_ query: String) -> [String] {
+        withLock {
+            let pointer = query.withCString { queryPointer in
+                rune_session_history_search(handle, queryPointer)
+            }
+            guard let pointer else {
                 return []
             }
             defer { rune_string_free(pointer) }

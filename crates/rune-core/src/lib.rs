@@ -35,6 +35,7 @@ const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_COMPLETION_CANDIDATES: usize = 8;
 const MAX_COMPLETION_INPUT_BYTES: usize = 64 * 1024;
 const MAX_COMMAND_INPUT_BYTES: usize = 64 * 1024;
+const MAX_HISTORY_SEARCH_BYTES: usize = 4 * 1024;
 const MAX_INSTALLED_COMMANDS: usize = 4_096;
 const MAX_SCRIPT_BYTES: usize = 256 * 1024;
 const MAX_SCRIPT_LINES: usize = 1_024;
@@ -76,6 +77,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "source"
             | "stat"
             | "tail"
+            | "tar"
             | "tee"
             | "touch"
             | "unzip"
@@ -486,6 +488,26 @@ impl Session {
     #[must_use]
     pub fn history(&self) -> &[String] {
         &self.history
+    }
+
+    /// Searches the session history from newest to oldest without recording a
+    /// synthetic command. The query is bounded independently from command
+    /// execution so native reverse-search controls cannot create an unbounded
+    /// allocation or mutate shell state.
+    #[must_use]
+    pub fn search_history(&self, query: &str) -> Option<Vec<String>> {
+        if query.len() > MAX_HISTORY_SEARCH_BYTES {
+            return None;
+        }
+        let query = query.to_lowercase();
+        Some(
+            self.history
+                .iter()
+                .rev()
+                .filter(|entry| entry.to_lowercase().contains(&query))
+                .cloned()
+                .collect(),
+        )
     }
 
     /// Reads one bounded file through the session's confined filesystem.
@@ -2532,6 +2554,25 @@ mod tests {
         assert!(empty_query
             .stderr
             .contains("history: search query must contain"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn searches_history_from_newest_without_mutating_history() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("echo Alpha").status, 0);
+        assert_eq!(session.execute_line("echo other").status, 0);
+        assert_eq!(session.execute_line("echo alpha-two").status, 0);
+        let before = session.history().to_vec();
+
+        assert_eq!(
+            session.search_history("ALPHA"),
+            Some(vec!["echo alpha-two".to_string(), "echo Alpha".to_string()])
+        );
+        assert_eq!(session.history(), before.as_slice());
+        assert_eq!(session.search_history("missing"), Some(Vec::new()));
+        assert!(session.search_history(&"x".repeat(4 * 1024 + 1)).is_none());
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

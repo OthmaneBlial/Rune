@@ -96,6 +96,8 @@ RuneOutput rune_session_execute_script_with_events(
 );
 char *rune_session_current_directory(const void *handle);
 char *rune_session_history(const void *handle);
+// Return newest-first history matches; null means invalid/oversized query.
+char *rune_session_history_search(const void *handle, const char *query);
 char *rune_session_configuration(const void *handle);
 char *rune_session_commands(const void *handle);
 // Returns bounded command or sandbox-path replacement tokens.

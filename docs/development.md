@@ -42,6 +42,9 @@ Completion tests also use only the confined VFS and do not require an Apple
 runtime.
 Named-session tests use separate temporary VFS state namespaces and verify that
 working directories and history do not leak between Rust or FFI handles.
+History-search tests verify newest-first, case-insensitive matches, query bounds,
+and the absence of history mutation; the FFI test covers the owned string
+returned to the source-only native bridge.
 File-transfer tests verify confined paths, the 16 MiB boundary, and binary
 payloads containing NUL bytes across the Rust/FFI boundary.
 Event tests verify Rust pipeline/status emission and the C callback lifetime:

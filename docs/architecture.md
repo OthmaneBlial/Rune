@@ -100,7 +100,7 @@ It also supports independent background overrides in `auto`, `black`, `white`,
 or `slate`, and foreground overrides in `auto`, `black`, `white`, `cyan`, or
 `ember`.
 `config get`, `config set`, and `config reset` update these
-values, and the session applies them immediately. SwiftUI consumes all eight
+values, and the session applies them immediately. SwiftUI consumes all nine
 settings; the public session and C ABI also expose validated set/reset
 operations that do not add shell text to history, allowing native settings
 surfaces to use the same Rust policy. The source-only SwiftUI sheet uses that
@@ -111,12 +111,14 @@ Cursor shape remains outside the current contract.
 
 The `history` built-in can render the full session, a bounded recent count,
 search matching entries with `history search QUERY ...`, or clear the mutable
-history with `history -c`. Search is case-insensitive, retains original entry
-numbers, and is limited to 256 query characters. New records obey both the
-configured count and a 4 MiB serialized-history budget, preventing a large
-count from creating unbounded session state. Consecutive duplicate records are
-suppressed before those limits are applied; non-consecutive repeats remain
-distinct.
+history with `history -c`. Built-in search is case-insensitive, retains
+original entry numbers, and is limited to 256 query characters. The native
+reverse-search API uses the same Rust-owned history, bounds its query to 4 KiB,
+returns newest-first matches, and does not record a synthetic command. New
+records obey both the configured count and a 4 MiB serialized-history budget,
+preventing a large count from creating unbounded session state. Consecutive
+duplicate records are suppressed before those limits are applied;
+non-consecutive repeats remain distinct.
 
 Aliases live in the same session boundary but are not serialized. `alias` and
 `unalias` mutate the Rust-owned alias map, so profile commands can establish
@@ -185,8 +187,8 @@ unsupported terminal controls are deliberately bounded and not claimed as a
 complete emulator.
 
 The terminal view also declares native keyboard shortcuts for folder import,
-cooperative cancellation, history navigation, command submission, and a
-source-only settings sheet. An optional bounded input toolbar adds
+cooperative cancellation, history navigation, reverse history search, command
+submission, and a source-only settings sheet. An optional bounded input toolbar adds
 Tab/completion, Escape, Ctrl-C, display-clear, and paste controls. These
 controls dispatch into the existing Swift model and Rust FFI rather than
 maintaining a second command, configuration, or history implementation; the

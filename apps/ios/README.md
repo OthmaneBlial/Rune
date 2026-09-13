@@ -138,7 +138,8 @@ integration remain unverified.
 - `RuneWorkspaceView.swift` declares the source-only independent-session tab
   container.
 - `RuneTerminalView.swift` declares source-only Command-key shortcuts for
-  folder import, cancellation, history navigation, and command execution, plus
+  folder import, cancellation, history navigation, reverse history search, and
+  command execution, plus
   a settings sheet backed by Rust configuration calls and an optional bounded
   input toolbar for Tab/completion, Escape, Ctrl-C, clear, and paste.
 - `RuneTerminalView.swift` includes the `@main` SwiftUI application entry point
@@ -147,7 +148,9 @@ integration remain unverified.
   not maintain a second command registry or filesystem listing in Swift.
 - `RuneTerminalView.swift` renders stdout, stderr, and non-zero exit status
   separately, applies Rust-backed command/path suggestions, and provides the
-  native focused command bar/history controls. It consumes Rune's clear-screen
+  native focused command bar/history controls. Its history search panel calls
+  the Rust-owned newest-first search endpoint and does not add search text to
+  session history. It consumes Rune's clear-screen
   control sequence as a display action instead of showing escape bytes. The
   source-only `RuneANSIText.swift` renderer also consumes common SGR color,
   256-color/RGB foreground, bold, and underline sequences; unsupported control

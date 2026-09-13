@@ -44,6 +44,7 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var foreground = "auto"
     @Published public private(set) var initializationError: String?
     @Published public private(set) var isExecuting = false
+    @Published public private(set) var historyMatches: [String] = []
 
     private var session: RuneFFISession?
     private var scopedFolder: RuneScopedFolder?
@@ -136,6 +137,7 @@ public final class RuneTerminalModel: ObservableObject {
             currentDirectory = nextSession.currentDirectory
             history = nextSession.history()
             historyCursor = nil
+            historyMatches = []
             command = ""
             clearTranscript()
             initializationError = nil
@@ -158,6 +160,7 @@ public final class RuneTerminalModel: ObservableObject {
         appendEntry(.init(kind: .command, text: "\(currentDirectory) $ \(line)"))
         command = ""
         historyCursor = nil
+        historyMatches = []
         guard let session else {
             appendEntry(.init(kind: .stderr, text: initializationError ?? "Rune session unavailable."))
             return
@@ -382,6 +385,25 @@ public final class RuneTerminalModel: ObservableObject {
         }
     }
 
+    /// Refreshes newest-first history matches through the Rust-owned session
+    /// without recording a search command.
+    public func updateHistorySearch(_ query: String) {
+        guard !isExecuting else { return }
+        guard !query.isEmpty else {
+            historyMatches = []
+            return
+        }
+        historyMatches = session?.historySearch(query) ?? []
+    }
+
+    /// Loads one Rust-returned history match into the command editor.
+    public func selectHistoryMatch(_ value: String) {
+        guard !isExecuting else { return }
+        command = value
+        historyCursor = nil
+        historyMatches = []
+    }
+
     public var completionCandidates: [String] {
         session?.completionCandidates(for: command) ?? []
     }
@@ -403,6 +425,8 @@ public struct RuneTerminalView: View {
     @FocusState private var inputFocused: Bool
     @State private var isImportingFolder = false
     @State private var isShowingSettings = false
+    @State private var isShowingHistorySearch = false
+    @State private var historyQuery = ""
 
     public init(rootURL: URL? = nil, sessionID: String? = nil) {
         _model = StateObject(wrappedValue: RuneTerminalModel(rootURL: rootURL, sessionID: sessionID))
@@ -559,6 +583,16 @@ public struct RuneTerminalView: View {
                     }
                 }
 
+                if isShowingHistorySearch {
+                    RuneHistorySearchPanel(
+                        model: model,
+                        query: $historyQuery,
+                        palette: palette,
+                        close: closeHistorySearch,
+                        focusInput: { inputFocused = true }
+                    )
+                }
+
                 if model.toolbarVisible {
                     RuneInputToolbar(model: model) {
                         inputFocused = true
@@ -612,6 +646,25 @@ public struct RuneTerminalView: View {
                     .disabled(model.isExecuting)
                     .keyboardShortcut(.downArrow, modifiers: [.command])
                     Button {
+                        if isShowingHistorySearch {
+                            closeHistorySearch()
+                        } else {
+                            isShowingHistorySearch = true
+                            historyQuery = ""
+                            model.updateHistorySearch("")
+                            inputFocused = true
+                        }
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(palette.muted)
+                    .accessibilityLabel("Search command history")
+                    .accessibilityHint("Find a previous command through the Rust history boundary.")
+                    .accessibilityIdentifier("rune.historySearch")
+                    .disabled(model.isExecuting)
+                    .keyboardShortcut("r", modifiers: [.control])
+                    Button {
                         model.submit()
                         inputFocused = true
                     } label: {
@@ -649,6 +702,12 @@ public struct RuneTerminalView: View {
             RuneSettingsView(model: model)
         }
         .onAppear { inputFocused = true }
+    }
+
+    private func closeHistorySearch() {
+        isShowingHistorySearch = false
+        historyQuery = ""
+        model.updateHistorySearch("")
     }
 
     private func color(for kind: RuneTranscriptEntry.Kind, palette: RunePalette) -> Color {
@@ -836,6 +895,83 @@ private struct RuneSettingsView: View {
     private func adjustScrollback(by delta: Int) {
         let value = min(max(model.scrollbackLimit + delta, 128), 8_192)
         model.setConfiguration(key: "scrollback-limit", value: String(value))
+    }
+}
+
+private struct RuneHistorySearchPanel: View {
+    @ObservedObject var model: RuneTerminalModel
+    @Binding var query: String
+    let palette: RunePalette
+    let close: () -> Void
+    let focusInput: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(palette.cyan)
+                TextField("Search command history", text: $query)
+                    .font(.system(size: 13, design: .monospaced))
+                    .foregroundStyle(palette.foreground)
+                    .tint(palette.cursorColor(named: model.cursorColor))
+                    .textFieldStyle(.plain)
+                    .autocorrectionDisabled(true)
+                    .textInputAutocapitalization(.never)
+                    .onChange(of: query) { _, value in
+                        model.updateHistorySearch(value)
+                    }
+                    .accessibilityLabel("History search query")
+                    .accessibilityHint("Search previous Rust session commands by text.")
+                    .accessibilityIdentifier("rune.historySearchInput")
+                Button(action: close) {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(palette.muted)
+                .accessibilityLabel("Close history search")
+            }
+
+            if model.historyMatches.isEmpty {
+                Text(query.isEmpty ? "Type to search recent commands" : "No matching commands")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(palette.muted)
+                    .accessibilityLabel(query.isEmpty ? "History search is empty" : "No matching commands")
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(model.historyMatches.enumerated()), id: \.offset) { _, match in
+                            Button {
+                                model.selectHistoryMatch(match)
+                                close()
+                                focusInput()
+                            } label: {
+                                Text(verbatim: match)
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .foregroundStyle(palette.foreground)
+                                    .lineLimit(1)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 7)
+                                    .background(palette.cyan.opacity(0.12))
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("History match")
+                            .accessibilityValue(Text(verbatim: match))
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(palette.panel.opacity(0.95))
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(palette.cyan.opacity(0.22))
+                .frame(height: 1)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Command history search")
     }
 }
 

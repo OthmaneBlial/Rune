@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 77%**
+**Overall progress: 78%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -22,11 +22,11 @@ working iOS application or a feature-parity claim.
 | Shell tokenizer/parser | 65% |
 | Command runtime | 94% |
 | Sandboxed filesystem | 70% |
-| Sessions/history | 62% |
+| Sessions/history | 66% |
 | Configuration | 63% |
 | WASM | 52% |
-| Native iOS UI | 68% |
-| Swift/Rust bridge | 56% |
+| Native iOS UI | 70% |
+| Swift/Rust bridge | 58% |
 | Package manager | 66% |
 | Compatibility evidence | 3% |
 
@@ -258,7 +258,9 @@ shape remains unverified and not yet configurable.
 The `history` built-in also supports `history N` for a bounded recent view,
 `history search QUERY ...` for a case-insensitive substring search that keeps
 original history numbers, and `history -c` to clear the current session
-history. History records are limited by the configured count and a 4 MiB total
+history. The native SwiftUI command bar adds a Rust-backed reverse-search panel
+that returns newest-first matches without recording a synthetic search command.
+History records are limited by the configured count and a 4 MiB total
 serialized-history budget, so a large count cannot create unbounded session
 state. Consecutive duplicate entries are suppressed, while the same command
 after another command remains a distinct history record.
@@ -327,6 +329,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded virtual filesystem
 - [x] Built-in file commands
 - [x] Bounded session/history persistence and startup profile
+- [x] Rust-owned reverse history search through the native bridge
 - [x] Pipes and redirections
 - [x] Basic bounded pathname expansion
 - [x] Leading environment assignments
