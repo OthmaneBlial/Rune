@@ -45,7 +45,9 @@ specified.
 A synchronous command response is capped at 1 MiB per stdout or stderr
 channel. The cap is applied after redirections, so terminal rendering cannot
 receive unbounded output; a visible truncation marker is emitted and the
-underlying command status is preserved.
+underlying command status is preserved. Individual command lines are capped at
+64 KiB before parsing; automation scripts have separate 256 KiB and 1,024-line
+limits.
 
 Execution plans preserve `;`, `&&`, and `||` as connectors between pipelines.
 The core evaluates them left-to-right and skips only the next pipeline when

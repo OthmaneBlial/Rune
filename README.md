@@ -54,6 +54,8 @@ The text pipeline also includes bounded `cut` field/character selection
 (`-f`, `-c`, `-d`, and `-s`) over stdin or sandbox files.
 A synchronous command response is capped at 1 MiB per output channel; a
 truncation marker is emitted rather than allowing unbounded terminal output.
+Individual command lines are capped at 64 KiB before parsing, and automation
+scripts have their separate 256 KiB/1,024-line input boundary.
 Environment changes are not serialized. A bounded `~/.rune_profile` is loaded
 on restore; its supported Rust built-ins can update the session environment and
 define aliases, with output surfaced to the CLI/native boundary without

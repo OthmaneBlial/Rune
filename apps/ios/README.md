@@ -16,6 +16,9 @@ lines, then runs each non-empty line through the same parser and registry while
 preserving combined stdout, stderr, and the last status. Native Shortcuts
 registration remains unverified and is not included here.
 
+Individual command lines crossing the bridge are also rejected above the
+64-KiB Rust input limit before parsing or history recording.
+
 The Rust handle restores and persists only the virtual working directory and
 typed command history in `~/.rune/session.state` inside the configured sandbox.
 FFI command and script calls flush that state before returning, while handle

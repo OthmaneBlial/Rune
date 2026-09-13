@@ -23,6 +23,7 @@ const MAX_ALIAS_EXPANSIONS: usize = 32;
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_COMPLETION_CANDIDATES: usize = 8;
 const MAX_COMPLETION_INPUT_BYTES: usize = 64 * 1024;
+const MAX_COMMAND_INPUT_BYTES: usize = 64 * 1024;
 const MAX_INSTALLED_COMMANDS: usize = 4_096;
 const MAX_SCRIPT_BYTES: usize = 256 * 1024;
 const MAX_SCRIPT_LINES: usize = 1_024;
@@ -405,16 +406,20 @@ impl Session {
     /// output. The returned status is the status of the last executed line.
     pub fn execute_script(&mut self, script: &str) -> CommandOutput {
         if script.len() > MAX_SCRIPT_BYTES {
-            return CommandOutput::failure(
+            let output = CommandOutput::failure(
                 2,
                 format!("rune: script exceeds the {MAX_SCRIPT_BYTES}-byte input limit\n"),
             );
+            self.last_status = output.status;
+            return output;
         }
         if script.lines().count() > MAX_SCRIPT_LINES {
-            return CommandOutput::failure(
+            let output = CommandOutput::failure(
                 2,
                 format!("rune: script exceeds the {MAX_SCRIPT_LINES}-line input limit\n"),
             );
+            self.last_status = output.status;
+            return output;
         }
         let mut output = CommandOutput::success("");
         for line in script.lines() {
@@ -431,6 +436,16 @@ impl Session {
     }
 
     fn execute_line_internal(&mut self, input: &str, record_history: bool) -> CommandOutput {
+        if input.len() > MAX_COMMAND_INPUT_BYTES {
+            let output = CommandOutput::failure(
+                2,
+                format!(
+                    "rune: command line exceeds the {MAX_COMMAND_INPUT_BYTES}-byte input limit\n"
+                ),
+            );
+            self.last_status = output.status;
+            return output;
+        }
         let line = input.trim_matches(['\r', '\n', ' ']);
         if line.is_empty() {
             return CommandOutput::success("");
@@ -908,7 +923,8 @@ fn package_runtime_failure(command: &str, error: &rune_package::PackageError) ->
 #[cfg(test)]
 mod tests {
     use super::{
-        Session, MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES, OUTPUT_TRUNCATION_MARKER,
+        Session, MAX_COMMAND_INPUT_BYTES, MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES,
+        OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -1164,6 +1180,19 @@ mod tests {
             .history()
             .ends_with(&["cat large.txt".to_string(), "cat large.txt".to_string()]));
 
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn rejects_an_oversized_command_line_before_recording_or_parsing() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let input = format!("echo {}", "x".repeat(MAX_COMMAND_INPUT_BYTES));
+        let output = session.execute_line(&input);
+        assert_eq!(output.status, 2);
+        assert!(output.stderr.contains("command line exceeds"));
+        assert!(session.history().is_empty());
+        assert_eq!(session.last_status(), 2);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
