@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 82%**
+**Overall progress: 83%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -20,7 +20,7 @@ working iOS application or a feature-parity claim.
 |---|---:|
 | Rust workspace | 80% |
 | Shell tokenizer/parser | 70% |
-| Command runtime | 97% |
+| Command runtime | 98% |
 | Sandboxed filesystem | 70% |
 | Sessions/history | 66% |
 | Configuration | 66% |
@@ -366,6 +366,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded long-format and human-readable `ls` metadata
 - [x] Bounded virtual filesystem metadata and usage commands
 - [x] Confined canonical-path and SHA-256 utility commands
+- [x] Bounded Base64 encode/decode utility
 - [x] Bounded `pbcopy`/`pbpaste` through an explicit host clipboard capability
 - [x] Bounded UTF-8 `diff` with unified output and comparison limits
 
