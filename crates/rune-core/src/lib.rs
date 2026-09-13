@@ -1073,6 +1073,55 @@ mod tests {
     }
 
     #[test]
+    fn executes_bounded_portable_utility_commands() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(
+            session
+                .execute_line("basename ~/notes/readme.md .md")
+                .stdout,
+            "readme\n"
+        );
+        assert_eq!(
+            session.execute_line("dirname ~/notes/readme.md").stdout,
+            "~/notes\n"
+        );
+        assert_eq!(
+            session.execute_line("echo first | tee note.txt").stdout,
+            "first\n"
+        );
+        assert_eq!(
+            session.execute_line("echo second | tee -a note.txt").stdout,
+            "second\n"
+        );
+        assert_eq!(
+            session.execute_line("cat note.txt").stdout,
+            "first\nsecond\n"
+        );
+        assert_eq!(
+            session.execute_line("echo abca | tr abc xyz").stdout,
+            "xyzx\n"
+        );
+        assert_eq!(
+            session.execute_line("echo banana | tr -d a").stdout,
+            "bnn\n"
+        );
+        assert_eq!(session.execute_line("echo Hi | xxd -p").stdout, "48690a\n");
+        assert!(session
+            .execute_line("echo Hi | xxd")
+            .stdout
+            .contains("00000000:"));
+        assert_eq!(session.execute_line("mkdir empty").status, 0);
+        assert_eq!(session.execute_line("rmdir empty").status, 0);
+        assert_eq!(session.execute_line("unlink note.txt").status, 0);
+        assert_eq!(session.execute_line("cat note.txt").status, 1);
+        assert_eq!(session.execute_line("setenv TEMP value").status, 0);
+        assert_eq!(session.execute_line("unsetenv TEMP").status, 0);
+        assert_eq!(session.execute_line("printenv TEMP").status, 1);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn expands_bounded_session_aliases_and_rejects_compound_values() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));

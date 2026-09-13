@@ -6,6 +6,7 @@ mod filesystem;
 mod package;
 mod shell;
 mod text;
+mod utilities;
 mod wasm;
 
 pub(super) const DEFINITIONS: &[CommandDefinition] = &[
@@ -18,6 +19,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "bookmark",
         summary: "save the current directory under a session-local name",
         handler: bookmarks::bookmark,
+    },
+    CommandDefinition {
+        name: "basename",
+        summary: "print the final component of a path",
+        handler: utilities::basename,
     },
     CommandDefinition {
         name: "cat",
@@ -48,6 +54,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "deletemark",
         summary: "remove one or more saved directory names",
         handler: bookmarks::deletemark,
+    },
+    CommandDefinition {
+        name: "dirname",
+        summary: "print the parent component of a path",
+        handler: utilities::dirname,
     },
     CommandDefinition {
         name: "echo",
@@ -130,6 +141,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: filesystem::rm,
     },
     CommandDefinition {
+        name: "rmdir",
+        summary: "remove empty directories",
+        handler: utilities::rmdir,
+    },
+    CommandDefinition {
         name: "renamemark",
         summary: "rename a saved directory bookmark",
         handler: bookmarks::renamemark,
@@ -150,9 +166,19 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: text::tail,
     },
     CommandDefinition {
+        name: "tee",
+        summary: "copy stdin to files and stdout",
+        handler: utilities::tee,
+    },
+    CommandDefinition {
         name: "touch",
         summary: "create a file if it does not exist",
         handler: filesystem::touch,
+    },
+    CommandDefinition {
+        name: "tr",
+        summary: "translate or delete input characters",
+        handler: utilities::tr,
     },
     CommandDefinition {
         name: "printenv",
@@ -180,9 +206,19 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::unalias,
     },
     CommandDefinition {
+        name: "unlink",
+        summary: "remove one regular file",
+        handler: utilities::unlink,
+    },
+    CommandDefinition {
         name: "unset",
         summary: "remove session environment variables",
         handler: shell::unset,
+    },
+    CommandDefinition {
+        name: "unsetenv",
+        summary: "remove session environment variables",
+        handler: shell::unsetenv,
     },
     CommandDefinition {
         name: "uniq",
@@ -198,5 +234,10 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "wasm",
         summary: "run a bounded WASI preview1 module",
         handler: wasm::wasm,
+    },
+    CommandDefinition {
+        name: "xxd",
+        summary: "render bounded hexadecimal input",
+        handler: utilities::xxd,
     },
 ];

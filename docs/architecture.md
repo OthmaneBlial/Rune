@@ -107,6 +107,13 @@ at 10,000 visited entries and does not follow symlink entries, keeping a
 malicious or cyclic tree from turning a synchronous command into unbounded
 work.
 
+The portable utility slice adds bounded `basename`, `dirname`, `rmdir`,
+`unlink`, `tee`, `tr`, and `xxd` commands, plus the `unsetenv` spelling for
+environment removal. They operate on Rune's virtual filesystem or pipeline
+stdin only; they do not invoke host executables. `tr` supports literal Unicode
+character translation/deletion, while `xxd` supports plain and classic hex
+output with a 256 KiB input limit.
+
 Session-local virtual bookmarks are stored as validated names mapped to Rune
 virtual directories. `bookmark`, `showmarks`, `jump`, `renamemark`, and
 `deletemark` mutate or inspect that map; `cd ~NAME` resolves an existing mark

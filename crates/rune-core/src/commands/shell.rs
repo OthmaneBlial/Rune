@@ -101,10 +101,21 @@ pub(super) fn unset(context: &mut CommandContext<'_>) -> CommandOutput {
     if context.args.is_empty() {
         return usage("unset", "usage: unset NAME ...");
     }
+    unset_variables(context, "unset")
+}
+
+pub(super) fn unsetenv(context: &mut CommandContext<'_>) -> CommandOutput {
+    if context.args.is_empty() {
+        return usage("unsetenv", "usage: unsetenv NAME ...");
+    }
+    unset_variables(context, "unsetenv")
+}
+
+fn unset_variables(context: &mut CommandContext<'_>, command: &str) -> CommandOutput {
     for name in context.args {
         if !is_valid_variable_name(name) {
             return usage(
-                "unset",
+                command,
                 "variable names must start with a letter or underscore",
             );
         }
