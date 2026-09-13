@@ -61,7 +61,8 @@ native source UI now asks Rust for bounded first-word command completion; the
 registry remains Rust-owned and the bridge exposes only the resulting
 candidates.
 It also has a focused command bar, keyboard-aware history controls, an
-ink/cyan/ember console palette, and accessible completion controls.
+ink/cyan/ember console palette, accessible completion controls, and native
+handling for the Rust `clear` screen-control sequence.
 Interactive `export`, `setenv`, and assignment lines are replaced by a
 redaction marker in history before persistence; this is an initial defense, not
 a complete secret management policy.

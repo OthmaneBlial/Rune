@@ -21,6 +21,8 @@ public struct RuneTranscriptEntry: Identifiable, Hashable, Sendable {
 
 @MainActor
 public final class RuneTerminalModel: ObservableObject {
+    private static let clearSequence = "\u{1b}[2J\u{1b}[H"
+
     @Published public private(set) var entries: [RuneTranscriptEntry] = []
     @Published public var command = ""
     @Published public private(set) var currentDirectory = "~"
@@ -69,8 +71,19 @@ public final class RuneTerminalModel: ObservableObject {
             return
         }
         let result = session.execute(line)
-        if !result.stdout.isEmpty {
-            entries.append(.init(kind: .stdout, text: result.stdout))
+        append(result)
+        currentDirectory = session.currentDirectory
+        history = session.history()
+    }
+
+    private func append(_ result: RuneCommandResult) {
+        var stdout = result.stdout
+        if let clearRange = stdout.range(of: Self.clearSequence, options: .backwards) {
+            entries.removeAll()
+            stdout = String(stdout[clearRange.upperBound...])
+        }
+        if !stdout.isEmpty {
+            entries.append(.init(kind: .stdout, text: stdout))
         }
         if !result.stderr.isEmpty {
             entries.append(.init(kind: .stderr, text: result.stderr))
@@ -78,8 +91,6 @@ public final class RuneTerminalModel: ObservableObject {
         if result.status != 0 {
             entries.append(.init(kind: .status, text: "[exit \(result.status)]"))
         }
-        currentDirectory = session.currentDirectory
-        history = session.history()
     }
 
     public func previousHistory() {

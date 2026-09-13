@@ -45,7 +45,8 @@ directory is restored after the profile.
   not advertise arbitrary host executables.
 - `RuneTerminalView.swift` renders stdout, stderr, and non-zero exit status
   separately, applies the Rust-backed first-word suggestions, and provides the
-  native focused command bar/history controls.
+  native focused command bar/history controls. It consumes Rune's clear-screen
+  control sequence as a display action instead of showing escape bytes.
 - `swiftc -parse` and `swift package dump-package` pass with the already
   available Swift toolchain; the full package build is not used as evidence.
 - iOS compilation, simulator behavior, device behavior, and linking are
