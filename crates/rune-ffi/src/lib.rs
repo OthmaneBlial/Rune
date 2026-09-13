@@ -9,6 +9,8 @@
 use std::ffi::{CStr, CString};
 use std::fmt::Write as _;
 use std::os::raw::c_char;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use rune_core::{CommandOutput, Session};
 use rune_fs::SandboxedFileSystem;
@@ -23,6 +25,7 @@ pub struct RuneOutput {
 
 struct RuneSession {
     core: Session,
+    cancellation: Arc<std::sync::atomic::AtomicBool>,
 }
 
 fn read_string(pointer: *const c_char) -> Option<String> {
@@ -50,8 +53,8 @@ fn into_output(output: &CommandOutput) -> RuneOutput {
     }
 }
 
-fn persist_after_execution(session: &mut RuneSession, mut output: CommandOutput) -> CommandOutput {
-    if let Err(error) = session.core.persist() {
+fn persist_after_execution(core: &mut Session, mut output: CommandOutput) -> CommandOutput {
+    if let Err(error) = core.persist() {
         let _ = writeln!(output.stderr, "rune: could not persist session: {error}");
         if output.status == 0 {
             output.status = 1;
@@ -72,9 +75,9 @@ pub extern "C" fn rune_session_new(root: *const c_char) -> *mut std::ffi::c_void
     let Ok(filesystem) = SandboxedFileSystem::new(root) else {
         return std::ptr::null_mut();
     };
-    let session = Box::new(RuneSession {
-        core: Session::restore(filesystem),
-    });
+    let core = Session::restore(filesystem);
+    let cancellation = core.cancellation_handle();
+    let session = Box::new(RuneSession { core, cancellation });
     Box::into_raw(session).cast()
 }
 
@@ -91,6 +94,22 @@ pub extern "C" fn rune_session_destroy(handle: *mut std::ffi::c_void) {
         let _ = session.core.persist();
         drop(session);
     };
+}
+
+/// Requests cooperative cancellation for the next execution boundary.
+///
+/// The handle must remain alive until any in-flight execution returns. The
+/// request is atomic so a UI cancellation callback can signal a session while
+/// the command call is running on another thread.
+#[no_mangle]
+pub extern "C" fn rune_session_cancel(handle: *const std::ffi::c_void) {
+    if handle.is_null() {
+        return;
+    }
+    // SAFETY: callers keep the opaque session alive while requesting cancel;
+    // this function only touches the separately-owned atomic flag.
+    let session = unsafe { &*handle.cast::<RuneSession>() };
+    session.cancellation.store(true, Ordering::Release);
 }
 
 /// Executes one Rune command line and persists the session state before
@@ -111,9 +130,9 @@ pub extern "C" fn rune_session_execute(
     }
     // SAFETY: Swift serializes access to the opaque session handle and does
     // not call this after rune_session_destroy.
-    let session = unsafe { &mut *handle.cast::<RuneSession>() };
-    let output = session.core.execute_line(&input);
-    let output = persist_after_execution(session, output);
+    let core = unsafe { &mut (*handle.cast::<RuneSession>()).core };
+    let output = core.execute_line(&input);
+    let output = persist_after_execution(core, output);
     into_output(&output)
 }
 
@@ -135,9 +154,9 @@ pub extern "C" fn rune_session_execute_script(
     }
     // SAFETY: Swift serializes access to the opaque session handle and does
     // not call this after rune_session_destroy.
-    let session = unsafe { &mut *handle.cast::<RuneSession>() };
-    let output = session.core.execute_script(&script);
-    let output = persist_after_execution(session, output);
+    let core = unsafe { &mut (*handle.cast::<RuneSession>()).core };
+    let output = core.execute_script(&script);
+    let output = persist_after_execution(core, output);
     into_output(&output)
 }
 
@@ -257,10 +276,10 @@ pub unsafe extern "C" fn rune_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::{
-        rune_session_commands, rune_session_complete, rune_session_configuration,
-        rune_session_current_directory, rune_session_destroy, rune_session_execute,
-        rune_session_execute_script, rune_session_new, rune_session_startup_output,
-        rune_string_free,
+        rune_session_cancel, rune_session_commands, rune_session_complete,
+        rune_session_configuration, rune_session_current_directory, rune_session_destroy,
+        rune_session_execute, rune_session_execute_script, rune_session_new,
+        rune_session_startup_output, rune_string_free,
     };
     use std::ffi::{CStr, CString};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -290,6 +309,18 @@ mod tests {
         unsafe {
             rune_string_free(startup.stdout);
             rune_string_free(startup.stderr);
+        }
+        rune_session_cancel(handle);
+        let cancelled_command = CString::new("echo cancelled").expect("valid command");
+        let cancelled = rune_session_execute(handle, cancelled_command.as_ptr());
+        assert_eq!(cancelled.status, 130);
+        assert!(c_string(cancelled.stdout).is_empty());
+        assert_eq!(c_string(cancelled.stderr), "rune: command cancelled\n");
+        // SAFETY: both pointers were returned by rune_session_execute and
+        // are released exactly once.
+        unsafe {
+            rune_string_free(cancelled.stdout);
+            rune_string_free(cancelled.stderr);
         }
         let command = CString::new("echo from-ffi").expect("valid command");
         let output = rune_session_execute(handle, command.as_ptr());

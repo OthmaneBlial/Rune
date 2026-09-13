@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 38%**
+**Overall progress: 39%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -60,6 +60,9 @@ scripts have their separate 256 KiB/1,024-line input boundary.
 `source FILE` and `. FILE` execute bounded UTF-8 script files through the same
 Rust parser, session environment, VFS, status, and history path; nested sourcing
 is capped at 16 levels.
+The Rust session and C/Swift bridge also expose cooperative cancellation at
+command, pipeline, and script boundaries, returning status 130; an operation
+already running synchronously is allowed to finish.
 Environment changes are not serialized. A bounded `~/.rune_profile` is loaded
 on restore; its supported Rust built-ins can update the session environment and
 define aliases, with output surfaced to the CLI/native boundary without
@@ -205,6 +208,7 @@ git check-ignore -v base/a-shell
 - [x] Leading environment assignments
 - [x] Bounded session-local command aliases
 - [x] Bounded script-file sourcing with nested execution limits
+- [x] Cooperative command cancellation boundary
 - [x] `&&` and `||` conditional chaining
 - [x] Bounded recursive `find` traversal
 - [x] Bounded literal `sed` substitutions

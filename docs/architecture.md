@@ -49,6 +49,13 @@ underlying command status is preserved. Individual command lines are capped at
 64 KiB before parsing; automation scripts have separate 256 KiB and 1,024-line
 limits.
 
+Session cancellation is cooperative. Rust owns an atomic cancellation request,
+observes it before commands and between pipelines/script lines, clears it when
+reported, and returns the conventional status 130. The C bridge exposes the
+same request for a native cancellation callback. A synchronous filesystem or
+runtime operation already in progress is not forcefully interrupted, and Rune
+does not claim host signal delivery on iOS yet.
+
 Execution plans preserve `;`, `&&`, and `||` as connectors between pipelines.
 The core evaluates them left-to-right and skips only the next pipeline when
 the connector's status condition is not met; a skipped branch does not invent

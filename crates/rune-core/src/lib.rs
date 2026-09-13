@@ -12,6 +12,8 @@ pub use config::{TerminalConfig, TerminalTheme};
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use rune_fs::{FsError, VirtualFileSystem};
 use rune_package::PackageManifest;
@@ -28,6 +30,7 @@ const MAX_INSTALLED_COMMANDS: usize = 4_096;
 const MAX_SCRIPT_BYTES: usize = 256 * 1024;
 const MAX_SCRIPT_LINES: usize = 1_024;
 const MAX_SOURCE_DEPTH: usize = 16;
+const CANCELLED_STATUS: i32 = 130;
 const MAX_BOOKMARKS: usize = 256;
 const MAX_BOOKMARK_NAME_CHARS: usize = 64;
 const MAX_BOOKMARK_PATH_BYTES: usize = 64 * 1024;
@@ -175,6 +178,7 @@ pub struct Session {
     last_status: i32,
     startup_output: CommandOutput,
     wasm_runner: WasmRunner,
+    cancellation_requested: Arc<AtomicBool>,
 }
 
 impl Session {
@@ -200,6 +204,7 @@ impl Session {
             last_status: 0,
             startup_output: CommandOutput::success(""),
             wasm_runner: WasmRunner::default(),
+            cancellation_requested: Arc::new(AtomicBool::new(false)),
         };
         session.update_pwd();
         session
@@ -230,6 +235,23 @@ impl Session {
     /// Profile commands are intentionally not added to history.
     pub fn take_startup_output(&mut self) -> CommandOutput {
         std::mem::replace(&mut self.startup_output, CommandOutput::success(""))
+    }
+
+    /// Requests cooperative cancellation at the next execution boundary.
+    ///
+    /// The request is consumed by the next command, pipeline, or script
+    /// boundary observed by the session. A synchronous operation already in
+    /// progress is allowed to finish; this method does not deliver host
+    /// signals or forcefully stop a runtime.
+    pub fn cancel(&self) {
+        self.cancellation_requested.store(true, Ordering::Release);
+    }
+
+    /// Returns the bridge handle used to request cancellation safely while
+    /// the Rust session is executing on another thread.
+    #[must_use]
+    pub fn cancellation_handle(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.cancellation_requested)
     }
 
     /// Persists only the current virtual directory and command history.
@@ -445,6 +467,11 @@ impl Session {
             if line.trim().is_empty() {
                 continue;
             }
+            if let Some(cancellation) = self.take_cancellation() {
+                output.stderr.push_str(&cancellation.stderr);
+                output.status = cancellation.status;
+                break;
+            }
             let line_output = self.execute_line_internal(line, record_history, source_depth);
             output.stdout.push_str(&line_output.stdout);
             output.stderr.push_str(&line_output.stderr);
@@ -473,6 +500,10 @@ impl Session {
         let line = input.trim_matches(['\r', '\n', ' ']);
         if line.is_empty() {
             return CommandOutput::success("");
+        }
+        if let Some(output) = self.take_cancellation() {
+            self.last_status = output.status;
+            return output;
         }
         if record_history {
             let entry = history_entry(line);
@@ -531,6 +562,12 @@ impl Session {
     ) -> CommandOutput {
         let mut output = CommandOutput::success("");
         for (index, pipeline) in plan.pipelines.iter().enumerate() {
+            if let Some(cancellation) = self.take_cancellation() {
+                output.stderr.push_str(&cancellation.stderr);
+                output.status = cancellation.status;
+                self.last_status = output.status;
+                break;
+            }
             if index > 0 {
                 let should_skip = match plan.connectors[index - 1] {
                     Connector::And => output.status != 0,
@@ -560,6 +597,9 @@ impl Session {
         let mut stderr = String::new();
         let mut status = 0;
         for command in &pipeline.commands {
+            if let Some(output) = self.take_cancellation() {
+                return output;
+            }
             let result = self.execute_command(command, &stdin, record_history, source_depth);
             stdin = result.stdout;
             stderr.push_str(&result.stderr);
@@ -753,6 +793,12 @@ impl Session {
     fn apply_history_limit(&mut self) {
         self.history_limit = self.config.history_limit();
         persistence::apply_history_limit(&mut self.history, self.history_limit);
+    }
+
+    fn take_cancellation(&self) -> Option<CommandOutput> {
+        self.cancellation_requested
+            .swap(false, Ordering::AcqRel)
+            .then(|| CommandOutput::failure(CANCELLED_STATUS, "rune: command cancelled\n"))
     }
 
     fn find_installed_command(&self, name: &str) -> Result<Option<InstalledCommand>, FsError> {
@@ -1016,9 +1062,9 @@ fn package_runtime_failure(command: &str, error: &rune_package::PackageError) ->
 #[cfg(test)]
 mod tests {
     use super::{
-        persistence::MAX_HISTORY_BYTES, Session, MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS,
-        MAX_COMMAND_INPUT_BYTES, MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES,
-        MAX_SOURCE_DEPTH, OUTPUT_TRUNCATION_MARKER,
+        persistence::MAX_HISTORY_BYTES, Session, CANCELLED_STATUS, MAX_BOOKMARKS,
+        MAX_BOOKMARK_NAME_CHARS, MAX_COMMAND_INPUT_BYTES, MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES,
+        MAX_SCRIPT_LINES, MAX_SOURCE_DEPTH, OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -1340,6 +1386,27 @@ mod tests {
         let oversized = session.execute_line("source oversized.rc");
         assert_eq!(oversized.status, 2);
         assert!(oversized.stderr.contains("file exceeds the"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn observes_cooperative_cancellation_at_command_boundaries() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        session.cancel();
+        let cancelled = session.execute_line("echo should-not-run");
+        assert_eq!(cancelled.status, CANCELLED_STATUS);
+        assert_eq!(cancelled.stdout, "");
+        assert_eq!(cancelled.stderr, "rune: command cancelled\n");
+        assert!(session.history().is_empty());
+
+        assert_eq!(session.execute_line("echo resumed").stdout, "resumed\n");
+        session.cancel();
+        let script = session.execute_script("echo first\necho second");
+        assert_eq!(script.status, CANCELLED_STATUS);
+        assert_eq!(script.stdout, "");
+        assert_eq!(script.stderr, "rune: command cancelled\n");
+        assert!(!session.history().contains(&"echo first".to_string()));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

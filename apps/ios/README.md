@@ -24,6 +24,10 @@ files stored in the virtual filesystem. The Swift layer only sends the command;
 file reads, nested execution limits, environment changes, output, status, and
 history remain Rust-owned.
 
+`RuneFFISession.cancel()` forwards a cooperative cancellation request to Rust;
+the next command boundary returns status 130. It is a cancellation signal, not
+an unsafe force-stop of a synchronous operation.
+
 The Rust handle restores and persists only the virtual working directory and
 typed command history in `~/.rune/session.state` inside the configured sandbox.
 FFI command and script calls flush that state before returning, while handle

@@ -11,6 +11,8 @@ typedef struct {
 
 void *rune_session_new(const char *root);
 void rune_session_destroy(void *handle);
+// Request cooperative cancellation at the next Rust execution boundary.
+void rune_session_cancel(const void *handle);
 // Execute and persist the session before returning.
 RuneOutput rune_session_execute(void *handle, const char *input);
 // Execute a newline-delimited script and persist the session before returning.

@@ -12,6 +12,9 @@ private func rune_session_new(_ root: UnsafePointer<CChar>) -> OpaquePointer?
 @_silgen_name("rune_session_destroy")
 private func rune_session_destroy(_ handle: OpaquePointer?)
 
+@_silgen_name("rune_session_cancel")
+private func rune_session_cancel(_ handle: OpaquePointer?)
+
 @_silgen_name("rune_session_execute")
 private func rune_session_execute(
     _ handle: OpaquePointer?,
@@ -84,6 +87,12 @@ public final class RuneFFISession {
 
     deinit {
         rune_session_destroy(handle)
+    }
+
+    /// Requests cooperative cancellation for the next Rust execution boundary.
+    /// A synchronous operation already in progress may finish first.
+    public func cancel() {
+        rune_session_cancel(handle)
     }
 
     public var currentDirectory: String {
