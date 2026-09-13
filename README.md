@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 29%**
+**Overall progress: 30%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -27,7 +27,7 @@ working iOS application or a feature-parity claim.
 | WASM | 23% |
 | Native iOS UI | 20% |
 | Swift/Rust bridge | 15% |
-| Package manager | 25% |
+| Package manager | 28% |
 | Compatibility evidence | 2% |
 
 ## Current status
@@ -90,8 +90,9 @@ slice, not a language runtime or package manager.
 The local package flow supports `pkg info MANIFEST`, `pkg verify MANIFEST`,
 `pkg install MANIFEST`, `pkg list`, and `pkg remove NAME [VERSION]`. Install
 copies only SHA-256-verified files into `~/.rune/packages`; declared `.wasm`
-commands can then run through the bounded WASI runtime. Network transport,
-registry search, and update remain unsupported at this stage.
+commands can then run through the bounded WASI runtime, and `which` discovers
+their installed command names from the local package manifests. Network
+transport, registry search, and update remain unsupported at this stage.
 
 The portable core also supports session-local virtual directory bookmarks with
 `bookmark`, `showmarks`, `jump`, `cd ~NAME`, `renamemark`, and `deletemark`.

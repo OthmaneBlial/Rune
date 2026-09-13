@@ -88,8 +88,23 @@ pub(super) fn which(context: &mut CommandContext<'_>) -> CommandOutput {
         {
             let _ = writeln!(output.stdout, "{name}: builtin");
         } else {
-            output.status = 1;
-            let _ = writeln!(output.stderr, "which: {name}: not found");
+            match crate::find_installed_command_in_filesystem(context.fs, name) {
+                Ok(Some(installed_command)) => {
+                    let _ = writeln!(
+                        output.stdout,
+                        "{name}: package {}",
+                        installed_command.package
+                    );
+                }
+                Ok(None) => {
+                    output.status = 1;
+                    let _ = writeln!(output.stderr, "which: {name}: not found");
+                }
+                Err(error) => {
+                    output.status = 1;
+                    let _ = writeln!(output.stderr, "which: {name}: {error}");
+                }
+            }
         }
     }
     output

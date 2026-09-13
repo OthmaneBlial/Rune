@@ -136,8 +136,8 @@ symlinks.
 The shell also provides deterministic `uname` and `whoami` identities for the
 portable session, and `which` reports aliases and registered built-ins. These
 commands never expose the host user's name or claim that arbitrary host
-executables are available; installed package discovery will be added when the
-package command index is defined.
+executables are available; installed package commands are discovered from
+local package manifests and reported with their package and version.
 
 Native completion asks the Rust session for replacement tokens. At the start
 of a line it returns built-in command names; for supported path-oriented

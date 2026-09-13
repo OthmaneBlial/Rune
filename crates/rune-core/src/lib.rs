@@ -624,40 +624,7 @@ impl Session {
     }
 
     fn find_installed_command(&self, name: &str) -> Result<Option<InstalledCommand>, FsError> {
-        let packages = match self.filesystem.list(Some(PACKAGE_INSTALL_ROOT)) {
-            Ok(entries) => entries,
-            Err(FsError::NotFound(_)) => return Ok(None),
-            Err(error) => return Err(error),
-        };
-        for package in packages.into_iter().filter(|entry| entry.is_directory) {
-            let package_path = format!("{PACKAGE_INSTALL_ROOT}/{}", package.name);
-            let Ok(versions) = self.filesystem.list(Some(&package_path)) else {
-                continue;
-            };
-            for version in versions.into_iter().filter(|entry| entry.is_directory) {
-                let version_path = format!("{package_path}/{}", version.name);
-                let manifest_path = format!("{version_path}/manifest.json");
-                let Ok(bytes) = self.filesystem.read(&manifest_path) else {
-                    continue;
-                };
-                let Ok(manifest) = PackageManifest::parse(&bytes) else {
-                    continue;
-                };
-                if let Some(command) = manifest
-                    .commands
-                    .iter()
-                    .find(|command| command.name == name)
-                {
-                    return Ok(Some(InstalledCommand {
-                        package: format!("{}@{}", manifest.name, manifest.version),
-                        manifest_path,
-                        module_path: format!("{version_path}/{}", command.entry),
-                        entry: command.entry.clone(),
-                    }));
-                }
-            }
-        }
-        Ok(None)
+        find_installed_command_in_filesystem(self.filesystem.as_ref(), name)
     }
 
     fn execute_installed_command(
@@ -764,6 +731,46 @@ impl Session {
         self.environment
             .insert("PWD".to_string(), self.filesystem.current_dir_display());
     }
+}
+
+fn find_installed_command_in_filesystem(
+    filesystem: &dyn VirtualFileSystem,
+    name: &str,
+) -> Result<Option<InstalledCommand>, FsError> {
+    let packages = match filesystem.list(Some(PACKAGE_INSTALL_ROOT)) {
+        Ok(entries) => entries,
+        Err(FsError::NotFound(_)) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    for package in packages.into_iter().filter(|entry| entry.is_directory) {
+        let package_path = format!("{PACKAGE_INSTALL_ROOT}/{}", package.name);
+        let Ok(versions) = filesystem.list(Some(&package_path)) else {
+            continue;
+        };
+        for version in versions.into_iter().filter(|entry| entry.is_directory) {
+            let version_path = format!("{package_path}/{}", version.name);
+            let manifest_path = format!("{version_path}/manifest.json");
+            let Ok(bytes) = filesystem.read(&manifest_path) else {
+                continue;
+            };
+            let Ok(manifest) = PackageManifest::parse(&bytes) else {
+                continue;
+            };
+            if let Some(command) = manifest
+                .commands
+                .iter()
+                .find(|command| command.name == name)
+            {
+                return Ok(Some(InstalledCommand {
+                    package: format!("{}@{}", manifest.name, manifest.version),
+                    manifest_path,
+                    module_path: format!("{version_path}/{}", command.entry),
+                    entry: command.entry.clone(),
+                }));
+            }
+        }
+    }
+    Ok(None)
 }
 
 struct ExpandedWord {
@@ -1245,6 +1252,10 @@ mod tests {
             session.execute_line("pkg list").stdout,
             "local-wasm@0.1.0\n"
         );
+        assert_eq!(
+            session.execute_line("which local-hello").stdout,
+            "local-hello: package local-wasm@0.1.0\n"
+        );
         let command_output = session.execute_line("local-hello argument");
         assert_eq!(command_output.status, 7, "{command_output:?}");
         std::fs::write(
@@ -1266,6 +1277,8 @@ mod tests {
             "removed local-wasm@0.1.0\n"
         );
         assert!(session.execute_line("pkg list").stdout.is_empty());
+        let removed_lookup = session.execute_line("which local-hello");
+        assert_eq!(removed_lookup.status, 1);
         assert_eq!(session.execute_line("local-hello").status, 127);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
