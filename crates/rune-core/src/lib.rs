@@ -74,8 +74,10 @@ fn supports_path_completion(command: &str) -> bool {
             | "curl"
             | "diff"
             | "du"
+            | "egrep"
             | "expr"
             | "find"
+            | "fgrep"
             | "grep"
             | "gunzip"
             | "gzip"
@@ -4838,10 +4840,30 @@ mod tests {
             "alpha\n"
         );
         assert_eq!(
+            session.execute_line("grep '^a' lines.txt").stdout,
+            "alpha\n"
+        );
+        assert_eq!(
+            session.execute_line("egrep 'alpha|beta' lines.txt").stdout,
+            "beta\nalpha\nbeta\n"
+        );
+        assert_eq!(session.execute_line("echo '[a' > literal.data").status, 0);
+        assert_eq!(
+            session.execute_line("fgrep '[a' literal.data").stdout,
+            "[a\n"
+        );
+        assert_eq!(
+            session.execute_line("grep -e '^a' lines.txt").stdout,
+            "alpha\n"
+        );
+        assert_eq!(
             session.execute_line("grep -n alpha lines.txt").stdout,
             "2:alpha\n"
         );
         assert_eq!(session.execute_line("grep -c beta lines.txt").stdout, "2\n");
+        let invalid_grep = session.execute_line("grep '[' lines.txt");
+        assert_eq!(invalid_grep.status, 2);
+        assert!(invalid_grep.stderr.contains("invalid regular expression"));
         assert_eq!(
             session.execute_line("sed 's/beta/Rune/g' lines.txt").stdout,
             "Rune\nalpha\nRune\n"

@@ -114,9 +114,10 @@ symbol-table, long-name-table, and linker compatibility remain unverified.
 The `xargs` tests verify bounded whitespace and NUL splitting, batch sizing,
 empty-input suppression, safe quoting, and execution through the ordinary Rust
 command planner; full platform-specific xargs compatibility remains unverified.
-The text pipeline tests also verify `sort -n`, combined `-nru` flags, and
-deduplicated numeric output; field keys, locale collation, and full POSIX sort
-compatibility remain outside the bounded profile.
+The text pipeline tests also verify bounded regular-expression grep, `-e`,
+fixed-string `fgrep`, invalid-pattern rejection, `sort -n`, combined `-nru`
+flags, and deduplicated numeric output; field keys, locale collation, and full
+POSIX sort/grep compatibility remain outside the bounded profile.
 The filesystem resource test uses a sparse file to verify the 64 MiB read,
 append, and copy guards without allocating a large in-memory fixture.
 The directory resource test creates 10,001 small entries and verifies that

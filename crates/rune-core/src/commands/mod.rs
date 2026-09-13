@@ -168,8 +168,18 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
     },
     CommandDefinition {
         name: "grep",
-        summary: "filter text lines by a pattern",
+        summary: "filter text lines by a bounded regular expression",
         handler: text::grep,
+    },
+    CommandDefinition {
+        name: "egrep",
+        summary: "filter text lines using extended regular-expression syntax",
+        handler: text::egrep,
+    },
+    CommandDefinition {
+        name: "fgrep",
+        summary: "filter text lines by a literal pattern",
+        handler: text::fgrep,
     },
     CommandDefinition {
         name: "gzip",

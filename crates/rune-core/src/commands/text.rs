@@ -2,6 +2,8 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
+use regex::{Regex, RegexBuilder};
+
 use crate::{fs_failure, usage, CommandContext, CommandOutput};
 
 const MAX_CUT_RANGES: usize = 256;
@@ -9,6 +11,7 @@ const MAX_CUT_POSITION: usize = 1_000_000;
 const MAX_DIFF_INPUT_BYTES: usize = 1024 * 1024;
 const MAX_DIFF_LINES: usize = 4_096;
 const MAX_DIFF_CELLS: usize = 4_000_000;
+const MAX_GREP_PATTERN_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Clone, Copy)]
 struct CutRange {
@@ -50,8 +53,39 @@ struct GrepOptions {
     case: GrepCase,
     matching: GrepMatch,
     output: GrepOutput,
+    mode: GrepMode,
     pattern: String,
     paths: Vec<String>,
+}
+
+#[derive(Clone, Copy)]
+enum GrepMode {
+    Regex,
+    Fixed,
+}
+
+enum GrepMatcher {
+    Regex(Regex),
+    Fixed {
+        needle: String,
+        case_insensitive: bool,
+    },
+}
+
+impl GrepMatcher {
+    fn is_match(&self, text: &str) -> bool {
+        match self {
+            Self::Regex(regex) => regex.is_match(text),
+            Self::Fixed {
+                needle,
+                case_insensitive: true,
+            } => text.to_lowercase().contains(needle),
+            Self::Fixed {
+                needle,
+                case_insensitive: false,
+            } => text.contains(needle),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -336,36 +370,48 @@ pub(super) fn tail(context: &mut CommandContext<'_>) -> CommandOutput {
 }
 
 pub(super) fn grep(context: &mut CommandContext<'_>) -> CommandOutput {
-    let options = match parse_grep_args(context.args) {
+    grep_with_mode(context, GrepMode::Regex, "grep")
+}
+
+pub(super) fn egrep(context: &mut CommandContext<'_>) -> CommandOutput {
+    grep_with_mode(context, GrepMode::Regex, "egrep")
+}
+
+pub(super) fn fgrep(context: &mut CommandContext<'_>) -> CommandOutput {
+    grep_with_mode(context, GrepMode::Fixed, "fgrep")
+}
+
+fn grep_with_mode(
+    context: &mut CommandContext<'_>,
+    default_mode: GrepMode,
+    command: &str,
+) -> CommandOutput {
+    let options = match parse_grep_args(context.args, default_mode, command) {
         Ok(parsed) => parsed,
         Err(output) => return output,
     };
-    let text = match read_inputs(context, "grep", &options.paths) {
+    let matcher = match compile_grep_matcher(&options) {
+        Ok(matcher) => matcher,
+        Err(error) => {
+            return CommandOutput::failure(2, format!("{command}: {error}\n"));
+        }
+    };
+    let text = match read_inputs(context, command, &options.paths) {
         Ok(text) => text,
         Err(output) => return output,
     };
-    let needle = if matches!(options.case, GrepCase::Insensitive) {
-        options.pattern.to_lowercase()
-    } else {
-        options.pattern.clone()
-    };
     let mut stdout = String::new();
-    let mut matched = false;
+    let mut found_match = false;
     let mut matching_lines = 0;
     for (index, line) in lines_with_endings(&text).into_iter().enumerate() {
         let original = line_content(line);
-        let haystack = if matches!(options.case, GrepCase::Insensitive) {
-            original.to_lowercase()
-        } else {
-            original.to_string()
-        };
-        let contains = haystack.contains(&needle);
+        let contains = matcher.is_match(original);
         let selected = match options.matching {
             GrepMatch::Contains => contains,
             GrepMatch::Excludes => !contains,
         };
         if selected {
-            matched = true;
+            found_match = true;
             matching_lines += 1;
             if !matches!(options.output, GrepOutput::Count) {
                 if matches!(options.output, GrepOutput::NumberedLines) {
@@ -381,7 +427,31 @@ pub(super) fn grep(context: &mut CommandContext<'_>) -> CommandOutput {
     CommandOutput {
         stdout,
         stderr: String::new(),
-        status: i32::from(!matched),
+        status: i32::from(!found_match),
+    }
+}
+
+fn compile_grep_matcher(options: &GrepOptions) -> Result<GrepMatcher, String> {
+    if options.pattern.len() > MAX_GREP_PATTERN_BYTES {
+        return Err(format!(
+            "pattern exceeds the {MAX_GREP_PATTERN_BYTES}-byte limit"
+        ));
+    }
+    let case_insensitive = matches!(options.case, GrepCase::Insensitive);
+    match options.mode {
+        GrepMode::Fixed => Ok(GrepMatcher::Fixed {
+            needle: if case_insensitive {
+                options.pattern.to_lowercase()
+            } else {
+                options.pattern.clone()
+            },
+            case_insensitive,
+        }),
+        GrepMode::Regex => RegexBuilder::new(&options.pattern)
+            .case_insensitive(case_insensitive)
+            .build()
+            .map(GrepMatcher::Regex)
+            .map_err(|error| format!("invalid regular expression: {error}")),
     }
 }
 
@@ -870,39 +940,113 @@ fn parse_nonnegative_count(command: &str, value: &str) -> Result<usize, CommandO
         .map_err(|_| usage(command, "-n requires a non-negative number"))
 }
 
-fn parse_grep_args(args: &[String]) -> Result<GrepOptions, CommandOutput> {
+fn parse_grep_args(
+    args: &[String],
+    default_mode: GrepMode,
+    command: &str,
+) -> Result<GrepOptions, CommandOutput> {
     let mut case = GrepCase::Sensitive;
     let mut matching = GrepMatch::Contains;
     let mut output = GrepOutput::Lines;
+    let mut mode = default_mode;
+    let mut explicit_pattern = None;
     let mut index = 0;
     while index < args.len() {
-        match args[index].as_str() {
-            "-i" => case = GrepCase::Insensitive,
-            "-v" => matching = GrepMatch::Excludes,
-            "-n" => output = GrepOutput::NumberedLines,
-            "-c" => output = GrepOutput::Count,
-            "--" => {
-                index += 1;
-                break;
-            }
-            _ => break,
+        let argument = &args[index];
+        if argument == "--" {
+            index += 1;
+            break;
         }
+        if argument == "-e" || argument == "--regexp" {
+            index += 1;
+            let Some(pattern) = args.get(index) else {
+                return Err(grep_usage(command));
+            };
+            if explicit_pattern.replace(pattern.clone()).is_some() {
+                return Err(grep_usage(command));
+            }
+            index += 1;
+            continue;
+        }
+        if argument == "-E" || argument == "--extended-regexp" {
+            mode = GrepMode::Regex;
+            index += 1;
+            continue;
+        }
+        if argument == "-F" || argument == "--fixed-strings" {
+            mode = GrepMode::Fixed;
+            index += 1;
+            continue;
+        }
+        if argument == "-i" || argument == "--ignore-case" {
+            case = GrepCase::Insensitive;
+            index += 1;
+            continue;
+        }
+        if argument == "-v" || argument == "--invert-match" {
+            matching = GrepMatch::Excludes;
+            index += 1;
+            continue;
+        }
+        if argument == "-n" || argument == "--line-number" {
+            output = GrepOutput::NumberedLines;
+            index += 1;
+            continue;
+        }
+        if argument == "-c" || argument == "--count" {
+            output = GrepOutput::Count;
+            index += 1;
+            continue;
+        }
+        if argument.starts_with('-') && argument != "-" {
+            let flags = argument.strip_prefix('-').unwrap_or_default();
+            if flags.is_empty()
+                || !flags
+                    .chars()
+                    .all(|flag| matches!(flag, 'E' | 'F' | 'i' | 'v' | 'n' | 'c'))
+            {
+                return Err(grep_usage(command));
+            }
+            for flag in flags.chars() {
+                match flag {
+                    'E' => mode = GrepMode::Regex,
+                    'F' => mode = GrepMode::Fixed,
+                    'i' => case = GrepCase::Insensitive,
+                    'v' => matching = GrepMatch::Excludes,
+                    'n' => output = GrepOutput::NumberedLines,
+                    'c' => output = GrepOutput::Count,
+                    _ => unreachable!("grep flags were validated above"),
+                }
+            }
+            index += 1;
+            continue;
+        }
+        break;
+    }
+    let pattern_was_explicit = explicit_pattern.is_some();
+    let pattern = explicit_pattern.or_else(|| args.get(index).cloned());
+    let Some(pattern) = pattern else {
+        return Err(grep_usage(command));
+    };
+    if !pattern_was_explicit {
         index += 1;
     }
-    let Some(pattern) = args.get(index) else {
-        return Err(usage(
-            "grep",
-            "usage: grep [-i] [-v] [-n] [-c] pattern [file ...]",
-        ));
-    };
-    let paths = args[index + 1..].to_vec();
+    let paths = args[index..].to_vec();
     Ok(GrepOptions {
         case,
         matching,
         output,
+        mode,
         pattern: pattern.clone(),
         paths,
     })
+}
+
+fn grep_usage(command: &str) -> CommandOutput {
+    usage(
+        command,
+        "usage: grep [-E|-F] [-i] [-v] [-n] [-c] [-e pattern] pattern [file ...]",
+    )
 }
 
 fn parse_flag(command: &str, args: &[String], flag: &str) -> Result<bool, CommandOutput> {
