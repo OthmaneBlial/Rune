@@ -42,7 +42,8 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `help`, and `history` against a bounded filesystem, including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
 with quotes, variables, leading `NAME=value` assignments, pipes, redirections,
-sequencing, `&&`/`||` short-circuiting, separate stdout/stderr, and exit status.
+word-boundary comments, sequencing, `&&`/`||` short-circuiting, separate
+stdout/stderr, and exit status.
 Assignments are expanded left-to-right, remain session-local, and can also be
 issued without a command.
 The text pipeline also supports a bounded literal `sed` substitution surface:

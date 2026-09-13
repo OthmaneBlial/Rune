@@ -322,6 +322,12 @@ pub fn tokenize(input: &str) -> Result<Vec<(Token, Option<Word>)>, ParseError> {
                 if character.is_whitespace() {
                     flush_word(&mut lexemes, &mut parts, &mut started);
                     index += 1;
+                } else if character == '#' && !started {
+                    // A comment starts only at a word boundary. Escaped and
+                    // quoted `#` characters have already become literals in
+                    // the branches above.
+                    flush_word(&mut lexemes, &mut parts, &mut started);
+                    break;
                 } else if character == '\'' {
                     mode = QuoteMode::Single;
                     started = true;
@@ -656,5 +662,27 @@ mod tests {
         assert!(parse("echo hi |").is_err());
         assert!(parse("echo hi &&").is_err());
         assert!(parse("echo hi ||").is_err());
+    }
+
+    #[test]
+    fn treats_unquoted_hash_at_a_word_boundary_as_a_comment() {
+        let plan = parse("echo value # ignored; echo also-ignored").expect("valid comment");
+        assert_eq!(plan.pipelines[0].commands[0].arguments.len(), 1);
+        assert_eq!(
+            plan.pipelines[0].commands[0].arguments[0]
+                .literal_value()
+                .as_deref(),
+            Some("value")
+        );
+
+        let kept = parse(r##"echo '#single' "#double" \#escaped"##).expect("literal hashes");
+        assert_eq!(
+            kept.pipelines[0].commands[0]
+                .arguments
+                .iter()
+                .map(|word| word.literal_value().expect("literal argument"))
+                .collect::<Vec<_>>(),
+            vec!["#single", "#double", "#escaped"]
+        );
     }
 }

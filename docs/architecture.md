@@ -52,6 +52,11 @@ The core evaluates them left-to-right and skips only the next pipeline when
 the connector's status condition is not met; a skipped branch does not invent
 output or change the previous status.
 
+The tokenizer treats an unquoted `#` at a word boundary as the beginning of a
+comment and stops lexing the remainder of that line. Hashes inside a word,
+inside quotes, or escaped remain literal, so startup profiles can use ordinary
+comments without weakening argument handling.
+
 Session persistence is explicit and intentionally narrow: `~/.rune/session.state`
 stores the virtual working directory and command history, while environment
 variables are reconstructed for every session and are never serialized. The
