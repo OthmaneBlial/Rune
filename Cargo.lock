@@ -19,6 +19,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rune-ffi"
+version = "0.1.0"
+dependencies = [
+ "rune-core",
+ "rune-fs",
+]
+
+[[package]]
 name = "rune-fs"
 version = "0.1.0"
 

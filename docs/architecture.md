@@ -18,6 +18,8 @@ constraints. It is not a source dependency or an implementation template.
   abstraction rather than reaching into Apple APIs directly.
 - `rune-core`: command registry, command context, session state, and execution
   results.
+- `rune-ffi`: a deliberately narrow C ABI for opaque session handles and owned
+  stdout/stderr buffers. Its unsafe code is isolated at the boundary.
 - `apps/rune-cli`: a small host executable used for local development and
   end-to-end checks. It is not the iOS frontend.
 

@@ -16,4 +16,11 @@ cargo test --workspace
 echo "==> cargo build"
 cargo build --workspace
 
+if command -v swiftc >/dev/null 2>&1; then
+  echo "==> swiftc -parse (source-only Apple check)"
+  swiftc -parse \
+    apps/ios/Sources/RuneIOS/RuneCoreBridge.swift \
+    apps/ios/Sources/RuneIOS/RuneTerminalView.swift
+fi
+
 echo "Local Rune checks passed."

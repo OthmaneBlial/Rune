@@ -5,6 +5,7 @@
 
 # Rust build output
 /target/
+/apps/ios/.build/
 
 # macOS and Xcode local state
 .DS_Store

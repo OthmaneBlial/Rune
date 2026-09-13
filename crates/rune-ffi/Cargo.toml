@@ -1,0 +1,17 @@
+[package]
+name = "rune-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+rune-core = { path = "../rune-core" }
+rune-fs = { path = "../rune-fs" }
+
+[lints]
+workspace = true

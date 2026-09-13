@@ -24,8 +24,8 @@ working iOS application or a feature-parity claim.
 | Sandboxed filesystem | 35% |
 | Sessions/history | 8% |
 | WASM | 0% |
-| Native iOS UI | 0% |
-| Swift/Rust bridge | 0% |
+| Native iOS UI | 5% |
+| Swift/Rust bridge | 4% |
 | Package manager | 0% |
 | Compatibility evidence | 2% |
 
@@ -35,8 +35,10 @@ The first Rust vertical slice is implemented and locally verified. It executes
 the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `echo`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `clear`, `help`, and `history` against a
 bounded filesystem, with quotes, variables, pipes, redirections, sequencing,
-separate stdout/stderr, and exit status. The iOS app, FFI surface, persistence,
-WASM, and package management remain planned work.
+separate stdout/stderr, and exit status. The iOS app is represented by
+source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
+and runtime gates remain unverified. Persistence, WASM, and package
+management remain planned work.
 
 No a-Shell compatibility area is marked `supported` without behavior and test
 evidence. See [`compat/a-shell-compatibility.json`](compat/a-shell-compatibility.json).
@@ -44,13 +46,14 @@ evidence. See [`compat/a-shell-compatibility.json`](compat/a-shell-compatibility
 ## Architecture
 
 ```text
-Swift / SwiftUI app (planned)
-            │ narrow FFI boundary (planned)
+Swift / SwiftUI app (source-only; Apple link unverified)
+            │ narrow C ABI via rune-ffi
             ▼
       rune-core  ─── command registry and session orchestration
         │   │
         │   └──── rune-fs   bounded filesystem abstraction
-        └──────── rune-shell tokenizer, parser, execution plan
+        ├──────── rune-shell tokenizer, parser, execution plan
+        └──────── rune-ffi   owned C ABI handles and output buffers
 ```
 
 The portable crates own shell semantics and platform-independent policy. An
@@ -65,6 +68,10 @@ There is deliberately no GitHub Actions workflow. Run the local quality gate:
 ```bash
 ./scripts/ci.sh
 ```
+
+When `swiftc` is already available, the gate also parses the native Swift
+sources. This is syntax evidence only; it is not simulator, device, or App
+Store evidence.
 
 The reference checkout is intentionally ignored and can be checked with:
 
