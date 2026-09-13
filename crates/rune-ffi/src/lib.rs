@@ -170,8 +170,11 @@ fn persist_after_execution(core: &mut Session, mut output: CommandOutput) -> Com
     output
 }
 
-fn create_session(root: &str, session_id: Option<&str>) -> *mut std::ffi::c_void {
-    let Ok(filesystem) = SandboxedFileSystem::new(root) else {
+fn create_session_from_filesystem(
+    filesystem: Result<SandboxedFileSystem, FsError>,
+    session_id: Option<&str>,
+) -> *mut std::ffi::c_void {
+    let Ok(filesystem) = filesystem else {
         return std::ptr::null_mut();
     };
     let core = match session_id {
@@ -184,6 +187,22 @@ fn create_session(root: &str, session_id: Option<&str>) -> *mut std::ffi::c_void
     let cancellation = core.cancellation_handle();
     let session = Box::new(RuneSession { core, cancellation });
     Box::into_raw(session).cast()
+}
+
+fn create_session(root: &str, session_id: Option<&str>) -> *mut std::ffi::c_void {
+    create_session_from_filesystem(SandboxedFileSystem::new(root), session_id)
+}
+
+fn create_session_with_layout(
+    home: &str,
+    library: &str,
+    temporary: &str,
+    session_id: Option<&str>,
+) -> *mut std::ffi::c_void {
+    create_session_from_filesystem(
+        SandboxedFileSystem::new_with_layout(home, library, temporary),
+        session_id,
+    )
 }
 
 /// Creates a session rooted at the supplied physical sandbox directory.
@@ -209,6 +228,43 @@ pub extern "C" fn rune_session_new_named(
         return std::ptr::null_mut();
     };
     create_session(&root, Some(&session_id))
+}
+
+/// Creates a session using the app's Documents, Library, and tmp directories
+/// as the virtual `~`, `~/Library`, and `~/tmp` roots.
+#[no_mangle]
+pub extern "C" fn rune_session_new_with_layout(
+    home: *const c_char,
+    library: *const c_char,
+    temporary: *const c_char,
+) -> *mut std::ffi::c_void {
+    let (Some(home), Some(library), Some(temporary)) = (
+        read_string(home),
+        read_string(library),
+        read_string(temporary),
+    ) else {
+        return std::ptr::null_mut();
+    };
+    create_session_with_layout(&home, &library, &temporary, None)
+}
+
+/// Creates a named session using the app's Documents, Library, and tmp roots.
+#[no_mangle]
+pub extern "C" fn rune_session_new_named_with_layout(
+    home: *const c_char,
+    library: *const c_char,
+    temporary: *const c_char,
+    session_id: *const c_char,
+) -> *mut std::ffi::c_void {
+    let (Some(home), Some(library), Some(temporary), Some(session_id)) = (
+        read_string(home),
+        read_string(library),
+        read_string(temporary),
+        read_string(session_id),
+    ) else {
+        return std::ptr::null_mut();
+    };
+    create_session_with_layout(&home, &library, &temporary, Some(&session_id))
 }
 
 /// Destroys a handle created by [`rune_session_new`].
@@ -617,8 +673,8 @@ mod tests {
         rune_session_configuration, rune_session_current_directory, rune_session_destroy,
         rune_session_execute, rune_session_execute_script, rune_session_execute_script_with_events,
         rune_session_execute_with_events, rune_session_get_file, rune_session_history,
-        rune_session_new, rune_session_new_named, rune_session_put_file,
-        rune_session_reset_configuration, rune_session_set_configuration,
+        rune_session_new, rune_session_new_named, rune_session_new_with_layout,
+        rune_session_put_file, rune_session_reset_configuration, rune_session_set_configuration,
         rune_session_startup_output, rune_string_free, RuneEvent, RUNE_EVENT_OUTPUT,
         RUNE_EVENT_STATUS,
     };
@@ -999,6 +1055,45 @@ mod tests {
         let invalid_id = CString::new("../escape").expect("valid bytes");
         assert!(rune_session_new_named(root_string.as_ptr(), invalid_id.as_ptr()).is_null());
         std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn c_abi_layout_mounts_documents_library_and_tmp() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after epoch")
+            .as_nanos();
+        let container = std::env::temp_dir().join(format!("rune-ffi-layout-test-{suffix}"));
+        let home = container.join("Documents");
+        let library_path = container.join("Library");
+        let temporary_path = container.join("tmp");
+        std::fs::create_dir_all(&container).expect("test container created");
+        let home = CString::new(home.to_string_lossy().as_bytes()).expect("valid home");
+        let library =
+            CString::new(library_path.to_string_lossy().as_bytes()).expect("valid library");
+        let temporary =
+            CString::new(temporary_path.to_string_lossy().as_bytes()).expect("valid temporary");
+        let handle =
+            rune_session_new_with_layout(home.as_ptr(), library.as_ptr(), temporary.as_ptr());
+        assert!(!handle.is_null());
+
+        let command = CString::new(
+            "touch ~/Library/cache.txt && touch ~/tmp/session.txt && cd ~/Library && pwd",
+        )
+        .expect("valid command");
+        let output = rune_session_execute(handle, command.as_ptr());
+        assert_eq!(output.status, 0);
+        assert_eq!(c_string(output.stdout), "~/Library\n");
+        assert!(c_string(output.stderr).is_empty());
+        // SAFETY: both pointers were returned by rune_session_execute.
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+        assert!(library_path.join("cache.txt").is_file());
+        assert!(temporary_path.join("session.txt").is_file());
+        rune_session_destroy(handle);
+        std::fs::remove_dir_all(container).expect("test container removed");
     }
 
     fn c_string(pointer: *mut std::os::raw::c_char) -> String {

@@ -10,6 +10,11 @@ invent terminal output. The Rust static library must be linked by the eventual
 Xcode application target; a Swift package manifest alone is not an App Store
 application project.
 
+The default app session passes the real Documents, Library, and temporary
+directories to Rust. Rune exposes them as `~`, `~/Library`, and `~/tmp` through
+the confined VFS. A user-selected external folder deliberately uses only that
+folder as its root and does not inherit the app's sibling directories.
+
 The bridge also exposes a bounded newline-delimited Rust automation script entry
 point for a future Shortcuts adapter. Rust rejects inputs above 256 KiB or 1,024
 lines, then runs each non-empty line through the same parser and registry while

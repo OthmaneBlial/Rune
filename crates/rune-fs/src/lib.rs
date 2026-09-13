@@ -7,6 +7,7 @@
 
 #![allow(clippy::missing_errors_doc)]
 
+use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
@@ -106,10 +107,17 @@ const MAX_COPY_ENTRIES: usize = 10_000;
 const MAX_DIRECTORY_ENTRIES: usize = 10_000;
 const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
+#[derive(Debug, Clone)]
+struct MountedRoot {
+    name: &'static str,
+    physical: PathBuf,
+}
+
 /// A host-backed filesystem with a strict virtual root.
 #[derive(Debug, Clone)]
 pub struct SandboxedFileSystem {
     root: PathBuf,
+    mounts: Vec<MountedRoot>,
     current_dir: PathBuf,
     previous_dir: Option<PathBuf>,
 }
@@ -118,14 +126,53 @@ impl SandboxedFileSystem {
     /// Creates the root directory if needed and canonicalizes it.
     pub fn new(root: impl AsRef<Path>) -> Result<Self, FsError> {
         let root = root.as_ref();
+        Self::from_roots(root, Vec::new())
+    }
+
+    /// Creates a virtual app sandbox whose home is `home` and whose standard
+    /// iOS writable directories are mounted at `~/Library` and `~/tmp`.
+    ///
+    /// The three physical paths are canonicalized independently and are the
+    /// only roots accepted by path and symlink validation. This lets the
+    /// portable shell model Apple's Documents/Library/tmp layout without
+    /// exposing the containing app directory or an arbitrary host path.
+    pub fn new_with_layout(
+        home: impl AsRef<Path>,
+        library: impl AsRef<Path>,
+        temporary: impl AsRef<Path>,
+    ) -> Result<Self, FsError> {
+        let home = home.as_ref();
+        let library = library.as_ref();
+        let temporary = temporary.as_ref();
+        let mounts = vec![("Library", library), ("tmp", temporary)];
+        Self::from_roots(home, mounts)
+    }
+
+    fn from_roots(root: &Path, mount_paths: Vec<(&'static str, &Path)>) -> Result<Self, FsError> {
         fs::create_dir_all(root).map_err(|error| Self::io_error("create", root, &error))?;
         let root = root
             .canonicalize()
             .map_err(|error| Self::io_error("canonicalize", root, &error))?;
+        let mut physical_roots = BTreeSet::new();
+        physical_roots.insert(root.clone());
+        let mut mounts = Vec::with_capacity(mount_paths.len());
+        for (name, path) in mount_paths {
+            fs::create_dir_all(path).map_err(|error| Self::io_error("create", path, &error))?;
+            let physical = path
+                .canonicalize()
+                .map_err(|error| Self::io_error("canonicalize", path, &error))?;
+            if !physical_roots.insert(physical.clone()) {
+                return Err(FsError::InvalidPath(format!(
+                    "sandbox roots must be distinct: {name}"
+                )));
+            }
+            mounts.push(MountedRoot { name, physical });
+        }
         Ok(Self {
-            root: root.clone(),
-            current_dir: root,
+            current_dir: root.clone(),
             previous_dir: None,
+            root,
+            mounts,
         })
     }
 
@@ -158,14 +205,11 @@ impl SandboxedFileSystem {
         for component in Path::new(relative_input).components() {
             match component {
                 Component::CurDir => {}
-                Component::Normal(part) => candidate.push(part),
+                Component::Normal(part) => {
+                    candidate = self.join_component(&candidate, part.to_string_lossy().as_ref());
+                }
                 Component::ParentDir => {
-                    if candidate == self.root {
-                        return Err(FsError::OutsideSandbox(input.to_string()));
-                    }
-                    if !candidate.pop() {
-                        return Err(FsError::OutsideSandbox(input.to_string()));
-                    }
+                    candidate = self.parent_component(&candidate, input)?;
                 }
                 Component::RootDir | Component::Prefix(_) => {
                     return Err(FsError::InvalidPath(input.to_string()));
@@ -178,6 +222,15 @@ impl SandboxedFileSystem {
     }
 
     fn display_path(&self, path: &Path) -> String {
+        for mount in &self.mounts {
+            match path.strip_prefix(&mount.physical) {
+                Ok(relative) if relative.as_os_str().is_empty() => {
+                    return format!("~/{}", mount.name);
+                }
+                Ok(relative) => return format!("~/{}/{}", mount.name, relative.display()),
+                Err(_) => {}
+            }
+        }
         match path.strip_prefix(&self.root) {
             Ok(relative) if relative.as_os_str().is_empty() => "~".to_string(),
             Ok(relative) => format!("~/{}", relative.display()),
@@ -195,7 +248,10 @@ impl SandboxedFileSystem {
         let canonical = existing
             .canonicalize()
             .map_err(|error| Self::io_error("canonicalize", existing, &error))?;
-        if canonical.starts_with(&self.root) {
+        if self
+            .approved_roots()
+            .any(|root| canonical.starts_with(root))
+        {
             Ok(())
         } else {
             Err(FsError::OutsideSandbox(input.to_string()))
@@ -265,11 +321,41 @@ impl SandboxedFileSystem {
     }
 
     fn no_root_operation(&self, path: &Path, operation: &str) -> Result<(), FsError> {
-        if path == self.root {
+        if path == self.root || self.mounts.iter().any(|mount| path == mount.physical) {
             Err(FsError::RootOperation(operation.to_string()))
         } else {
             Ok(())
         }
+    }
+
+    fn approved_roots(&self) -> impl Iterator<Item = &Path> {
+        std::iter::once(self.root.as_path())
+            .chain(self.mounts.iter().map(|mount| mount.physical.as_path()))
+    }
+
+    fn mount_for_name(&self, name: &str) -> Option<&MountedRoot> {
+        self.mounts.iter().find(|mount| mount.name == name)
+    }
+
+    fn join_component(&self, base: &Path, component: &str) -> PathBuf {
+        if base == self.root {
+            if let Some(mount) = self.mount_for_name(component) {
+                return mount.physical.clone();
+            }
+        }
+        base.join(component)
+    }
+
+    fn parent_component(&self, path: &Path, input: &str) -> Result<PathBuf, FsError> {
+        if path == self.root {
+            return Err(FsError::OutsideSandbox(input.to_string()));
+        }
+        if self.mounts.iter().any(|mount| path == mount.physical) {
+            return Ok(self.root.clone());
+        }
+        path.parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| FsError::OutsideSandbox(input.to_string()))
     }
 }
 
@@ -369,6 +455,7 @@ fn expand_glob_component(
                 continue;
             }
             let mut entries_seen = 0;
+            let mut entry_names = BTreeSet::new();
             for entry in fs::read_dir(&candidate.physical).map_err(|error| {
                 SandboxedFileSystem::io_error("glob", Path::new(&candidate.virtual_path), &error)
             })? {
@@ -388,6 +475,12 @@ fn expand_glob_component(
                     )
                 })?;
                 let name = entry.file_name().to_string_lossy().into_owned();
+                entry_names.insert(name.clone());
+                if candidate.physical == filesystem.root
+                    && filesystem.mount_for_name(&name).is_some()
+                {
+                    continue;
+                }
                 if name.starts_with('.') && !pattern.starts_with('.') {
                     continue;
                 }
@@ -403,8 +496,27 @@ fn expand_glob_component(
                     virtual_path: append_virtual_path(&candidate.virtual_path, &name),
                 });
             }
+            if candidate.physical == filesystem.root {
+                for mount in &filesystem.mounts {
+                    if entry_names.contains(mount.name) || !wildcard_match(pattern, mount.name) {
+                        continue;
+                    }
+                    if entries_seen >= MAX_DIRECTORY_ENTRIES {
+                        return Err(FsError::Io {
+                            operation: "glob".to_string(),
+                            path: input.to_string(),
+                            message: format!("directory exceeds {MAX_DIRECTORY_ENTRIES} entries"),
+                        });
+                    }
+                    entries_seen += 1;
+                    next.push(GlobCandidate {
+                        physical: mount.physical.clone(),
+                        virtual_path: append_virtual_path(&candidate.virtual_path, mount.name),
+                    });
+                }
+            }
         } else {
-            let physical = candidate.physical.join(pattern);
+            let physical = filesystem.join_component(&candidate.physical, pattern);
             if !physical.exists() {
                 continue;
             }
@@ -539,10 +651,19 @@ impl VirtualFileSystem for SandboxedFileSystem {
             return Err(FsError::NotDirectory(display_input.to_string()));
         }
         let mut entries = Vec::new();
+        let mut entry_names = BTreeSet::new();
         let mut entries_seen = 0;
         for entry in fs::read_dir(&path)
             .map_err(|error| Self::io_error("list", Path::new(display_input), &error))?
         {
+            let entry =
+                entry.map_err(|error| Self::io_error("list", Path::new(display_input), &error))?;
+            let entry_path = entry.path();
+            let info = Self::info_for_path(&entry_path)
+                .map_err(|error| Self::reframe(error, display_input))?;
+            if path == self.root && self.mount_for_name(&info.name).is_some() {
+                continue;
+            }
             entries_seen += 1;
             if entries_seen > MAX_DIRECTORY_ENTRIES {
                 return Err(FsError::Io {
@@ -551,17 +672,33 @@ impl VirtualFileSystem for SandboxedFileSystem {
                     message: format!("directory exceeds {MAX_DIRECTORY_ENTRIES} entries"),
                 });
             }
-            let entry =
-                entry.map_err(|error| Self::io_error("list", Path::new(display_input), &error))?;
-            let entry_path = entry.path();
-            let info = Self::info_for_path(&entry_path)
-                .map_err(|error| Self::reframe(error, display_input))?;
+            entry_names.insert(info.name.clone());
             entries.push(FileEntry {
                 name: info.name,
                 is_directory: info.is_directory,
                 is_symlink: info.is_symlink,
                 size: info.size,
             });
+        }
+        if path == self.root {
+            for mount in &self.mounts {
+                if entry_names.insert(mount.name.to_string()) {
+                    entries_seen += 1;
+                    if entries_seen > MAX_DIRECTORY_ENTRIES {
+                        return Err(FsError::Io {
+                            operation: "list".to_string(),
+                            path: display_input.to_string(),
+                            message: format!("directory exceeds {MAX_DIRECTORY_ENTRIES} entries"),
+                        });
+                    }
+                    entries.push(FileEntry {
+                        name: mount.name.to_string(),
+                        is_directory: true,
+                        is_symlink: false,
+                        size: 0,
+                    });
+                }
+            }
         }
         entries.sort_by(|left, right| left.name.cmp(&right.name));
         Ok(entries)
@@ -594,9 +731,7 @@ impl VirtualFileSystem for SandboxedFileSystem {
                 Component::CurDir => {}
                 Component::ParentDir => {
                     for candidate in &mut candidates {
-                        if candidate.physical == self.root || !candidate.physical.pop() {
-                            return Err(FsError::OutsideSandbox(input.to_string()));
-                        }
+                        candidate.physical = self.parent_component(&candidate.physical, input)?;
                         candidate.virtual_path = append_virtual_path(&candidate.virtual_path, "..");
                         self.ensure_inside(&candidate.physical, input)
                             .map_err(|error| Self::reframe(error, input))?;
@@ -908,6 +1043,44 @@ mod tests {
         assert_eq!(fs.current_dir_display(), "~");
         fs.remove("work", true, false).expect("directory removed");
         std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn exposes_documents_library_and_tmp_as_confined_virtual_mounts() {
+        let container = test_root();
+        let home = container.join("Documents");
+        let library = container.join("Library");
+        let temporary = container.join("tmp");
+        let mut fs = SandboxedFileSystem::new_with_layout(&home, &library, &temporary)
+            .expect("layout created");
+
+        let names = fs
+            .list(None)
+            .expect("home listed")
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["Library", "tmp"]);
+        assert_eq!(
+            fs.resolve_path("~/Library").expect("library resolved"),
+            library.canonicalize().expect("library canonicalized")
+        );
+
+        fs.change_dir("~/Library").expect("library entered");
+        assert_eq!(fs.current_dir_display(), "~/Library");
+        fs.touch("cache.txt").expect("library file created");
+        assert!(library.join("cache.txt").is_file());
+        fs.change_dir("../tmp").expect("tmp entered from library");
+        assert_eq!(fs.current_dir_display(), "~/tmp");
+        fs.change_dir("..").expect("home restored from tmp");
+        assert_eq!(fs.current_dir_display(), "~");
+        assert_eq!(fs.glob("L*").expect("mount glob expanded"), ["Library"]);
+        assert!(matches!(
+            fs.resolve_path("~/Library/../../outside"),
+            Err(FsError::OutsideSandbox(_))
+        ));
+
+        std::fs::remove_dir_all(container).expect("test container removed");
     }
 
     #[cfg(unix)]

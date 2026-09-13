@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 69%**
+**Overall progress: 70%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -18,15 +18,15 @@ working iOS application or a feature-parity claim.
 
 | Area | Progress |
 |---|---:|
-| Rust workspace | 70% |
+| Rust workspace | 72% |
 | Shell tokenizer/parser | 65% |
 | Command runtime | 90% |
-| Sandboxed filesystem | 64% |
+| Sandboxed filesystem | 70% |
 | Sessions/history | 62% |
 | Configuration | 63% |
 | WASM | 45% |
-| Native iOS UI | 64% |
-| Swift/Rust bridge | 48% |
+| Native iOS UI | 66% |
+| Swift/Rust bridge | 52% |
 | Package manager | 52% |
 | Compatibility evidence | 2% |
 
@@ -123,6 +123,9 @@ capability is inherited. Session executions consume cancellation at runtime
 boundaries and return status 130 when it is observed. A WASM call may
 finish before a cancellation callback is observed. Module bytes,
 interpreter fuel, linear memory, tables, and captured output are bounded.
+For the three-root Apple layout, the current WASI preopen remains the
+Documents/home root; exposing Library and tmp as additional guest preopens is
+still a separate runtime-policy task.
 Compression, broader WASI resource policy, and non-WASM language runtimes
 remain planned.
 
@@ -153,6 +156,13 @@ The host-backed VFS also rejects regular-file reads, appends, and copies over
 of the smaller 16 MiB native file-transfer boundary and the 1 MiB terminal
 output boundary. Directory listing and wildcard enumeration are capped at
 10,000 entries to keep large trees bounded before terminal rendering.
+
+The default Apple session mounts the platform's Documents directory as `~` and
+passes the app's Library and temporary directories as confined `~/Library` and
+`~/tmp` roots. Relative navigation across a mounted root returns to `~`, root
+operations are rejected, and symlink validation accepts only the explicitly
+approved three roots. A user-selected external folder intentionally uses a
+single root instead of borrowing the app's sibling directories.
 
 The portable core also supports session-local virtual directory bookmarks with
 `bookmark`, `showmarks`, `jump`, `cd ~NAME`, `renamemark`, and `deletemark`.

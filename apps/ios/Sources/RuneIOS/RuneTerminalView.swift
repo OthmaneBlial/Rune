@@ -55,7 +55,14 @@ public final class RuneTerminalModel: ObservableObject {
 
     public init(rootURL: URL? = nil, sessionID: String? = nil) {
         self.sessionID = sessionID
-        let root = rootURL ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        let documentsURL = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)
+            .first
+        let root = rootURL ?? documentsURL
+        let libraryURL = rootURL == nil
+            ? FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
+            : nil
+        let temporaryURL = rootURL == nil ? FileManager.default.temporaryDirectory : nil
         let folderAccess = RuneExternalFolderAccess.shared
         session = nil
         scopedFolder = nil
@@ -81,7 +88,12 @@ public final class RuneTerminalModel: ObservableObject {
             }
         }
         do {
-            session = try RuneFFISession(rootURL: root, sessionID: sessionID)
+            session = try RuneFFISession(
+                rootURL: root,
+                libraryURL: libraryURL,
+                temporaryURL: temporaryURL,
+                sessionID: sessionID
+            )
             initializationError = nil
             workspaceName = root.lastPathComponent.isEmpty ? "Documents" : root.lastPathComponent
             currentDirectory = session?.currentDirectory ?? "~"

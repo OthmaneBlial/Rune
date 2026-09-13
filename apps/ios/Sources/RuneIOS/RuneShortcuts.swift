@@ -18,7 +18,13 @@ private func executeInDefaultSession(
     guard let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
         throw RuneShortcutError.noDocumentsDirectory
     }
-    let session = try RuneFFISession(rootURL: root)
+    let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
+    let temporary = FileManager.default.temporaryDirectory
+    let session = try RuneFFISession(
+        rootURL: root,
+        libraryURL: library,
+        temporaryURL: temporary
+    )
     return formatShortcutResult(try operation(session))
 }
 

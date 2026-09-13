@@ -244,6 +244,14 @@ resolves inside the sandbox before creating the link. `readlink` exposes the
 stored relative target, while ordinary recursive operations do not follow
 symlinks.
 
+The host-backed VFS can model the standard Apple app layout with Documents as
+the virtual home (`~`), plus separately approved `Library` and `tmp` mounts at
+`~/Library` and `~/tmp`. The mount roots are canonicalized independently,
+reserved root operations are rejected, `..` at a mount boundary returns to the
+virtual home, and symlink targets may resolve only inside one of the approved
+roots. External-folder sessions use the single selected folder as their root;
+they do not gain access to the app's Library or temporary directory.
+
 The shell also provides deterministic `uname` and `whoami` identities for the
 portable session, and `which` reports aliases and registered built-ins. These
 commands never expose the host user's name or claim that arbitrary host
@@ -283,6 +291,9 @@ environment, stdin, and captured output before guest setup. Guest traps become
 a failed command while preserving captured output;
 explicit WASI exits preserve their exit status. Fine-grained per-operation
 WASI rights and additional runtime families remain planned. Session-backed
+multi-root Apple layouts currently expose only their Documents/home root to
+the single WASI preopen; additional guest preopens require an explicit runtime
+policy and ABI extension.
 requests pass the atomic cancellation boundary to the provider; WASM consumes
 it before execution or when a fuel stop is observed and returns status 130 with
 a diagnostic. A call that finishes before an observation may complete

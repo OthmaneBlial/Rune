@@ -84,6 +84,21 @@ private func rune_session_new_named(
     _ sessionID: UnsafePointer<CChar>
 ) -> OpaquePointer?
 
+@_silgen_name("rune_session_new_with_layout")
+private func rune_session_new_with_layout(
+    _ home: UnsafePointer<CChar>,
+    _ library: UnsafePointer<CChar>,
+    _ temporary: UnsafePointer<CChar>
+) -> OpaquePointer?
+
+@_silgen_name("rune_session_new_named_with_layout")
+private func rune_session_new_named_with_layout(
+    _ home: UnsafePointer<CChar>,
+    _ library: UnsafePointer<CChar>,
+    _ temporary: UnsafePointer<CChar>,
+    _ sessionID: UnsafePointer<CChar>
+) -> OpaquePointer?
+
 @_silgen_name("rune_session_destroy")
 private func rune_session_destroy(_ handle: OpaquePointer?)
 
@@ -199,9 +214,32 @@ public final class RuneFFISession: @unchecked Sendable {
     private var handle: OpaquePointer?
     private let lock = NSLock()
 
-    public init(rootURL: URL, sessionID: String? = nil) throws {
+    public init(
+        rootURL: URL,
+        libraryURL: URL? = nil,
+        temporaryURL: URL? = nil,
+        sessionID: String? = nil
+    ) throws {
         let created: OpaquePointer?
-        if let sessionID {
+        if let libraryURL, let temporaryURL {
+            created = rootURL.path.withCString { home in
+                libraryURL.path.withCString { library in
+                    temporaryURL.path.withCString { temporary in
+                        if let sessionID {
+                            return sessionID.withCString { identifier in
+                                rune_session_new_named_with_layout(
+                                    home,
+                                    library,
+                                    temporary,
+                                    identifier
+                                )
+                            }
+                        }
+                        return rune_session_new_with_layout(home, library, temporary)
+                    }
+                }
+            }
+        } else if let sessionID {
             created = rootURL.path.withCString { path in
                 sessionID.withCString { identifier in
                     rune_session_new_named(path, identifier)
