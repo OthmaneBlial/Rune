@@ -120,7 +120,7 @@
     },
     "archives": {
       "status": "partial",
-      "rune_evidence": ["crates/rune-core/src/commands/archive.rs", "crates/rune-core/src/commands/compression.rs", "crates/rune-core/src/commands/mod.rs"],
+      "rune_evidence": ["crates/rune-core/src/commands/ar.rs", "crates/rune-core/src/commands/archive.rs", "crates/rune-core/src/commands/compression.rs", "crates/rune-core/src/commands/mod.rs"],
       "reference_comparison": "pending"
     }
   }

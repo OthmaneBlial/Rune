@@ -378,6 +378,12 @@ command layer uses the Rust flate2 backend, while `compress`/`uncompress` use a
 bounded 9-bit block-mode LZW `.Z` profile. Both are file-to-file transforms that
 preserve sources and refuse overwrites or binary stdout. ZIP64, ZIP compression
 methods, PAX extensions, and broad external compatibility are not claimed.
+
+The `ar` command layer implements a bounded short-name archive profile for
+regular files. `ar -rcs` rebuilds or replaces members, `ar t` lists them, and
+`ar x` extracts them through the VFS. Member payloads remain binary-safe, but
+symbol tables, long-name tables, directories, and linker semantics are outside
+the profile.
 The `pkg info` and `pkg verify` built-ins expose only local manifest inspection
 and verification through the VFS. `pkg info NAME [VERSION]` can also resolve
 an installed manifest, but refuses an unversioned lookup when multiple

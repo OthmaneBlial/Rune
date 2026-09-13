@@ -60,7 +60,7 @@ pub(crate) const PACKAGE_INSTALL_ROOT: &str = "~/.rune/packages";
 fn supports_path_completion(command: &str) -> bool {
     matches!(
         command,
-        "awk"
+        "ar" | "awk"
             | "base64"
             | "bc"
             | "basename"
@@ -2585,6 +2585,37 @@ mod tests {
             session.execute_line("unzip bundle.zip ../outside").status,
             1
         );
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn creates_lists_and_extracts_a_bounded_ar_archive() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let first = b"object-one\0".to_vec();
+        let second = b"object-two".to_vec();
+        std::fs::write(root.join("first.o"), &first).expect("first object written");
+        std::fs::write(root.join("second.o"), &second).expect("second object written");
+
+        let created = session.execute_line("ar -rcs bundle.a first.o second.o");
+        assert_eq!(created.status, 0);
+        assert!(root.join("bundle.a").exists());
+        let listing = session.execute_line("ar t bundle.a");
+        assert_eq!(listing.status, 0);
+        assert_eq!(listing.stdout, "first.o\nsecond.o\n");
+
+        assert_eq!(session.execute_line("rm first.o second.o").status, 0);
+        let extracted = session.execute_line("ar x bundle.a");
+        assert_eq!(extracted.status, 0);
+        assert_eq!(
+            std::fs::read(root.join("first.o")).expect("first output read"),
+            first
+        );
+        assert_eq!(
+            std::fs::read(root.join("second.o")).expect("second output read"),
+            second
+        );
+        assert_eq!(session.execute_line("ar x bundle.a").status, 1);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

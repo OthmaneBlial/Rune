@@ -1,5 +1,6 @@
 use crate::CommandDefinition;
 
+mod ar;
 mod archive;
 mod awk;
 mod bookmarks;
@@ -36,6 +37,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "alias",
         summary: "define or print session-local command aliases",
         handler: shell::alias,
+    },
+    CommandDefinition {
+        name: "ar",
+        summary: "create, list, or extract bounded ar archives",
+        handler: ar::ar,
     },
     CommandDefinition {
         name: "awk",

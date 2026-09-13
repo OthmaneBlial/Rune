@@ -103,6 +103,9 @@ decompression, source preservation, refusal of binary `-c` mode, and suffix
 validation. The LZW integration test also crosses a dictionary reset and
 verifies `.Z` round-trip bytes. These tests do not establish full gzip or
 `compress` command-line compatibility.
+The `ar` integration test verifies binary-safe regular-file members, `-rcs`
+creation, listing, extraction, and refusal to overwrite existing members;
+symbol-table, long-name-table, and linker compatibility remain unverified.
 The filesystem resource test uses a sparse file to verify the 64 MiB read,
 append, and copy guards without allocating a large in-memory fixture.
 The directory resource test creates 10,001 small entries and verifies that

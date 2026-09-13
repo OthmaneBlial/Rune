@@ -37,7 +37,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
 `setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
-`true`, `false`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`,
+`true`, `false`, `ar`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
 `help`, `history`, `sleep`, `uname`, `which`, `whoami`, `pbcopy`, `pbpaste`,
 `source`, and `.` against a
@@ -197,10 +197,12 @@ bridge supplies a synchronous, size-limited `URLSession` callback for an
 eventual native target; URLSession, ATS, transport, and device behavior remain
 unverified without an Apple runtime.
 
-The Rust core also provides bounded zip -r ARCHIVE FILE ..., unzip ARCHIVE
-[DESTINATION], tar -cf/-tf/-xf ARCHIVE, gzip FILE ..., gunzip FILE.gz ...,
-compress FILE ..., and uncompress FILE.Z ... commands. ZIP uses stored ZIP32
-entries through the VFS and verifies CRC32 before extraction. Tar uses UTF-8
+The Rust core also provides bounded `ar -rcs`/`ar t`/`ar x` member archives,
+zip -r ARCHIVE FILE ..., unzip ARCHIVE [DESTINATION], tar -cf/-tf/-xf ARCHIVE,
+gzip FILE ..., gunzip FILE.gz ..., compress FILE ..., and uncompress FILE.Z ...
+commands. `ar` stores regular files with short member names and does not emit
+symbol tables. ZIP uses stored ZIP32 entries through the VFS and verifies CRC32
+before extraction. Tar uses UTF-8
 USTAR entries with long names split across the standard name/prefix fields.
 Gzip and `.Z` LZW are file-to-file Rust backends: they keep the source, refuse
 binary stdin/stdout mode and refuse to overwrite destinations, and cap both
@@ -408,7 +410,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded package metadata, integrity, local WASM installation, and local update
 - [x] Portable runtime request/output contract
 - [x] Bounded Rust-owned history, font, font-size, scrollback, toolbar-visible, theme, cursor-color, cursor-shape, background, and foreground configuration
-- [x] Bounded stored ZIP/USTAR tar and gzip/.Z file transforms with path validation
+- [x] Bounded `ar` member archives plus stored ZIP/USTAR tar and gzip/.Z file transforms
 - [x] Explicit host HTTP capability and bounded `curl` transport boundary
 - [x] Bounded HTTPS registry index, remote search, and explicit-version update policy
 - [x] Bounded Python subset runtime evaluation
