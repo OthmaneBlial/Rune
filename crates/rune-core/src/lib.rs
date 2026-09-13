@@ -62,6 +62,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "basename"
             | "cat"
             | "cd"
+            | "cksum"
             | "cp"
             | "cut"
             | "curl"
@@ -3823,35 +3824,6 @@ mod tests {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
         assert_eq!(session.execute_line("echo -n ready").stdout, "ready");
-        assert_eq!(
-            session.execute_line("echo hello | base64").stdout,
-            "aGVsbG8K\n"
-        );
-        assert_eq!(
-            session
-                .execute_line("echo aGVsbG8= | base64 --decode")
-                .stdout,
-            "hello"
-        );
-        assert_eq!(session.execute_line("echo aA== | base64 -d").stdout, "h");
-        let invalid_base64 = session.execute_line("printf '!!!!' | base64 -d");
-        assert_eq!(invalid_base64.status, 1);
-        assert!(invalid_base64.stderr.contains("invalid input character"));
-        let invalid_base64_usage = session.execute_line("base64 --bad");
-        assert_eq!(invalid_base64_usage.status, 2);
-        session
-            .write_file("binary.b64", b"AP8=")
-            .expect("base64 fixture written");
-        let invalid_text = session.execute_line("base64 -d binary.b64");
-        assert_eq!(invalid_text.status, 1);
-        assert!(invalid_text.stderr.contains("not valid UTF-8"));
-        let oversized = vec![b'a'; 768 * 1024 + 1];
-        session
-            .write_file("oversized.b64", &oversized)
-            .expect("oversized base64 fixture written");
-        let oversized_output = session.execute_line("base64 oversized.b64");
-        assert_eq!(oversized_output.status, 1);
-        assert!(oversized_output.stderr.contains("input exceeds"));
         assert_eq!(session.execute_line("sleep 0").status, 0);
         assert_eq!(session.execute_line("sleep 301").status, 2);
         assert_eq!(session.execute_line("sleep nope").status, 2);
@@ -3914,6 +3886,49 @@ mod tests {
         assert_eq!(session.execute_line("setenv TEMP value").status, 0);
         assert_eq!(session.execute_line("unsetenv TEMP").status, 0);
         assert_eq!(session.execute_line("printenv TEMP").status, 1);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn executes_bounded_checksum_and_base64_utilities() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(
+            session.execute_line("printf 123456789 | cksum").stdout,
+            "930766865 9\n"
+        );
+        let invalid_cksum = session.execute_line("cksum one two");
+        assert_eq!(invalid_cksum.status, 2);
+        assert!(invalid_cksum.stderr.contains("usage: cksum"));
+        assert_eq!(
+            session.execute_line("echo hello | base64").stdout,
+            "aGVsbG8K\n"
+        );
+        assert_eq!(
+            session
+                .execute_line("echo aGVsbG8= | base64 --decode")
+                .stdout,
+            "hello"
+        );
+        assert_eq!(session.execute_line("echo aA== | base64 -d").stdout, "h");
+        let invalid_base64 = session.execute_line("printf '!!!!' | base64 -d");
+        assert_eq!(invalid_base64.status, 1);
+        assert!(invalid_base64.stderr.contains("invalid input character"));
+        let invalid_base64_usage = session.execute_line("base64 --bad");
+        assert_eq!(invalid_base64_usage.status, 2);
+        session
+            .write_file("binary.b64", b"AP8=")
+            .expect("base64 fixture written");
+        let invalid_text = session.execute_line("base64 -d binary.b64");
+        assert_eq!(invalid_text.status, 1);
+        assert!(invalid_text.stderr.contains("not valid UTF-8"));
+        let oversized = vec![b'a'; 768 * 1024 + 1];
+        session
+            .write_file("oversized.b64", &oversized)
+            .expect("oversized base64 fixture written");
+        let oversized_output = session.execute_line("base64 oversized.b64");
+        assert_eq!(oversized_output.status, 1);
+        assert!(oversized_output.stderr.contains("input exceeds"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

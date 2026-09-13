@@ -5,6 +5,7 @@ use rune_package::sha256_hex;
 
 const MAX_HEXDUMP_INPUT: usize = 256 * 1024;
 const MAX_BASE64_INPUT: usize = 768 * 1024;
+const MAX_CKSUM_INPUT: usize = 16 * 1024 * 1024;
 const MAX_DISK_USAGE_ENTRIES: usize = 10_000;
 
 const BASE64_ALPHABET: &[u8; 64] =
@@ -67,6 +68,30 @@ pub(super) fn basename(context: &mut CommandContext<'_>) -> CommandOutput {
         }
     }
     CommandOutput::success(format!("{name}\n"))
+}
+
+pub(super) fn cksum(context: &mut CommandContext<'_>) -> CommandOutput {
+    let path = match context.args {
+        [] => "-",
+        [path] => path.as_str(),
+        [flag, path] if flag == "--" => path.as_str(),
+        _ => return usage("cksum", "usage: cksum [--] [FILE]"),
+    };
+    let bytes = if path == "-" {
+        context.stdin.as_bytes().to_vec()
+    } else {
+        match context.fs.read(path) {
+            Ok(bytes) => bytes,
+            Err(error) => return fs_failure("cksum", &error),
+        }
+    };
+    if bytes.len() > MAX_CKSUM_INPUT {
+        return CommandOutput::failure(
+            1,
+            format!("cksum: input exceeds {MAX_CKSUM_INPUT} bytes\n"),
+        );
+    }
+    CommandOutput::success(format!("{} {}\n", posix_cksum(&bytes), bytes.len()))
 }
 
 fn encode_base64(bytes: &[u8]) -> String {
@@ -136,6 +161,37 @@ fn base64_value(byte: u8) -> Option<u8> {
         .iter()
         .position(|candidate| *candidate == byte)
         .and_then(|index| u8::try_from(index).ok())
+}
+
+fn posix_cksum(bytes: &[u8]) -> u32 {
+    let mut table = [0_u32; 256];
+    for (index, entry) in table.iter_mut().enumerate() {
+        let mut value = u32::try_from(index).expect("CRC table index fits") << 24;
+        for _ in 0..8 {
+            value = if value & 0x8000_0000 != 0 {
+                (value << 1) ^ 0x04c1_1db7
+            } else {
+                value << 1
+            };
+        }
+        *entry = value;
+    }
+
+    let mut checksum = 0_u32;
+    for byte in bytes {
+        let index =
+            usize::try_from((checksum >> 24) ^ u32::from(*byte)).expect("CRC table index fits");
+        checksum = (checksum << 8) ^ table[index];
+    }
+    let mut length = bytes.len();
+    while length > 0 {
+        let byte = u8::try_from(length & 0xff).expect("CRC length byte fits");
+        let index =
+            usize::try_from((checksum >> 24) ^ u32::from(byte)).expect("CRC table index fits");
+        checksum = (checksum << 8) ^ table[index];
+        length >>= 8;
+    }
+    !checksum
 }
 
 pub(super) fn dirname(context: &mut CommandContext<'_>) -> CommandOutput {

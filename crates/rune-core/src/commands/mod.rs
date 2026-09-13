@@ -48,6 +48,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: filesystem::cat,
     },
     CommandDefinition {
+        name: "cksum",
+        summary: "print a bounded POSIX CRC checksum",
+        handler: utilities::cksum,
+    },
+    CommandDefinition {
         name: "cd",
         summary: "change the current directory",
         handler: filesystem::cd,
