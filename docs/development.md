@@ -38,6 +38,13 @@ explicit `process.argv`/environment/stdin inputs, disabled host modules,
 QuickJS memory/stack/instruction bounds, and source/input validation. Its
 `process` object is a small Rune-owned data bridge, not Node.js, and no module
 loader, host filesystem, process, or network bridge is enabled.
+Python runtime tests cover `python3`, captured `print`/stream output, explicit
+argv/environment/stdin inputs, denied host file access, source/input bounds,
+and package `.py` execution with installed-file integrity verification. The
+provider uses RustPython without its host standard library; imports, dynamic
+code, loops, and function/lambda definitions are rejected because RustPython
+0.4 does not expose a public per-instruction interrupt hook. This is a bounded
+Python subset, not CPython or a package/stdlib compatibility claim.
 Configuration tests are local-only as well and verify bounded history, font,
 font size, scrollback, toolbar visibility, theme, cursor-color, cursor-shape,
 background, and foreground settings without requiring an Apple

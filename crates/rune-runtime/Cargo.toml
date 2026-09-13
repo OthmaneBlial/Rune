@@ -13,6 +13,9 @@ mlua = { version = "0.9.9", default-features = false, features = [
     "send",
     "vendored",
 ] }
+rustpython-vm = { version = "0.4.0", default-features = false, features = [
+    "compiler",
+] }
 rquickjs = { version = "0.8.1", default-features = false }
 
 [lints]

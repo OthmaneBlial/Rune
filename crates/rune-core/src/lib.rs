@@ -30,7 +30,9 @@ use std::sync::Arc;
 
 use rune_fs::{FsError, VirtualFileSystem};
 use rune_package::PackageManifest;
-use rune_runtime::{JavaScriptRunner, LuaRunner, Runtime, RuntimeKind, RuntimeRequest};
+use rune_runtime::{
+    JavaScriptRunner, LuaRunner, PythonRunner, Runtime, RuntimeKind, RuntimeRequest,
+};
 use rune_shell::{parse, CommandPlan, Connector, ExecutionPlan, Redirection, Word, WordPart};
 use rune_wasm::WasmRunner;
 
@@ -79,6 +81,8 @@ fn supports_path_completion(command: &str) -> bool {
             | "md5"
             | "mkdir"
             | "mv"
+            | "python"
+            | "python3"
             | "readlink"
             | "realpath"
             | "rm"
@@ -149,6 +153,13 @@ fn is_javascript_entry(entry: &str) -> bool {
         .extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case("js"))
+}
+
+fn is_python_entry(entry: &str) -> bool {
+    std::path::Path::new(entry)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("py"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -295,6 +306,7 @@ pub struct CommandContext<'a> {
     pub(crate) history: &'a mut Vec<String>,
     pub(crate) command_definitions: &'a [CommandDefinition],
     pub(crate) runtime: &'a dyn Runtime,
+    pub(crate) python_runtime: &'a dyn Runtime,
     pub(crate) lua_runtime: &'a dyn Runtime,
     pub(crate) javascript_runtime: &'a dyn Runtime,
     pub(crate) network: &'a dyn NetworkProvider,
@@ -323,6 +335,7 @@ pub struct Session {
     last_status: i32,
     startup_output: CommandOutput,
     wasm_runner: WasmRunner,
+    python_runner: PythonRunner,
     lua_runner: LuaRunner,
     javascript_runner: JavaScriptRunner,
     network_provider: Box<dyn NetworkProvider>,
@@ -355,6 +368,7 @@ impl Session {
             last_status: 0,
             startup_output: CommandOutput::success(""),
             wasm_runner: WasmRunner::default(),
+            python_runner: PythonRunner,
             lua_runner: LuaRunner,
             javascript_runner: JavaScriptRunner,
             network_provider: Box::new(DisabledNetworkProvider),
@@ -938,6 +952,7 @@ impl Session {
             history: &mut self.history,
             command_definitions: self.registry.definitions(),
             runtime: &self.wasm_runner,
+            python_runtime: &self.python_runner,
             lua_runtime: &self.lua_runner,
             javascript_runtime: &self.javascript_runner,
             network: self.network_provider.as_ref(),
@@ -1388,7 +1403,7 @@ impl Session {
             return CommandOutput::failure(
                 126,
                 format!(
-                    "{program}: package {} exposes unsupported entry {}; only WASM, Lua, JavaScript, and Rune scripts are available\n",
+                    "{program}: package {} exposes unsupported entry {}; only WASM, Python, Lua, JavaScript, and Rune scripts are available\n",
                     installed_command.package, installed_command.entry
                 ),
             );
@@ -1469,6 +1484,39 @@ impl Session {
         }
     }
 
+    fn execute_installed_python(
+        &mut self,
+        program: &str,
+        arguments: &[String],
+        stdin: &str,
+        installed_command: &InstalledCommand,
+    ) -> CommandOutput {
+        let source = match self.verified_installed_entry(program, installed_command) {
+            Ok(source) => source,
+            Err(output) => return output,
+        };
+        let request = RuntimeRequest::new(
+            RuntimeKind::Python,
+            program,
+            &source,
+            arguments,
+            &self.environment,
+            stdin,
+        )
+        .with_cancellation(Some(&self.cancellation_requested));
+        match Runtime::execute(&self.python_runner, &request) {
+            Ok(execution) => CommandOutput {
+                stdout: execution.stdout,
+                stderr: execution.stderr,
+                status: execution.status,
+            },
+            Err(error) => CommandOutput::failure(
+                126,
+                format!("{program}: installed package Python runtime failed: {error}\n"),
+            ),
+        }
+    }
+
     fn execute_installed_javascript(
         &mut self,
         program: &str,
@@ -1505,6 +1553,13 @@ impl Session {
     fn execute_installed(&mut self, invocation: &mut InstalledInvocation<'_>) -> CommandOutput {
         if is_rune_script_entry(invocation.command.entry.as_str()) {
             self.execute_installed_script(invocation)
+        } else if is_python_entry(invocation.command.entry.as_str()) {
+            self.execute_installed_python(
+                invocation.program,
+                invocation.arguments,
+                invocation.stdin,
+                invocation.command,
+            )
         } else if is_lua_entry(invocation.command.entry.as_str()) {
             self.execute_installed_lua(
                 invocation.program,
@@ -3074,6 +3129,7 @@ mod tests {
                 history: &mut history,
                 command_definitions: registry.definitions(),
                 runtime: &runtime,
+                python_runtime: &runtime,
                 lua_runtime: &runtime,
                 javascript_runtime: &runtime,
                 network: &network,
@@ -3121,6 +3177,7 @@ mod tests {
             history: &mut history,
             command_definitions: registry.definitions(),
             runtime: &runtime,
+            python_runtime: &runtime,
             lua_runtime: &runtime,
             javascript_runtime: &runtime,
             network: &network,
@@ -3864,6 +3921,46 @@ mod tests {
     }
 
     #[test]
+    fn executes_a_verified_python_script_from_a_local_package() {
+        let root = test_root();
+        let package_root = root.join("python-bundle/bin");
+        std::fs::create_dir_all(&package_root).expect("package directories created");
+        let script = br"print(sys.argv[1]); print(rune.stdin); rune.stderr('warning')";
+        let digest = rune_package::sha256_hex(script);
+        std::fs::write(package_root.join("hello.py"), script).expect("Python script written");
+        let manifest = format!(
+            r#"{{
+                "schema_version": 1,
+                "name": "local-python",
+                "version": "0.1.0",
+                "description": "A local Python package",
+                "files": [{{"path": "bin/hello.py", "sha256": "{digest}"}}],
+                "commands": [{{"name": "local-python", "entry": "bin/hello.py"}}]
+            }}"#
+        );
+        std::fs::write(root.join("python-bundle/manifest.json"), manifest)
+            .expect("manifest written");
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+
+        let installed = session.execute_line("pkg install python-bundle/manifest.json");
+        assert_eq!(installed.status, 0, "{installed:?}");
+        let output = session.execute_line("printf input | local-python first");
+        assert_eq!(output.status, 0, "{output:?}");
+        assert_eq!(output.stdout, "first\ninput\n");
+        assert_eq!(output.stderr, "warning");
+
+        std::fs::write(
+            root.join(".rune/packages/local-python/0.1.0/bin/hello.py"),
+            b"print('tampered')",
+        )
+        .expect("installed Python script modified");
+        let tampered = session.execute_line("local-python");
+        assert_eq!(tampered.status, 126);
+        assert!(tampered.stderr.contains("integrity failure"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn grants_installed_wasm_filesystem_only_with_manifest_permission() {
         let root = test_root();
         let package_root = root.join("bundle/bin");
@@ -4185,6 +4282,30 @@ mod tests {
         let unsafe_output = session.execute_line("lua unsafe.lua");
         assert_eq!(unsafe_output.status, 1);
         assert!(unsafe_output.stderr.contains("lua:"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn executes_a_bounded_python_script_through_the_rust_session() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        session
+            .write_file(
+                "script.py",
+                br#"print(sys.argv[1]); print(rune.stdin); rune.stderr("warning")"#,
+            )
+            .expect("Python script written");
+        let output = session.execute_line("printf input | python3 script.py first");
+        assert_eq!(output.stdout, "first\ninput\n");
+        assert_eq!(output.stderr, "warning");
+        assert_eq!(output.status, 0);
+
+        session
+            .write_file("unsafe.py", b"open('outside', 'w')")
+            .expect("unsafe Python script written");
+        let unsafe_output = session.execute_line("python3 unsafe.py");
+        assert_eq!(unsafe_output.status, 1);
+        assert!(unsafe_output.stderr.contains("PermissionError"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

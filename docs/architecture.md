@@ -397,9 +397,10 @@ index is discovery metadata and is not treated as a publisher signature.
 The runtime contract is owned by Rust and carries only explicit program bytes,
 arguments, environment, and stdin into a provider. `rune-wasm` adapts its
 bounded WASI result to that contract, while `rune-runtime` provides fresh,
-safe Lua 5.4 and QuickJS states with captured output and instruction/memory
-bounds. Python remains unimplemented rather than being represented by
-placeholder execution.
+bounded Python, Lua 5.4, and QuickJS states with captured output and explicit
+input/resource limits. Python runs without the host standard library and
+rejects imports, dynamic code, loops, and function/lambda definitions until a
+public per-instruction interrupt budget is available in RustPython.
 
 HTTP is a separate explicit capability rather than an ambient core service.
 The Rust `curl` command validates the URL, method, headers, request body, HTTP

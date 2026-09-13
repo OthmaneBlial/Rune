@@ -8,6 +8,7 @@ mod javascript;
 mod lua;
 mod network;
 mod package;
+mod python;
 pub(super) mod shell;
 mod text;
 mod utilities;
@@ -178,6 +179,16 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "lua",
         summary: "run a bounded sandbox Lua 5.4 script",
         handler: lua::lua,
+    },
+    CommandDefinition {
+        name: "python",
+        summary: "run a bounded sandbox Python script",
+        handler: python::python,
+    },
+    CommandDefinition {
+        name: "python3",
+        summary: "run a bounded sandbox Python script",
+        handler: python::python,
     },
     CommandDefinition {
         name: "mkdir",

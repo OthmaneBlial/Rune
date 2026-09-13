@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 84%**
+**Overall progress: 85%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -20,7 +20,7 @@ working iOS application or a feature-parity claim.
 |---|---:|
 | Rust workspace | 80% |
 | Shell tokenizer/parser | 70% |
-| Command runtime | 98% |
+| Command runtime | 99% |
 | Sandboxed filesystem | 70% |
 | Sessions/history | 66% |
 | Configuration | 66% |
@@ -33,7 +33,7 @@ working iOS application or a feature-parity claim.
 ## Current status
 
 The first Rust vertical slice is implemented and locally verified. It executes
-the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `cksum`, `curl`, `echo`, `expr`, `jsc`, `lua`, `md5`, `mkdir`,
+the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `cksum`, `curl`, `echo`, `expr`, `jsc`, `lua`, `python3`, `md5`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
 `setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
@@ -126,8 +126,10 @@ scrollback window, three named palettes, the Rust-owned font design, cursor colo
 and independent background/foreground overrides. The native source-only command
 editor applies the configured bar, block, or underline caret when UIKit is
 available. Configurable redaction and broader session recovery remain planned.
-The bounded Lua 5.4 and JavaScript providers are implemented in Rust; Python
-language runtime evaluation remains planned work.
+The bounded Python, Lua 5.4, and JavaScript providers are implemented in Rust.
+Python intentionally starts with a finite, tested subset: host imports and
+dynamic code are denied, and loops/functions are rejected until a public
+instruction budget is available in the embedded VM.
 
 The Rust package boundary now validates bounded, versioned JSON manifests and
 registry indexes, and checks declared file bytes with SHA-256. Local installation
@@ -151,8 +153,8 @@ interpreter fuel, linear memory, tables, and captured output are bounded.
 For the three-root Apple layout, WASI receives `/` for Documents/home and
 explicit `/Library` and `/tmp` preopens; single-root and external-folder
 sessions receive only `/`. No arbitrary guest preopen is inherited.
-Compression, broader WASI resource policy, and the Python runtime remain
-planned.
+Compression, broader WASI resource policy, and the broader Python
+stdlib/package surface remain planned.
 
 The package flow supports `pkg info MANIFEST|NAME [VERSION]`, `pkg verify
 MANIFEST`, `pkg install MANIFEST`, `pkg update MANIFEST`, `pkg list`, `pkg search
@@ -162,7 +164,7 @@ NAME VERSION`, `pkg update --registry INDEX_URL NAME VERSION`, and `pkg remove N
 installed version; an explicit version is required when multiple versions are
 present. Install
 copies only SHA-256-verified files into `~/.rune/packages`; declared `.wasm`
-commands, `.js` and `.lua` scripts, and `.rune` scripts can then run through Rust, and `which` discovers
+commands, `.py`, `.js` and `.lua` scripts, and `.rune` scripts can then run through Rust, and `which` discovers
 their installed command names from the local package manifests. Installed
 WASM commands receive no filesystem preopen by default; a manifest must
 explicitly declare `permissions.filesystem: true` to request the approved Rune
@@ -295,9 +297,9 @@ state. Consecutive duplicate entries are suppressed, while the same command
 after another command remains a distinct history record.
 
 Runtime providers use a small Rust-owned request/output contract. WASM, the
-bounded Lua 5.4 provider, and the bounded JavaScript provider are implemented
-in Rust; Python remains unavailable until its execution and Apple boundaries
-are designed and tested.
+bounded Python subset, the bounded Lua 5.4 provider, and the bounded JavaScript
+provider are implemented in Rust. Python package imports and the Apple runtime
+boundary remain unverified.
 
 No a-Shell compatibility area is marked `supported` without behavior and test
 evidence. See [`compat/a-shell-compatibility.json`](compat/a-shell-compatibility.json).
@@ -390,7 +392,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded stored ZIP and USTAR tar creation/listing/extraction with path validation
 - [x] Explicit host HTTP capability and bounded `curl` transport boundary
 - [x] Bounded HTTPS registry index, remote search, and explicit-version update policy
-- [ ] Python runtime evaluation
+- [x] Bounded Python subset runtime evaluation
 - [x] Bounded JavaScript runtime evaluation
 - [x] Bounded Lua 5.4 runtime evaluation
 - [x] Rust-owned command/path completion and help metadata

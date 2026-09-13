@@ -1,8 +1,7 @@
 //! Stable, platform-neutral contracts for Rune language runtimes.
 //!
-//! This crate owns the runtime request/output boundary and the embedded Lua
-//! providers. WASM remains in its dedicated crate, while Python remains an
-//! explicit future runtime provider.
+//! This crate owns the runtime request/output boundary and the embedded
+//! Python, Lua, and JavaScript providers. WASM remains in its dedicated crate.
 
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
@@ -12,6 +11,12 @@ use std::sync::{Arc, Mutex};
 
 use mlua::{ChunkMode, Error as LuaError, HookTriggers, Lua, LuaOptions, MultiValue, StdLib};
 use rquickjs::{prelude::Func, Array, CatchResultExt, Context, Object, Runtime as JsRuntime};
+use rustpython_vm::builtins::{PyCode, PyStrRef};
+use rustpython_vm::bytecode::{Instruction, OpArgState};
+use rustpython_vm::function::FuncArgs;
+use rustpython_vm::{
+    AsObject, Interpreter, PyObjectRef, PyResult as PythonResult, Settings, VirtualMachine,
+};
 
 /// Maximum UTF-8 Lua source accepted by the embedded provider.
 pub const MAX_LUA_SOURCE_BYTES: usize = 256 * 1024;
@@ -37,6 +42,21 @@ const JAVASCRIPT_INTERRUPT_INTERVAL: u64 = 10_000;
 const JAVASCRIPT_MAX_ARGUMENTS: usize = 64;
 const JAVASCRIPT_MAX_STDIN_BYTES: usize = 1024 * 1024;
 const JAVASCRIPT_MAX_ENVIRONMENT_BYTES: usize = 1024 * 1024;
+
+/// Maximum UTF-8 Python source accepted by the embedded provider.
+pub const MAX_PYTHON_SOURCE_BYTES: usize = 256 * 1024;
+/// Maximum captured stdout or stderr returned by one Python invocation.
+pub const MAX_PYTHON_OUTPUT_BYTES: usize = 1024 * 1024;
+/// Maximum number of top-level Python bytecode instructions accepted.
+///
+/// `RustPython` 0.4 does not expose a public per-instruction interrupt hook.
+/// Rune therefore accepts a deliberately finite bytecode subset for this
+/// provider: loops and dynamically-created code are rejected before running.
+pub const MAX_PYTHON_INSTRUCTIONS: usize = 100_000;
+const PYTHON_MAX_ARGUMENTS: usize = 64;
+const PYTHON_MAX_STDIN_BYTES: usize = 1024 * 1024;
+const PYTHON_MAX_ENVIRONMENT_BYTES: usize = 1024 * 1024;
+const PYTHON_MAX_RECURSION_DEPTH: usize = 64;
 
 /// A runtime family Rune may eventually host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -223,6 +243,417 @@ pub trait Runtime {
     /// Returns [`RuntimeError`] when the provider rejects the requested kind,
     /// the input boundary is invalid, or guest execution cannot start.
     fn execute(&self, request: &RuntimeRequest<'_>) -> Result<RuntimeOutput, RuntimeError>;
+}
+
+/// A bounded Python provider backed by `RustPython` without its host standard
+/// library.
+///
+/// Rune injects only explicit argv/environment/stdin values and captured
+/// streams. Imports and host-capability builtins are denied, and the compiled
+/// top-level bytecode must not contain loops or dynamically-created code. This
+/// gives Rune a deterministic, useful Python subset while the broader Python
+/// package/stdlib surface remains intentionally unsupported.
+#[derive(Debug, Clone, Copy)]
+pub struct PythonRunner;
+
+struct PythonCapture {
+    stdout: Arc<Mutex<String>>,
+    stderr: Arc<Mutex<String>>,
+    stdout_limited: Arc<AtomicBool>,
+    stderr_limited: Arc<AtomicBool>,
+    stdin: Arc<Mutex<String>>,
+}
+
+impl Runtime for PythonRunner {
+    fn kind(&self) -> RuntimeKind {
+        RuntimeKind::Python
+    }
+
+    fn execute(&self, request: &RuntimeRequest<'_>) -> Result<RuntimeOutput, RuntimeError> {
+        if request.kind() != RuntimeKind::Python {
+            return Err(RuntimeError::UnsupportedKind {
+                requested: request.kind(),
+                provider: self.kind(),
+            });
+        }
+        validate_python_request(request)?;
+        if request
+            .cancellation
+            .is_some_and(|cancellation| cancellation.load(Ordering::Acquire))
+        {
+            return Ok(RuntimeOutput {
+                stdout: String::new(),
+                stderr: "python: command cancelled\n".to_string(),
+                status: 130,
+            });
+        }
+        let source = std::str::from_utf8(request.source).map_err(|_| {
+            RuntimeError::InvalidRequest("Python source must be valid UTF-8 text".to_string())
+        })?;
+        let capture = PythonCapture {
+            stdout: Arc::new(Mutex::new(String::new())),
+            stderr: Arc::new(Mutex::new(String::new())),
+            stdout_limited: Arc::new(AtomicBool::new(false)),
+            stderr_limited: Arc::new(AtomicBool::new(false)),
+            stdin: Arc::new(Mutex::new(request.stdin.to_string())),
+        };
+        let execution_error = run_python_request(request, source, &capture);
+
+        let mut output = RuntimeOutput {
+            stdout: read_python_output(&capture.stdout)?,
+            stderr: read_python_output(&capture.stderr)?,
+            status: 0,
+        };
+        if capture.stdout_limited.load(Ordering::Acquire)
+            || capture.stderr_limited.load(Ordering::Acquire)
+        {
+            output.status = 1;
+            append_python_error(&mut output.stderr, "captured output limit exceeded");
+        } else if let Err(message) = execution_error {
+            output.status = 1;
+            append_python_error(&mut output.stderr, &message);
+        }
+        if request
+            .cancellation
+            .is_some_and(|cancellation| cancellation.load(Ordering::Acquire))
+        {
+            output.status = 130;
+            append_python_error(&mut output.stderr, "command cancelled");
+        }
+        Ok(output)
+    }
+}
+
+fn run_python_request(
+    request: &RuntimeRequest<'_>,
+    source: &str,
+    capture: &PythonCapture,
+) -> Result<(), String> {
+    let mut settings = Settings::default();
+    settings.argv = std::iter::once(request.program_name.to_string())
+        .chain(request.args.iter().cloned())
+        .collect();
+    settings.isolated = true;
+    settings.import_site = false;
+    settings.user_site_directory = false;
+    settings.ignore_environment = true;
+    settings.allow_external_library = false;
+    settings.path_list.clear();
+    settings.write_bytecode = false;
+    settings.install_signal_handlers = false;
+
+    let interpreter = Interpreter::with_init(settings, |vm| {
+        vm.import_func = vm
+            .new_function("rune_denied_host_capability", deny_python_host_capability)
+            .into();
+    });
+    let execution = interpreter.enter(|vm| {
+        vm.recursion_limit.set(PYTHON_MAX_RECURSION_DEPTH);
+        let denied = vm.new_function("rune_denied_host_capability", deny_python_host_capability);
+        let builtins = vm.builtins.dict();
+        for name in [
+            "__import__",
+            "open",
+            "eval",
+            "exec",
+            "compile",
+            "breakpoint",
+        ] {
+            builtins.set_item(name, denied.clone().into(), vm)?;
+        }
+        let scope = vm.new_scope_with_builtins();
+        install_python_environment(vm, &scope, request, capture)?;
+        let code = vm
+            .compile(
+                source,
+                rustpython_vm::compiler::Mode::Exec,
+                request.program_name.to_string(),
+            )
+            .map_err(|error| vm.new_syntax_error(&error, Some(source)))?;
+        if let Err(message) = validate_python_code(&code) {
+            return Err(vm.new_runtime_error(message));
+        }
+        vm.run_code_obj(code, scope)
+    });
+
+    match execution {
+        Ok(_) => Ok(()),
+        Err(exception) => {
+            let diagnostic = interpreter.enter(|vm| {
+                let message = exception.as_object().str(vm).map_or_else(
+                    |_| "Python execution failed".to_string(),
+                    |value| value.to_string(),
+                );
+                format!("{}: {message}", exception.class().name())
+            });
+            Err(diagnostic)
+        }
+    }
+}
+
+fn validate_python_request(request: &RuntimeRequest<'_>) -> Result<(), RuntimeError> {
+    if request.source.len() > MAX_PYTHON_SOURCE_BYTES {
+        return Err(RuntimeError::InvalidRequest(format!(
+            "Python source exceeds {MAX_PYTHON_SOURCE_BYTES} bytes"
+        )));
+    }
+    if request.args.len() > PYTHON_MAX_ARGUMENTS {
+        return Err(RuntimeError::InvalidRequest(format!(
+            "Python argument list exceeds {PYTHON_MAX_ARGUMENTS} entries"
+        )));
+    }
+    if request
+        .args
+        .iter()
+        .any(|argument| argument.len() > MAX_PYTHON_SOURCE_BYTES)
+    {
+        return Err(RuntimeError::InvalidRequest(
+            "Python argument exceeds the source input bound".to_string(),
+        ));
+    }
+    if request.stdin.len() > PYTHON_MAX_STDIN_BYTES {
+        return Err(RuntimeError::InvalidRequest(format!(
+            "Python stdin exceeds {PYTHON_MAX_STDIN_BYTES} bytes"
+        )));
+    }
+    let environment_bytes = request
+        .environment
+        .iter()
+        .try_fold(0usize, |total, (key, value)| {
+            total
+                .checked_add(key.len())
+                .and_then(|total| total.checked_add(value.len()))
+        });
+    if environment_bytes.map_or(true, |bytes| bytes > PYTHON_MAX_ENVIRONMENT_BYTES) {
+        return Err(RuntimeError::InvalidRequest(format!(
+            "Python environment exceeds {PYTHON_MAX_ENVIRONMENT_BYTES} bytes"
+        )));
+    }
+    Ok(())
+}
+
+fn deny_python_host_capability(_args: FuncArgs, vm: &VirtualMachine) -> PythonResult {
+    Err(vm.new_exception_msg(
+        vm.ctx.exceptions.permission_error.to_owned(),
+        "host capability unavailable in Rune Python".to_string(),
+    ))
+}
+
+fn install_python_environment(
+    vm: &VirtualMachine,
+    scope: &rustpython_vm::scope::Scope,
+    request: &RuntimeRequest<'_>,
+    capture: &PythonCapture,
+) -> PythonResult<()> {
+    let stdout_stream = vm.new_module("rune.stdout", vm.ctx.new_dict(), None);
+    let stdout_output = Arc::clone(&capture.stdout);
+    let stdout_limit = Arc::clone(&capture.stdout_limited);
+    stdout_stream.set_attr(
+        "write",
+        vm.new_function("write", move |value: PyStrRef, vm: &VirtualMachine| {
+            write_python_output(&stdout_output, &stdout_limit, value.as_str(), vm)
+        }),
+        vm,
+    )?;
+    stdout_stream.set_attr("flush", vm.new_function("flush", || ()), vm)?;
+    stdout_stream.set_attr("fileno", vm.new_function("fileno", || -1_i32), vm)?;
+
+    let stderr_stream = vm.new_module("rune.stderr", vm.ctx.new_dict(), None);
+    let stderr_output = Arc::clone(&capture.stderr);
+    let stderr_limit = Arc::clone(&capture.stderr_limited);
+    stderr_stream.set_attr(
+        "write",
+        vm.new_function("write", move |value: PyStrRef, vm: &VirtualMachine| {
+            write_python_output(&stderr_output, &stderr_limit, value.as_str(), vm)
+        }),
+        vm,
+    )?;
+    stderr_stream.set_attr("flush", vm.new_function("flush", || ()), vm)?;
+    stderr_stream.set_attr("fileno", vm.new_function("fileno", || -1_i32), vm)?;
+
+    let stdin_stream = vm.new_module("rune.stdin", vm.ctx.new_dict(), None);
+    let line_input = Arc::clone(&capture.stdin);
+    stdin_stream.set_attr(
+        "readline",
+        vm.new_function("readline", move |vm: &VirtualMachine| {
+            take_python_line(&line_input, vm)
+        }),
+        vm,
+    )?;
+    let all_input = Arc::clone(&capture.stdin);
+    stdin_stream.set_attr(
+        "read",
+        vm.new_function("read", move |vm: &VirtualMachine| {
+            take_python_all(&all_input, vm)
+        }),
+        vm,
+    )?;
+    stdin_stream.set_attr("fileno", vm.new_function("fileno", || -1_i32), vm)?;
+
+    vm.sys_module.set_attr("stdin", stdin_stream.clone(), vm)?;
+    vm.sys_module
+        .set_attr("stdout", stdout_stream.clone(), vm)?;
+    vm.sys_module
+        .set_attr("stderr", stderr_stream.clone(), vm)?;
+    let argv = vm.ctx.new_list(
+        std::iter::once(request.program_name)
+            .chain(request.args.iter().map(String::as_str))
+            .map(|argument| vm.ctx.new_str(argument).into())
+            .collect(),
+    );
+    vm.sys_module.set_attr("argv", argv.clone(), vm)?;
+    vm.sys_module
+        .set_attr("path", vm.ctx.new_list(Vec::new()), vm)?;
+
+    let environment = vm.ctx.new_dict();
+    for (key, value) in request.environment {
+        environment.set_item(key, vm.ctx.new_str(value.as_str()).into(), vm)?;
+    }
+    let script_args = vm.ctx.new_list(
+        request
+            .args
+            .iter()
+            .map(|argument| vm.ctx.new_str(argument.as_str()).into())
+            .collect(),
+    );
+    let rune = vm.new_module("rune", vm.ctx.new_dict(), None);
+    rune.set_attr("program", vm.ctx.new_str(request.program_name), vm)?;
+    rune.set_attr("args", script_args, vm)?;
+    rune.set_attr("env", environment, vm)?;
+    rune.set_attr("stdin", vm.ctx.new_str(request.stdin), vm)?;
+    let stderr_output = Arc::clone(&capture.stderr);
+    let stderr_limit = Arc::clone(&capture.stderr_limited);
+    rune.set_attr(
+        "stderr",
+        vm.new_function("stderr", move |value: PyObjectRef, vm: &VirtualMachine| {
+            let value = value.str(vm)?;
+            write_python_output(&stderr_output, &stderr_limit, value.as_str(), vm).map(|_| ())
+        }),
+        vm,
+    )?;
+
+    scope
+        .globals
+        .set_item("__name__", vm.ctx.new_str("__main__").into(), vm)?;
+    scope
+        .globals
+        .set_item("__file__", vm.ctx.new_str(request.program_name).into(), vm)?;
+    scope.globals.set_item("rune", rune.into(), vm)?;
+    scope
+        .globals
+        .set_item("sys", vm.sys_module.clone().into(), vm)?;
+    Ok(())
+}
+
+fn take_python_line(input: &Arc<Mutex<String>>, vm: &VirtualMachine) -> PythonResult<String> {
+    let mut input = input
+        .lock()
+        .map_err(|_| vm.new_runtime_error("Python stdin lock poisoned".to_string()))?;
+    if input.is_empty() {
+        return Ok(String::new());
+    }
+    let end = input.find('\n').map_or(input.len(), |index| index + 1);
+    Ok(input.drain(..end).collect())
+}
+
+fn take_python_all(input: &Arc<Mutex<String>>, vm: &VirtualMachine) -> PythonResult<String> {
+    let mut input = input
+        .lock()
+        .map_err(|_| vm.new_runtime_error("Python stdin lock poisoned".to_string()))?;
+    Ok(std::mem::take(&mut *input))
+}
+
+fn write_python_output(
+    output: &Arc<Mutex<String>>,
+    limited: &AtomicBool,
+    value: &str,
+    vm: &VirtualMachine,
+) -> PythonResult<usize> {
+    let mut output = output
+        .lock()
+        .map_err(|_| vm.new_runtime_error("Python output lock poisoned".to_string()))?;
+    if output.len().saturating_add(value.len()) > MAX_PYTHON_OUTPUT_BYTES {
+        limited.store(true, Ordering::Release);
+        return Err(vm.new_runtime_error("captured output limit exceeded".to_string()));
+    }
+    output.push_str(value);
+    Ok(value.len())
+}
+
+fn read_python_output(output: &Arc<Mutex<String>>) -> Result<String, RuntimeError> {
+    output
+        .lock()
+        .map(|value| value.clone())
+        .map_err(|_| RuntimeError::Execution("Python output lock poisoned".to_string()))
+}
+
+fn validate_python_code(code: &PyCode) -> Result<(), String> {
+    if code.code.instructions.len() > MAX_PYTHON_INSTRUCTIONS {
+        return Err(format!(
+            "Python bytecode exceeds {MAX_PYTHON_INSTRUCTIONS} instructions"
+        ));
+    }
+    let mut argument_state = OpArgState::default();
+    for (offset, code_unit) in code.code.instructions.iter().copied().enumerate() {
+        let offset = u32::try_from(offset)
+            .map_err(|_| "Python bytecode offset exceeds the supported range".to_string())?;
+        let (instruction, argument) = argument_state.get(code_unit);
+        let branch_target = match instruction {
+            Instruction::Jump { target }
+            | Instruction::JumpIfTrue { target }
+            | Instruction::JumpIfFalse { target }
+            | Instruction::JumpIfTrueOrPop { target }
+            | Instruction::JumpIfFalseOrPop { target }
+            | Instruction::Continue { target }
+            | Instruction::Break { target } => Some(target),
+            _ => None,
+        };
+        if branch_target.is_some_and(|target| target.get(argument).0 <= offset) {
+            return Err(
+                "backward Python branches are unavailable in the bounded provider".to_string(),
+            );
+        }
+        match instruction {
+            Instruction::ForIter { .. } | Instruction::SetupLoop => {
+                return Err("Python loops are unavailable in the bounded provider".to_string());
+            }
+            Instruction::MakeFunction(_) => {
+                return Err(
+                    "Python functions, lambdas, generators, and comprehensions are unavailable in the bounded provider"
+                        .to_string(),
+                );
+            }
+            Instruction::ImportName { .. }
+            | Instruction::ImportNameless
+            | Instruction::ImportStar
+            | Instruction::ImportFrom { .. } => {
+                return Err("Python imports are unavailable in the bounded provider".to_string());
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn append_python_error(output: &mut String, error: &str) {
+    let prefix = "python: ";
+    let suffix = "\n";
+    let remaining = MAX_PYTHON_OUTPUT_BYTES.saturating_sub(output.len());
+    if remaining <= prefix.len() + suffix.len() {
+        return;
+    }
+    let available = remaining - prefix.len() - suffix.len();
+    output.push_str(prefix);
+    let mut error_bytes = 0;
+    for character in error.chars() {
+        let character_bytes = character.len_utf8();
+        if error_bytes + character_bytes > available {
+            break;
+        }
+        error_bytes += character_bytes;
+    }
+    output.push_str(&error[..error_bytes]);
+    output.push_str(suffix);
 }
 
 /// A bounded Lua 5.4 provider for Rune scripts.
@@ -742,8 +1173,8 @@ fn lua_execution_error(error: &mlua::Error) -> RuntimeError {
 #[cfg(test)]
 mod tests {
     use super::{
-        JavaScriptRunner, LuaRunner, Runtime, RuntimeError, RuntimeKind, RuntimeOutput,
-        RuntimePreopen, RuntimeRequest,
+        JavaScriptRunner, LuaRunner, PythonRunner, Runtime, RuntimeError, RuntimeKind,
+        RuntimeOutput, RuntimePreopen, RuntimeRequest,
     };
     use std::collections::BTreeMap;
 
@@ -842,6 +1273,106 @@ mod tests {
                 provider: RuntimeKind::Python,
             }
         );
+    }
+
+    #[test]
+    fn python_runner_captures_output_and_explicit_inputs() {
+        let runner = PythonRunner;
+        let args = vec!["first".to_string()];
+        let mut environment = BTreeMap::new();
+        environment.insert("RUNE_TEST".to_string(), "ok".to_string());
+        let request = RuntimeRequest::new(
+            RuntimeKind::Python,
+            "script.py",
+            br#"print(sys.argv[1]); print(rune.args[0]); print(rune.env["RUNE_TEST"]); print(rune.stdin); print(sys.stdin.read()); rune.stderr("warning")"#,
+            &args,
+            &environment,
+            "input",
+        );
+        let output = runner
+            .execute(&request)
+            .expect("Python script should execute");
+        assert_eq!(output.stdout, "first\nfirst\nok\ninput\ninput\n");
+        assert_eq!(output.stderr, "warning");
+        assert_eq!(output.status, 0);
+    }
+
+    #[test]
+    fn python_runner_denies_host_capabilities_and_unbounded_constructs() {
+        let runner = PythonRunner;
+        let environment = BTreeMap::new();
+        let unsafe_request = RuntimeRequest::new(
+            RuntimeKind::Python,
+            "unsafe.py",
+            b"open('outside', 'w')",
+            &[],
+            &environment,
+            "",
+        );
+        let unsafe_output = runner
+            .execute(&unsafe_request)
+            .expect("Python errors should become command output");
+        assert_eq!(unsafe_output.status, 1);
+        assert!(unsafe_output.stderr.contains("PermissionError"));
+
+        let loop_request = RuntimeRequest::new(
+            RuntimeKind::Python,
+            "loop.py",
+            b"while True: pass",
+            &[],
+            &environment,
+            "",
+        );
+        let loop_output = runner
+            .execute(&loop_request)
+            .expect("bounded Python rejection should return output");
+        assert_eq!(loop_output.status, 1);
+        assert!(loop_output.stderr.contains("loops are unavailable"));
+
+        let import_request = RuntimeRequest::new(
+            RuntimeKind::Python,
+            "import.py",
+            b"import os",
+            &[],
+            &environment,
+            "",
+        );
+        let import_output = runner
+            .execute(&import_request)
+            .expect("bounded Python rejection should return output");
+        assert_eq!(import_output.status, 1);
+        assert!(import_output.stderr.contains("imports are unavailable"));
+    }
+
+    #[test]
+    fn python_runner_rejects_non_text_or_oversized_source_before_starting() {
+        let runner = PythonRunner;
+        let environment = BTreeMap::new();
+        let binary_request = RuntimeRequest::new(
+            RuntimeKind::Python,
+            "binary.py",
+            &[0xff],
+            &[],
+            &environment,
+            "",
+        );
+        assert!(matches!(
+            runner.execute(&binary_request),
+            Err(RuntimeError::InvalidRequest(message)) if message.contains("UTF-8")
+        ));
+        let oversized_source = vec![b' '; super::MAX_PYTHON_SOURCE_BYTES + 1];
+        let oversized_request = RuntimeRequest::new(
+            RuntimeKind::Python,
+            "large.py",
+            &oversized_source,
+            &[],
+            &environment,
+            "",
+        );
+        assert!(matches!(
+            runner.execute(&oversized_request),
+            Err(RuntimeError::InvalidRequest(message)) if message.contains("exceeds")
+        ));
     }
 
     #[test]
