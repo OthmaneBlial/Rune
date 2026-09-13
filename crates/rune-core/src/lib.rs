@@ -61,6 +61,7 @@ fn supports_path_completion(command: &str) -> bool {
     matches!(
         command,
         "base64"
+            | "bc"
             | "basename"
             | "cat"
             | "cd"
@@ -4124,6 +4125,21 @@ mod tests {
             "294 1\n"
         );
         assert_eq!(session.execute_line("sum --bad").status, 2);
+        assert_eq!(
+            session
+                .execute_line("printf '1 + 2\n(3 * 4) - 5\n2^8\n' | bc")
+                .stdout,
+            "3\n7\n256\n"
+        );
+        let division_by_zero = session.execute_line("printf '1 / 0\n' | bc");
+        assert_eq!(division_by_zero.status, 1);
+        assert!(division_by_zero.stderr.contains("division by zero"));
+        let invalid_character = session.execute_line("printf '1 & 2\n' | bc");
+        assert_eq!(invalid_character.status, 1);
+        assert!(invalid_character
+            .stderr
+            .contains("expected a statement separator"));
+        assert_eq!(session.execute_line("bc -l").status, 2);
         assert_eq!(session.execute_line("sleep 301").status, 2);
         assert_eq!(session.execute_line("sleep nope").status, 2);
         assert_eq!(

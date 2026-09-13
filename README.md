@@ -33,7 +33,7 @@ working iOS application or a feature-parity claim.
 ## Current status
 
 The first Rust vertical slice is implemented and locally verified. It executes
-the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `cksum`, `curl`, `date`, `echo`, `expr`, `jsc`, `lua`, `python3`, `md5`, `mkdir`,
+the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum`, `curl`, `date`, `echo`, `expr`, `jsc`, `lua`, `python3`, `md5`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
 `setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
@@ -76,6 +76,10 @@ exposed. `cksum` computes the POSIX CRC checksum for one bounded VFS file or std
 including the input length in its stable two-field output.
 `sum` computes bounded BSD-style checksums by default and the bounded System V
 variant with `-s`; it is a compatibility utility, not a cryptographic digest.
+`bc` evaluates bounded integer expressions from stdin or one confined file,
+including parentheses, unary signs, arithmetic operators, comments, and
+statement separators. The standard math library, decimal scale, variables,
+and arbitrary precision remain outside this subset.
 `md5` computes the standard MD5 digest for one bounded VFS file or stdin for
 legacy compatibility workflows; it is not a security primitive.
 `expr` evaluates bounded integer arithmetic and comparisons, plus `length`,

@@ -26,6 +26,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: utilities::base64,
     },
     CommandDefinition {
+        name: "bc",
+        summary: "evaluate bounded integer calculator expressions",
+        handler: utilities::bc,
+    },
+    CommandDefinition {
         name: "alias",
         summary: "define or print session-local command aliases",
         handler: shell::alias,

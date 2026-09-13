@@ -247,8 +247,8 @@ at 10,000 visited entries and does not follow symlink entries, keeping a
 malicious or cyclic tree from turning a synchronous command into unbounded
 work.
 
-The portable utility slice adds bounded `base64`, `basename`, `cksum`, `date`,
-`dirname`, `du`, `expr`, `md5`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`,
+The portable utility slice adds bounded `base64`, `basename`, `bc`, `cksum`,
+`date`, `dirname`, `du`, `expr`, `md5`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`,
 `unlink`, `tee`, `tr`, and `xxd` commands, plus
 `ln -s`/`readlink` and
 the `unsetenv` spelling for environment removal. They operate on Rune's virtual filesystem or pipeline
@@ -262,7 +262,9 @@ POSIX CRC-32 polynomial and includes the bounded byte length in its result.
 not presented as a secure password or integrity primitive.
 `date` exposes only current local/UTC formatting and does not set the host
 clock; `sum` implements bounded BSD and System V checksum modes without
-invoking a host executable.
+invoking a host executable. `bc` uses a Rust-owned bounded integer parser and
+does not provide a math library, decimal scale, variables, or arbitrary
+precision.
 `expr` uses a Rust-owned bounded parser for integer arithmetic, comparisons, and
 the `length`, `index`, and `substr` text forms; it rejects overflow, division by
 zero, and unsupported expression syntax rather than delegating to a host shell.

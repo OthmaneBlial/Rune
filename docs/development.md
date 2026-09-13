@@ -61,8 +61,9 @@ Base64 tests cover stdin encode/decode, padded input, malformed characters,
 non-UTF-8 decoded output, usage errors, and the 768 KiB input bound.
 Checksum tests cover the POSIX CRC vector and invalid operand counts. The
 portable utility tests also cover UTC `date` formatting and BSD/System V `sum`
-vectors; date setting and locale-specific formatting remain outside the
-bounded surface.
+vectors, plus arithmetic, comments, separators, overflow, and division errors
+for the bounded `bc` surface. Date setting and locale-specific formatting remain
+outside the bounded surface.
 MD5 tests cover standard stdin/file vectors and invalid operand counts; the
 digest is compatibility evidence, not security evidence.
 `expr` tests cover precedence, comparisons, bounded text operations, division

@@ -10,6 +10,10 @@ const MAX_BASE64_INPUT: usize = 768 * 1024;
 const MAX_CKSUM_INPUT: usize = 16 * 1024 * 1024;
 const MAX_MD5_INPUT: usize = 16 * 1024 * 1024;
 const MAX_SUM_INPUT: usize = 16 * 1024 * 1024;
+const MAX_BC_SOURCE_BYTES: usize = 256 * 1024;
+const MAX_BC_STATEMENTS: usize = 1_024;
+const MAX_BC_TOKENS: usize = 8_192;
+const MAX_BC_PARENTHESIS_DEPTH: usize = 64;
 const MAX_DATE_FORMAT_BYTES: usize = 1024;
 const MAX_DISK_USAGE_ENTRIES: usize = 10_000;
 const MAX_EXPR_ARGUMENTS: usize = 64;
@@ -135,6 +139,292 @@ pub(super) fn base64(context: &mut CommandContext<'_>) -> CommandOutput {
     }
 
     CommandOutput::success(encode_base64(&bytes))
+}
+
+pub(super) fn bc(context: &mut CommandContext<'_>) -> CommandOutput {
+    let mut path = None;
+    let mut parse_options = true;
+    for argument in context.args {
+        if parse_options && argument == "--" {
+            parse_options = false;
+        } else if parse_options && argument == "-q" {
+            // Rune has no startup banner for this command, so quiet is a
+            // harmless compatibility spelling.
+        } else if parse_options && argument == "-l" {
+            return CommandOutput::failure(
+                2,
+                "bc: the standard math library is unavailable in the bounded provider\n",
+            );
+        } else if (parse_options && argument.starts_with('-')) || path.is_some() {
+            return usage("bc", "usage: bc [-q] [--] [FILE]");
+        } else {
+            path = Some(argument.as_str());
+        }
+    }
+
+    let source = match path {
+        Some(path) => match context.fs.read(path) {
+            Ok(bytes) => bytes,
+            Err(error) => return fs_failure("bc", &error),
+        },
+        None => context.stdin.as_bytes().to_vec(),
+    };
+    if source.len() > MAX_BC_SOURCE_BYTES {
+        return CommandOutput::failure(
+            1,
+            format!("bc: input exceeds {MAX_BC_SOURCE_BYTES} bytes\n"),
+        );
+    }
+    let Ok(source) = std::str::from_utf8(&source) else {
+        return CommandOutput::failure(1, "bc: input is not valid UTF-8\n");
+    };
+    let values = match BcParser::new(source).parse_program() {
+        Ok(values) => values,
+        Err(error) => return CommandOutput::failure(1, format!("bc: {error}\n")),
+    };
+    let mut stdout = String::new();
+    for value in values {
+        let _ = writeln!(stdout, "{value}");
+    }
+    CommandOutput::success(stdout)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BcToken {
+    Integer(i64),
+    Plus,
+    Minus,
+    Multiply,
+    Divide,
+    Remainder,
+    Power,
+    OpenParen,
+    CloseParen,
+    Newline,
+    Semicolon,
+    Invalid(char),
+    InvalidLiteral,
+    TokenLimit,
+    End,
+}
+
+struct BcParser {
+    tokens: Vec<BcToken>,
+    position: usize,
+    parenthesis_depth: usize,
+}
+
+impl BcParser {
+    fn new(source: &str) -> Self {
+        Self {
+            tokens: tokenize_bc(source),
+            position: 0,
+            parenthesis_depth: 0,
+        }
+    }
+
+    fn parse_program(&mut self) -> Result<Vec<i64>, String> {
+        let mut values = Vec::new();
+        loop {
+            self.skip_separators();
+            if self.current() == BcToken::End {
+                return Ok(values);
+            }
+            if let BcToken::TokenLimit = self.current() {
+                return Err(format!("input exceeds {MAX_BC_TOKENS} tokens"));
+            }
+            if let BcToken::Invalid(character) = self.current() {
+                return Err(format!("unsupported character: {character}"));
+            }
+            if self.current() == BcToken::InvalidLiteral {
+                return Err("integer literal is out of range".to_string());
+            }
+            if values.len() >= MAX_BC_STATEMENTS {
+                return Err(format!("input exceeds {MAX_BC_STATEMENTS} statements"));
+            }
+            let value = self.parse_additive()?;
+            match self.current() {
+                BcToken::End | BcToken::Newline | BcToken::Semicolon => values.push(value),
+                _ => return Err("expected a statement separator".to_string()),
+            }
+        }
+    }
+
+    fn parse_additive(&mut self) -> Result<i64, String> {
+        let mut value = self.parse_multiplicative()?;
+        loop {
+            let operator = match self.current() {
+                BcToken::Plus => "+",
+                BcToken::Minus => "-",
+                _ => break,
+            };
+            self.advance();
+            let right = self.parse_multiplicative()?;
+            value = apply_bc_arithmetic(value, right, operator)?;
+        }
+        Ok(value)
+    }
+
+    fn parse_multiplicative(&mut self) -> Result<i64, String> {
+        let mut value = self.parse_power()?;
+        loop {
+            let operator = match self.current() {
+                BcToken::Multiply => "*",
+                BcToken::Divide => "/",
+                BcToken::Remainder => "%",
+                _ => break,
+            };
+            self.advance();
+            let right = self.parse_power()?;
+            value = apply_bc_arithmetic(value, right, operator)?;
+        }
+        Ok(value)
+    }
+
+    fn parse_power(&mut self) -> Result<i64, String> {
+        let value = self.parse_unary()?;
+        if self.current() != BcToken::Power {
+            return Ok(value);
+        }
+        self.advance();
+        let exponent = self.parse_power()?;
+        if exponent < 0 {
+            return Err("negative exponents are unavailable".to_string());
+        }
+        let exponent = u32::try_from(exponent)
+            .map_err(|_| "exponent exceeds the supported range".to_string())?;
+        value
+            .checked_pow(exponent)
+            .ok_or_else(|| "integer overflow for operator ^".to_string())
+    }
+
+    fn parse_unary(&mut self) -> Result<i64, String> {
+        match self.current() {
+            BcToken::Plus => {
+                self.advance();
+                self.parse_unary()
+            }
+            BcToken::Minus => {
+                self.advance();
+                self.parse_unary()?
+                    .checked_neg()
+                    .ok_or_else(|| "integer overflow for unary -".to_string())
+            }
+            _ => self.parse_primary(),
+        }
+    }
+
+    fn parse_primary(&mut self) -> Result<i64, String> {
+        match self.advance() {
+            BcToken::Integer(value) => Ok(value),
+            BcToken::OpenParen => {
+                self.parenthesis_depth += 1;
+                if self.parenthesis_depth > MAX_BC_PARENTHESIS_DEPTH {
+                    return Err(format!(
+                        "parenthesis depth exceeds {MAX_BC_PARENTHESIS_DEPTH}"
+                    ));
+                }
+                let value = self.parse_additive()?;
+                if self.advance() != BcToken::CloseParen {
+                    return Err("missing closing parenthesis".to_string());
+                }
+                self.parenthesis_depth -= 1;
+                Ok(value)
+            }
+            BcToken::End | BcToken::Newline | BcToken::Semicolon => {
+                Err("missing operand".to_string())
+            }
+            BcToken::Invalid(character) => Err(format!("unsupported character: {character}")),
+            BcToken::InvalidLiteral => Err("integer literal is out of range".to_string()),
+            BcToken::TokenLimit => Err(format!("input exceeds {MAX_BC_TOKENS} tokens")),
+            _ => Err("expected an integer or opening parenthesis".to_string()),
+        }
+    }
+
+    fn current(&self) -> BcToken {
+        self.tokens
+            .get(self.position)
+            .copied()
+            .unwrap_or(BcToken::End)
+    }
+
+    fn advance(&mut self) -> BcToken {
+        let token = self.current();
+        self.position = self.position.saturating_add(1);
+        token
+    }
+
+    fn skip_separators(&mut self) {
+        while matches!(self.current(), BcToken::Newline | BcToken::Semicolon) {
+            self.advance();
+        }
+    }
+}
+
+fn tokenize_bc(source: &str) -> Vec<BcToken> {
+    let mut tokens = Vec::new();
+    let mut characters = source.chars().peekable();
+    while let Some(character) = characters.next() {
+        if tokens.len() >= MAX_BC_TOKENS {
+            tokens.push(BcToken::TokenLimit);
+            break;
+        }
+        let token = match character {
+            '0'..='9' => {
+                let mut literal = String::from(character);
+                while let Some(next @ '0'..='9') = characters.peek().copied() {
+                    literal.push(next);
+                    characters.next();
+                }
+                literal
+                    .parse::<i64>()
+                    .map_or(BcToken::InvalidLiteral, BcToken::Integer)
+            }
+            '+' => BcToken::Plus,
+            '-' => BcToken::Minus,
+            '*' => BcToken::Multiply,
+            '/' => BcToken::Divide,
+            '%' => BcToken::Remainder,
+            '^' => BcToken::Power,
+            '(' => BcToken::OpenParen,
+            ')' => BcToken::CloseParen,
+            ';' => BcToken::Semicolon,
+            '\n' => BcToken::Newline,
+            '\r' => continue,
+            '#' => {
+                for next in characters.by_ref() {
+                    if next == '\n' {
+                        tokens.push(BcToken::Newline);
+                        break;
+                    }
+                }
+                continue;
+            }
+            character if character.is_ascii_whitespace() => continue,
+            _ => BcToken::Invalid(character),
+        };
+        tokens.push(token);
+    }
+    tokens.push(BcToken::End);
+    tokens
+}
+
+fn apply_bc_arithmetic(left: i64, right: i64, operator: &str) -> Result<i64, String> {
+    match operator {
+        "+" => left.checked_add(right),
+        "-" => left.checked_sub(right),
+        "*" => left.checked_mul(right),
+        "/" => left.checked_div(right),
+        "%" => left.checked_rem(right),
+        _ => None,
+    }
+    .ok_or_else(|| {
+        if matches!(operator, "/" | "%") && right == 0 {
+            "division by zero".to_string()
+        } else {
+            format!("integer overflow for operator {operator}")
+        }
+    })
 }
 
 pub(super) fn basename(context: &mut CommandContext<'_>) -> CommandOutput {
