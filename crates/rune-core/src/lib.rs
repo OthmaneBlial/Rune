@@ -30,7 +30,7 @@ use std::sync::Arc;
 
 use rune_fs::{FsError, VirtualFileSystem};
 use rune_package::PackageManifest;
-use rune_runtime::{LuaRunner, Runtime, RuntimeKind, RuntimeRequest};
+use rune_runtime::{JavaScriptRunner, LuaRunner, Runtime, RuntimeKind, RuntimeRequest};
 use rune_shell::{parse, CommandPlan, Connector, ExecutionPlan, Redirection, Word, WordPart};
 use rune_wasm::WasmRunner;
 
@@ -72,6 +72,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "find"
             | "grep"
             | "head"
+            | "jsc"
             | "ls"
             | "ln"
             | "lua"
@@ -141,6 +142,13 @@ fn is_lua_entry(entry: &str) -> bool {
         .extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case("lua"))
+}
+
+fn is_javascript_entry(entry: &str) -> bool {
+    std::path::Path::new(entry)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("js"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -288,6 +296,7 @@ pub struct CommandContext<'a> {
     pub(crate) command_definitions: &'a [CommandDefinition],
     pub(crate) runtime: &'a dyn Runtime,
     pub(crate) lua_runtime: &'a dyn Runtime,
+    pub(crate) javascript_runtime: &'a dyn Runtime,
     pub(crate) network: &'a dyn NetworkProvider,
     pub(crate) clipboard: &'a dyn ClipboardProvider,
     pub(crate) cancellation: &'a AtomicBool,
@@ -315,6 +324,7 @@ pub struct Session {
     startup_output: CommandOutput,
     wasm_runner: WasmRunner,
     lua_runner: LuaRunner,
+    javascript_runner: JavaScriptRunner,
     network_provider: Box<dyn NetworkProvider>,
     clipboard_provider: Box<dyn ClipboardProvider>,
     cancellation_requested: Arc<AtomicBool>,
@@ -346,6 +356,7 @@ impl Session {
             startup_output: CommandOutput::success(""),
             wasm_runner: WasmRunner::default(),
             lua_runner: LuaRunner,
+            javascript_runner: JavaScriptRunner,
             network_provider: Box::new(DisabledNetworkProvider),
             clipboard_provider: Box::new(DisabledClipboardProvider),
             cancellation_requested: Arc::new(AtomicBool::new(false)),
@@ -928,6 +939,7 @@ impl Session {
             command_definitions: self.registry.definitions(),
             runtime: &self.wasm_runner,
             lua_runtime: &self.lua_runner,
+            javascript_runtime: &self.javascript_runner,
             network: self.network_provider.as_ref(),
             clipboard: self.clipboard_provider.as_ref(),
             cancellation: &self.cancellation_requested,
@@ -1376,7 +1388,7 @@ impl Session {
             return CommandOutput::failure(
                 126,
                 format!(
-                    "{program}: package {} exposes unsupported entry {}; only WASM, Lua, and Rune scripts are available\n",
+                    "{program}: package {} exposes unsupported entry {}; only WASM, Lua, JavaScript, and Rune scripts are available\n",
                     installed_command.package, installed_command.entry
                 ),
             );
@@ -1457,11 +1469,51 @@ impl Session {
         }
     }
 
+    fn execute_installed_javascript(
+        &mut self,
+        program: &str,
+        arguments: &[String],
+        stdin: &str,
+        installed_command: &InstalledCommand,
+    ) -> CommandOutput {
+        let source = match self.verified_installed_entry(program, installed_command) {
+            Ok(source) => source,
+            Err(output) => return output,
+        };
+        let request = RuntimeRequest::new(
+            RuntimeKind::JavaScript,
+            program,
+            &source,
+            arguments,
+            &self.environment,
+            stdin,
+        )
+        .with_cancellation(Some(&self.cancellation_requested));
+        match Runtime::execute(&self.javascript_runner, &request) {
+            Ok(execution) => CommandOutput {
+                stdout: execution.stdout,
+                stderr: execution.stderr,
+                status: execution.status,
+            },
+            Err(error) => CommandOutput::failure(
+                126,
+                format!("{program}: installed package JavaScript runtime failed: {error}\n"),
+            ),
+        }
+    }
+
     fn execute_installed(&mut self, invocation: &mut InstalledInvocation<'_>) -> CommandOutput {
         if is_rune_script_entry(invocation.command.entry.as_str()) {
             self.execute_installed_script(invocation)
         } else if is_lua_entry(invocation.command.entry.as_str()) {
             self.execute_installed_lua(
+                invocation.program,
+                invocation.arguments,
+                invocation.stdin,
+                invocation.command,
+            )
+        } else if is_javascript_entry(invocation.command.entry.as_str()) {
+            self.execute_installed_javascript(
                 invocation.program,
                 invocation.arguments,
                 invocation.stdin,
@@ -3023,6 +3075,7 @@ mod tests {
                 command_definitions: registry.definitions(),
                 runtime: &runtime,
                 lua_runtime: &runtime,
+                javascript_runtime: &runtime,
                 network: &network,
                 clipboard: &clipboard,
                 cancellation: &cancellation,
@@ -3069,6 +3122,7 @@ mod tests {
             command_definitions: registry.definitions(),
             runtime: &runtime,
             lua_runtime: &runtime,
+            javascript_runtime: &runtime,
             network: &network,
             clipboard: &clipboard,
             cancellation: cancellation.as_ref(),
@@ -3771,6 +3825,45 @@ mod tests {
     }
 
     #[test]
+    fn executes_a_verified_javascript_script_from_a_local_package() {
+        let root = test_root();
+        let package_root = root.join("javascript-bundle/bin");
+        std::fs::create_dir_all(&package_root).expect("package directories created");
+        let script = br"print(process.argv[1]); console.log(rune.stdin)";
+        let digest = rune_package::sha256_hex(script);
+        std::fs::write(package_root.join("hello.js"), script).expect("JavaScript script written");
+        let manifest = format!(
+            r#"{{
+                "schema_version": 1,
+                "name": "local-javascript",
+                "version": "0.1.0",
+                "description": "A local JavaScript package",
+                "files": [{{"path": "bin/hello.js", "sha256": "{digest}"}}],
+                "commands": [{{"name": "local-javascript", "entry": "bin/hello.js"}}]
+            }}"#
+        );
+        std::fs::write(root.join("javascript-bundle/manifest.json"), manifest)
+            .expect("manifest written");
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+
+        let installed = session.execute_line("pkg install javascript-bundle/manifest.json");
+        assert_eq!(installed.status, 0, "{installed:?}");
+        let output = session.execute_line("printf input | local-javascript first");
+        assert_eq!(output.status, 0, "{output:?}");
+        assert_eq!(output.stdout, "first\ninput\n");
+
+        std::fs::write(
+            root.join(".rune/packages/local-javascript/0.1.0/bin/hello.js"),
+            b"print('tampered')",
+        )
+        .expect("installed JavaScript script modified");
+        let tampered = session.execute_line("local-javascript");
+        assert_eq!(tampered.status, 126);
+        assert!(tampered.stderr.contains("integrity failure"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn grants_installed_wasm_filesystem_only_with_manifest_permission() {
         let root = test_root();
         let package_root = root.join("bundle/bin");
@@ -4092,6 +4185,33 @@ mod tests {
         let unsafe_output = session.execute_line("lua unsafe.lua");
         assert_eq!(unsafe_output.status, 1);
         assert!(unsafe_output.stderr.contains("lua:"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn executes_a_bounded_javascript_script_through_the_rust_session() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        session
+            .write_file(
+                "script.js",
+                br#"print(process.argv[1]); console.log(rune.stdin); console.error("warning")"#,
+            )
+            .expect("JavaScript script written");
+        let output = session.execute_line("printf input | jsc script.js first");
+        assert_eq!(output.stdout, "first\ninput\n");
+        assert_eq!(output.stderr, "warning\n");
+        assert_eq!(output.status, 0);
+
+        session
+            .write_file(
+                "unsafe.js",
+                br#"if (typeof os !== "undefined" || typeof std !== "undefined" || typeof require !== "undefined") { throw new Error("host module exposed"); }"#,
+            )
+            .expect("safe JavaScript script written");
+        let safe_output = session.execute_line("jsc unsafe.js");
+        assert_eq!(safe_output.status, 0, "{safe_output:?}");
+        assert_eq!(session.execute_line("jsc --in-window unsafe.js").status, 2);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

@@ -4,6 +4,7 @@ mod archive;
 mod bookmarks;
 mod config;
 mod filesystem;
+mod javascript;
 mod lua;
 mod network;
 mod package;
@@ -157,6 +158,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "jump",
         summary: "change directory to a saved bookmark",
         handler: bookmarks::jump,
+    },
+    CommandDefinition {
+        name: "jsc",
+        summary: "run a bounded sandbox JavaScript file",
+        handler: javascript::jsc,
     },
     CommandDefinition {
         name: "ls",

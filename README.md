@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 83%**
+**Overall progress: 84%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -33,7 +33,7 @@ working iOS application or a feature-parity claim.
 ## Current status
 
 The first Rust vertical slice is implemented and locally verified. It executes
-the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `cksum`, `curl`, `echo`, `expr`, `lua`, `md5`, `mkdir`,
+the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `cksum`, `curl`, `echo`, `expr`, `jsc`, `lua`, `md5`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
 `setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
@@ -126,8 +126,8 @@ scrollback window, three named palettes, the Rust-owned font design, cursor colo
 and independent background/foreground overrides. The native source-only command
 editor applies the configured bar, block, or underline caret when UIKit is
 available. Configurable redaction and broader session recovery remain planned.
-The bounded Lua 5.4 provider is implemented in Rust; Python and JavaScript
-language runtimes remain planned work.
+The bounded Lua 5.4 and JavaScript providers are implemented in Rust; Python
+language runtime evaluation remains planned work.
 
 The Rust package boundary now validates bounded, versioned JSON manifests and
 registry indexes, and checks declared file bytes with SHA-256. Local installation
@@ -151,8 +151,8 @@ interpreter fuel, linear memory, tables, and captured output are bounded.
 For the three-root Apple layout, WASI receives `/` for Documents/home and
 explicit `/Library` and `/tmp` preopens; single-root and external-folder
 sessions receive only `/`. No arbitrary guest preopen is inherited.
-Compression, broader WASI resource policy, and non-WASM language runtimes
-remain planned.
+Compression, broader WASI resource policy, and the Python runtime remain
+planned.
 
 The package flow supports `pkg info MANIFEST|NAME [VERSION]`, `pkg verify
 MANIFEST`, `pkg install MANIFEST`, `pkg update MANIFEST`, `pkg list`, `pkg search
@@ -162,7 +162,7 @@ NAME VERSION`, `pkg update --registry INDEX_URL NAME VERSION`, and `pkg remove N
 installed version; an explicit version is required when multiple versions are
 present. Install
 copies only SHA-256-verified files into `~/.rune/packages`; declared `.wasm`
-commands, `.lua` scripts, and `.rune` scripts can then run through Rust, and `which` discovers
+commands, `.js` and `.lua` scripts, and `.rune` scripts can then run through Rust, and `which` discovers
 their installed command names from the local package manifests. Installed
 WASM commands receive no filesystem preopen by default; a manifest must
 explicitly declare `permissions.filesystem: true` to request the approved Rune
@@ -294,10 +294,10 @@ serialized-history budget, so a large count cannot create unbounded session
 state. Consecutive duplicate entries are suppressed, while the same command
 after another command remains a distinct history record.
 
-Runtime providers use a small Rust-owned request/output contract. WASM and the
-bounded Lua 5.4 provider are implemented in Rust; Python and JavaScript remain
-unavailable until their execution and App Store boundaries are designed and
-tested.
+Runtime providers use a small Rust-owned request/output contract. WASM, the
+bounded Lua 5.4 provider, and the bounded JavaScript provider are implemented
+in Rust; Python remains unavailable until its execution and Apple boundaries
+are designed and tested.
 
 No a-Shell compatibility area is marked `supported` without behavior and test
 evidence. See [`compat/a-shell-compatibility.json`](compat/a-shell-compatibility.json).
@@ -391,7 +391,7 @@ git check-ignore -v base/a-shell
 - [x] Explicit host HTTP capability and bounded `curl` transport boundary
 - [x] Bounded HTTPS registry index, remote search, and explicit-version update policy
 - [ ] Python runtime evaluation
-- [ ] JavaScript runtime evaluation
+- [x] Bounded JavaScript runtime evaluation
 - [x] Bounded Lua 5.4 runtime evaluation
 - [x] Rust-owned command/path completion and help metadata
 

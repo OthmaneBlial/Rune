@@ -1,8 +1,8 @@
 //! Stable, platform-neutral contracts for Rune language runtimes.
 //!
 //! This crate owns the runtime request/output boundary and the embedded Lua
-//! provider. WASM remains in its dedicated crate, while Python and JavaScript
-//! remain explicit future runtime providers.
+//! providers. WASM remains in its dedicated crate, while Python remains an
+//! explicit future runtime provider.
 
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use mlua::{ChunkMode, Error as LuaError, HookTriggers, Lua, LuaOptions, MultiValue, StdLib};
+use rquickjs::{prelude::Func, Array, CatchResultExt, Context, Object, Runtime as JsRuntime};
 
 /// Maximum UTF-8 Lua source accepted by the embedded provider.
 pub const MAX_LUA_SOURCE_BYTES: usize = 256 * 1024;
@@ -21,6 +22,21 @@ pub const MAX_LUA_MEMORY_BYTES: usize = 32 * 1024 * 1024;
 /// Maximum VM instructions for one Lua invocation.
 pub const MAX_LUA_INSTRUCTIONS: u64 = 2_000_000;
 const LUA_HOOK_INTERVAL: u32 = 1_000;
+
+/// Maximum UTF-8 JavaScript source accepted by the embedded provider.
+pub const MAX_JAVASCRIPT_SOURCE_BYTES: usize = 256 * 1024;
+/// Maximum captured stdout or stderr returned by one JavaScript invocation.
+pub const MAX_JAVASCRIPT_OUTPUT_BYTES: usize = 1024 * 1024;
+/// Maximum allocator budget for one JavaScript runtime.
+pub const MAX_JAVASCRIPT_MEMORY_BYTES: usize = 32 * 1024 * 1024;
+/// Maximum native stack budget requested from `QuickJS`.
+pub const MAX_JAVASCRIPT_STACK_BYTES: usize = 1024 * 1024;
+/// Maximum `QuickJS` instructions represented by the interrupt budget.
+pub const MAX_JAVASCRIPT_INSTRUCTIONS: u64 = 2_000_000;
+const JAVASCRIPT_INTERRUPT_INTERVAL: u64 = 10_000;
+const JAVASCRIPT_MAX_ARGUMENTS: usize = 64;
+const JAVASCRIPT_MAX_STDIN_BYTES: usize = 1024 * 1024;
+const JAVASCRIPT_MAX_ENVIRONMENT_BYTES: usize = 1024 * 1024;
 
 /// A runtime family Rune may eventually host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -305,6 +321,299 @@ impl Runtime for LuaRunner {
     }
 }
 
+/// A bounded JavaScript provider backed by a fresh `QuickJS` runtime per request.
+///
+/// The provider exposes only explicit data and output bridges. It does not
+/// enable a module loader or provide host filesystem, process, network, or
+/// native-library access. `process` is a small Rune-owned object, not Node.js.
+#[derive(Debug, Clone, Copy)]
+pub struct JavaScriptRunner;
+
+impl Runtime for JavaScriptRunner {
+    fn kind(&self) -> RuntimeKind {
+        RuntimeKind::JavaScript
+    }
+
+    fn execute(&self, request: &RuntimeRequest<'_>) -> Result<RuntimeOutput, RuntimeError> {
+        if request.kind() != RuntimeKind::JavaScript {
+            return Err(RuntimeError::UnsupportedKind {
+                requested: request.kind(),
+                provider: self.kind(),
+            });
+        }
+        validate_javascript_request(request)?;
+        if request
+            .cancellation
+            .is_some_and(|cancellation| cancellation.load(Ordering::Acquire))
+        {
+            return Ok(RuntimeOutput {
+                stdout: String::new(),
+                stderr: "javascript: command cancelled\n".to_string(),
+                status: 130,
+            });
+        }
+        let source = std::str::from_utf8(request.source).map_err(|_| {
+            RuntimeError::InvalidRequest("JavaScript source must be valid UTF-8 text".to_string())
+        })?;
+        let runtime = JsRuntime::new().map_err(|error| javascript_execution_error(&error))?;
+        runtime.set_memory_limit(MAX_JAVASCRIPT_MEMORY_BYTES);
+        runtime.set_max_stack_size(MAX_JAVASCRIPT_STACK_BYTES);
+
+        let interrupt_count = Arc::new(AtomicU64::new(0));
+        let interrupt_limit = Arc::new(AtomicBool::new(false));
+        let interrupt_count_for_handler = Arc::clone(&interrupt_count);
+        let interrupt_limit_for_handler = Arc::clone(&interrupt_limit);
+        runtime.set_interrupt_handler(Some(Box::new(move || {
+            let count = interrupt_count_for_handler
+                .fetch_add(1, Ordering::Relaxed)
+                .saturating_add(1)
+                .saturating_mul(JAVASCRIPT_INTERRUPT_INTERVAL);
+            if count >= MAX_JAVASCRIPT_INSTRUCTIONS {
+                interrupt_limit_for_handler.store(true, Ordering::Release);
+                true
+            } else {
+                false
+            }
+        })));
+
+        let stdout = Arc::new(Mutex::new(String::new()));
+        let stderr = Arc::new(Mutex::new(String::new()));
+        let stdout_limited = Arc::new(AtomicBool::new(false));
+        let stderr_limited = Arc::new(AtomicBool::new(false));
+        let context =
+            Context::full(&runtime).map_err(|error| javascript_execution_error(&error))?;
+        let execution = context.with(|ctx| {
+            if let Err(error) = install_javascript_environment(
+                &ctx,
+                request,
+                &stdout,
+                &stderr,
+                &stdout_limited,
+                &stderr_limited,
+            ) {
+                return Err((true, error.to_string()));
+            }
+            ctx.eval::<(), _>(source)
+                .catch(&ctx)
+                .map_err(|error| (false, error.to_string()))
+        });
+
+        let mut output = RuntimeOutput {
+            stdout: read_javascript_output(&stdout)?,
+            stderr: read_javascript_output(&stderr)?,
+            status: 0,
+        };
+        if interrupt_limit.load(Ordering::Acquire) {
+            output.status = 124;
+            append_error_with_prefix(
+                &mut output.stderr,
+                "javascript: ",
+                "interrupt limit exceeded",
+            );
+        } else if stdout_limited.load(Ordering::Acquire) || stderr_limited.load(Ordering::Acquire) {
+            output.status = 1;
+            append_error_with_prefix(
+                &mut output.stderr,
+                "javascript: ",
+                "captured output limit exceeded",
+            );
+        } else if let Err((setup, message)) = execution {
+            if setup {
+                return Err(RuntimeError::Execution(format!(
+                    "JavaScript runtime setup failed: {message}"
+                )));
+            }
+            output.status = 1;
+            append_error_with_prefix(&mut output.stderr, "javascript: ", &message);
+        }
+        if request
+            .cancellation
+            .is_some_and(|cancellation| cancellation.load(Ordering::Acquire))
+        {
+            output.status = 130;
+            append_error_with_prefix(&mut output.stderr, "javascript: ", "command cancelled");
+        }
+        Ok(output)
+    }
+}
+
+fn validate_javascript_request(request: &RuntimeRequest<'_>) -> Result<(), RuntimeError> {
+    if request.source.len() > MAX_JAVASCRIPT_SOURCE_BYTES {
+        return Err(RuntimeError::InvalidRequest(format!(
+            "JavaScript source exceeds {MAX_JAVASCRIPT_SOURCE_BYTES} bytes"
+        )));
+    }
+    if request.args.len() > JAVASCRIPT_MAX_ARGUMENTS {
+        return Err(RuntimeError::InvalidRequest(format!(
+            "JavaScript argument list exceeds {JAVASCRIPT_MAX_ARGUMENTS} entries"
+        )));
+    }
+    if request
+        .args
+        .iter()
+        .any(|argument| argument.len() > MAX_JAVASCRIPT_SOURCE_BYTES)
+    {
+        return Err(RuntimeError::InvalidRequest(
+            "JavaScript argument exceeds the source input bound".to_string(),
+        ));
+    }
+    if request.stdin.len() > JAVASCRIPT_MAX_STDIN_BYTES {
+        return Err(RuntimeError::InvalidRequest(format!(
+            "JavaScript stdin exceeds {JAVASCRIPT_MAX_STDIN_BYTES} bytes"
+        )));
+    }
+    let environment_bytes = request
+        .environment
+        .iter()
+        .try_fold(0usize, |total, (key, value)| {
+            total
+                .checked_add(key.len())
+                .and_then(|total| total.checked_add(value.len()))
+        });
+    if environment_bytes.map_or(true, |bytes| bytes > JAVASCRIPT_MAX_ENVIRONMENT_BYTES) {
+        return Err(RuntimeError::InvalidRequest(format!(
+            "JavaScript environment exceeds {JAVASCRIPT_MAX_ENVIRONMENT_BYTES} bytes"
+        )));
+    }
+    Ok(())
+}
+
+fn install_javascript_environment(
+    ctx: &rquickjs::Ctx<'_>,
+    request: &RuntimeRequest<'_>,
+    stdout: &Arc<Mutex<String>>,
+    stderr: &Arc<Mutex<String>>,
+    stdout_limited: &Arc<AtomicBool>,
+    stderr_limited: &Arc<AtomicBool>,
+) -> rquickjs::Result<()> {
+    let print_output = Arc::clone(stdout);
+    let print_limit = Arc::clone(stdout_limited);
+    ctx.globals().set(
+        "__rune_print",
+        Func::from(move |value: String| {
+            append_javascript_output(&print_output, &print_limit, &value, true)
+        }),
+    )?;
+    let write_output = Arc::clone(stdout);
+    let write_limit = Arc::clone(stdout_limited);
+    ctx.globals().set(
+        "__rune_write",
+        Func::from(move |value: String| {
+            append_javascript_output(&write_output, &write_limit, &value, false)
+        }),
+    )?;
+    let error_output = Arc::clone(stderr);
+    let error_limit = Arc::clone(stderr_limited);
+    ctx.globals().set(
+        "__rune_stderr",
+        Func::from(move |value: String| {
+            append_javascript_output(&error_output, &error_limit, &value, true)
+        }),
+    )?;
+    let raw_error_output = Arc::clone(stderr);
+    let raw_error_limit = Arc::clone(stderr_limited);
+    ctx.globals().set(
+        "__rune_stderr_raw",
+        Func::from(move |value: String| {
+            append_javascript_output(&raw_error_output, &raw_error_limit, &value, false)
+        }),
+    )?;
+
+    let arguments = Array::new(ctx.clone())?;
+    arguments.set(0, request.program_name)?;
+    for (index, argument) in request.args.iter().enumerate() {
+        arguments.set(index + 1, argument.as_str())?;
+    }
+    let environment = Object::new(ctx.clone())?;
+    for (key, value) in request.environment {
+        environment.set(key.as_str(), value.as_str())?;
+    }
+    let globals = ctx.globals();
+    globals.set("__rune_args", arguments.clone())?;
+    globals.set("__rune_env", environment.clone())?;
+    globals.set("__rune_program", request.program_name)?;
+    globals.set("__rune_stdin", request.stdin)?;
+    globals.set("arg", arguments.clone())?;
+    globals.set("process", {
+        let process = Object::new(ctx.clone())?;
+        process.set("argv", arguments.clone())?;
+        process.set("env", environment.clone())?;
+        process.set("stdin", request.stdin)?;
+        let stdout_object = Object::new(ctx.clone())?;
+        stdout_object.set(
+            "write",
+            globals.get::<_, rquickjs::Function>("__rune_write")?,
+        )?;
+        process.set("stdout", stdout_object)?;
+        let stderr_object = Object::new(ctx.clone())?;
+        stderr_object.set(
+            "write",
+            globals.get::<_, rquickjs::Function>("__rune_stderr_raw")?,
+        )?;
+        process.set("stderr", stderr_object)?;
+        process
+    })?;
+    let rune = Object::new(ctx.clone())?;
+    rune.set("program", request.program_name)?;
+    rune.set("args", arguments.clone())?;
+    rune.set("env", environment)?;
+    rune.set("stdin", request.stdin)?;
+    rune.set(
+        "stderr",
+        globals.get::<_, rquickjs::Function>("__rune_stderr")?,
+    )?;
+    globals.set("rune", rune)?;
+    ctx.eval::<(), _>(JAVASCRIPT_BOOTSTRAP)
+}
+
+const JAVASCRIPT_BOOTSTRAP: &str = r#"
+globalThis.print = function (...values) {
+    __rune_print(values.map((value) => String(value)).join("\t"));
+};
+globalThis.console = {
+    log: function (...values) {
+        __rune_print(values.map((value) => String(value)).join("\t"));
+    },
+    error: function (...values) {
+        __rune_stderr(values.map((value) => String(value)).join("\t"));
+    }
+};
+rune.args = __rune_args.slice(1);
+"#;
+
+fn append_javascript_output(
+    output: &Arc<Mutex<String>>,
+    limited: &AtomicBool,
+    value: &str,
+    newline: bool,
+) -> rquickjs::Result<()> {
+    let suffix = if newline { "\n" } else { "" };
+    let mut output = output.lock().map_err(|_| rquickjs::Error::Exception)?;
+    if output
+        .len()
+        .saturating_add(value.len())
+        .saturating_add(suffix.len())
+        > MAX_JAVASCRIPT_OUTPUT_BYTES
+    {
+        limited.store(true, Ordering::Release);
+        return Err(rquickjs::Error::Exception);
+    }
+    output.push_str(value);
+    output.push_str(suffix);
+    Ok(())
+}
+
+fn read_javascript_output(output: &Arc<Mutex<String>>) -> Result<String, RuntimeError> {
+    output
+        .lock()
+        .map(|value| value.clone())
+        .map_err(|_| RuntimeError::Execution("JavaScript output lock poisoned".to_string()))
+}
+
+fn javascript_execution_error(error: &rquickjs::Error) -> RuntimeError {
+    RuntimeError::Execution(format!("JavaScript runtime initialization failed: {error}"))
+}
+
 fn validate_lua_request(request: &RuntimeRequest<'_>) -> Result<(), RuntimeError> {
     if request.source.len() > MAX_LUA_SOURCE_BYTES {
         return Err(RuntimeError::InvalidRequest(format!(
@@ -403,8 +712,11 @@ fn read_output(output: &Arc<Mutex<String>>) -> Result<String, RuntimeError> {
 }
 
 fn append_error(output: &mut String, error: &str) {
+    append_error_with_prefix(output, "lua: ", error);
+}
+
+fn append_error_with_prefix(output: &mut String, prefix: &str, error: &str) {
     let remaining = MAX_LUA_OUTPUT_BYTES.saturating_sub(output.len());
-    let prefix = "lua: ";
     let suffix = "\n";
     if remaining <= prefix.len() + suffix.len() {
         return;
@@ -430,8 +742,8 @@ fn lua_execution_error(error: &mlua::Error) -> RuntimeError {
 #[cfg(test)]
 mod tests {
     use super::{
-        LuaRunner, Runtime, RuntimeError, RuntimeKind, RuntimeOutput, RuntimePreopen,
-        RuntimeRequest,
+        JavaScriptRunner, LuaRunner, Runtime, RuntimeError, RuntimeKind, RuntimeOutput,
+        RuntimePreopen, RuntimeRequest,
     };
     use std::collections::BTreeMap;
 
@@ -613,6 +925,92 @@ mod tests {
         assert!(matches!(
             runner.execute(&oversized_request),
             Err(RuntimeError::InvalidRequest(message)) if message.contains("exceeds")
+        ));
+    }
+
+    #[test]
+    fn javascript_runner_captures_output_and_explicit_inputs() {
+        let runner = JavaScriptRunner;
+        let args = vec!["first".to_string()];
+        let mut environment = BTreeMap::new();
+        environment.insert("RUNE_TEST".to_string(), "ok".to_string());
+        let request = RuntimeRequest::new(
+            RuntimeKind::JavaScript,
+            "script.js",
+            br#"print(process.argv[1]); console.log(process.env.RUNE_TEST); console.log(rune.stdin); process.stderr.write("warning")"#,
+            &args,
+            &environment,
+            "input",
+        );
+        let output = runner
+            .execute(&request)
+            .expect("JavaScript script should execute");
+        assert_eq!(output.stdout, "first\nok\ninput\n");
+        assert_eq!(output.stderr, "warning");
+        assert_eq!(output.status, 0);
+    }
+
+    #[test]
+    fn javascript_runner_has_no_host_modules_and_bounds_execution() {
+        let runner = JavaScriptRunner;
+        let environment = BTreeMap::new();
+        let safe_request = RuntimeRequest::new(
+            RuntimeKind::JavaScript,
+            "safe.js",
+            br#"if (typeof os !== "undefined" || typeof std !== "undefined" || typeof require !== "undefined") { throw new Error("host module exposed"); }"#,
+            &[],
+            &environment,
+            "",
+        );
+        let safe_output = runner
+            .execute(&safe_request)
+            .expect("safe JavaScript script should execute");
+        assert_eq!(safe_output.status, 0);
+
+        let looping_request = RuntimeRequest::new(
+            RuntimeKind::JavaScript,
+            "loop.js",
+            b"while (true) {}",
+            &[],
+            &environment,
+            "",
+        );
+        let looping_output = runner
+            .execute(&looping_request)
+            .expect("bounded JavaScript execution should return output");
+        assert_eq!(looping_output.status, 124);
+        assert!(looping_output.stderr.contains("interrupt limit exceeded"));
+    }
+
+    #[test]
+    fn javascript_runner_rejects_binary_or_oversized_inputs() {
+        let runner = JavaScriptRunner;
+        let environment = BTreeMap::new();
+        let binary_request = RuntimeRequest::new(
+            RuntimeKind::JavaScript,
+            "binary.js",
+            &[0xff],
+            &[],
+            &environment,
+            "",
+        );
+        assert!(matches!(
+            runner.execute(&binary_request),
+            Err(RuntimeError::InvalidRequest(message)) if message.contains("UTF-8")
+        ));
+
+        let oversized_stdin = "x".repeat(super::JAVASCRIPT_MAX_STDIN_BYTES + 1);
+        let oversized_stdin_request = RuntimeRequest::new(
+            RuntimeKind::JavaScript,
+            "stdin.js",
+            b"",
+            &[],
+            &environment,
+            &oversized_stdin,
+        );
+        assert!(matches!(
+            runner.execute(&oversized_stdin_request),
+            Err(RuntimeError::InvalidRequest(message)) if message.contains("stdin")
         ));
     }
 }

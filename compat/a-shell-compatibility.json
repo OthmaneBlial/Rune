@@ -69,9 +69,9 @@
       "reference_comparison": "pending"
     },
     "javascript": {
-      "status": "planned",
-      "rune_evidence": [],
-      "reference_comparison": "not-started"
+      "status": "partial",
+      "rune_evidence": ["crates/rune-runtime/src/lib.rs", "crates/rune-core/src/commands/javascript.rs", "crates/rune-core/src/lib.rs"],
+      "reference_comparison": "pending"
     },
     "c-cpp": {
       "status": "planned",

@@ -13,6 +13,7 @@ mlua = { version = "0.9.9", default-features = false, features = [
     "send",
     "vendored",
 ] }
+rquickjs = { version = "0.8.1", default-features = false }
 
 [lints]
 workspace = true

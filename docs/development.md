@@ -33,6 +33,11 @@ Lua runtime tests cover captured stdout/stderr, explicit `arg`/environment/stdin
 inputs, disabled unsafe libraries, UTF-8/source-size validation, memory, and
 instruction limits. The embedded provider intentionally has no host filesystem,
 process, module-loader, or network bridge yet.
+JavaScript runtime tests cover `jsc`, captured `print`/`console`/stream output,
+explicit `process.argv`/environment/stdin inputs, disabled host modules,
+QuickJS memory/stack/instruction bounds, and source/input validation. Its
+`process` object is a small Rune-owned data bridge, not Node.js, and no module
+loader, host filesystem, process, or network bridge is enabled.
 Configuration tests are local-only as well and verify bounded history, font,
 font size, scrollback, toolbar visibility, theme, cursor-color, cursor-shape,
 background, and foreground settings without requiring an Apple
