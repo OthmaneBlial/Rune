@@ -121,6 +121,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: filesystem::ls,
     },
     CommandDefinition {
+        name: "ln",
+        summary: "create a bounded relative symbolic link",
+        handler: filesystem::ln,
+    },
+    CommandDefinition {
         name: "mkdir",
         summary: "create directories",
         handler: filesystem::mkdir,
@@ -134,6 +139,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "pwd",
         summary: "print the current directory",
         handler: shell::pwd,
+    },
+    CommandDefinition {
+        name: "readlink",
+        summary: "read a symbolic link target",
+        handler: filesystem::readlink,
     },
     CommandDefinition {
         name: "pkg",

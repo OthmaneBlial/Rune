@@ -303,6 +303,29 @@ pub(super) fn touch(context: &mut CommandContext<'_>) -> CommandOutput {
     CommandOutput::success("")
 }
 
+pub(super) fn ln(context: &mut CommandContext<'_>) -> CommandOutput {
+    let [flag, target, link] = context.args else {
+        return usage("ln", "usage: ln -s TARGET LINK");
+    };
+    if flag != "-s" && flag != "--symbolic" {
+        return usage("ln", "usage: ln -s TARGET LINK");
+    }
+    context.fs.make_symlink(target, link).map_or_else(
+        |error| fs_failure("ln", &error),
+        |()| CommandOutput::success(""),
+    )
+}
+
+pub(super) fn readlink(context: &mut CommandContext<'_>) -> CommandOutput {
+    let [path] = context.args else {
+        return usage("readlink", "usage: readlink LINK");
+    };
+    context.fs.read_link(path).map_or_else(
+        |error| fs_failure("readlink", &error),
+        |target| CommandOutput::success(format!("{target}\n")),
+    )
+}
+
 pub(super) fn rm(context: &mut CommandContext<'_>) -> CommandOutput {
     let mut recursive = false;
     let mut force = false;

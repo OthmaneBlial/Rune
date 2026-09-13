@@ -9,7 +9,7 @@
 
 use std::fmt::{Display, Formatter};
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 
 /// A file or directory entry exposed to shell commands.
@@ -84,6 +84,11 @@ pub trait VirtualFileSystem {
     fn write(&self, input: &str, content: &[u8], append: bool) -> Result<(), FsError>;
     fn make_directory(&self, input: &str, parents: bool) -> Result<(), FsError>;
     fn touch(&self, input: &str) -> Result<(), FsError>;
+    /// Creates a relative symbolic link whose resolved target stays in Rune's
+    /// sandbox.
+    fn make_symlink(&self, target: &str, link: &str) -> Result<(), FsError>;
+    /// Reads a symbolic link without exposing a path outside the sandbox.
+    fn read_link(&self, input: &str) -> Result<String, FsError>;
     fn remove(&self, input: &str, recursive: bool, force: bool) -> Result<(), FsError>;
     fn copy(&self, source: &str, destination: &str, recursive: bool) -> Result<(), FsError>;
     fn move_path(&self, source: &str, destination: &str) -> Result<(), FsError>;
@@ -270,6 +275,19 @@ fn append_virtual_path(prefix: &str, component: &str) -> String {
     } else {
         format!("{prefix}/{component}")
     }
+}
+
+#[cfg(unix)]
+fn create_symlink(target: &str, link: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(not(unix))]
+fn create_symlink(_target: &str, _link: &Path) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "symbolic links are unavailable on this target",
+    ))
 }
 
 fn wildcard_match(pattern: &str, value: &str) -> bool {
@@ -626,6 +644,45 @@ impl VirtualFileSystem for SandboxedFileSystem {
             .map_err(|error| Self::io_error("touch", Path::new(input), &error))
     }
 
+    fn make_symlink(&self, target: &str, link: &str) -> Result<(), FsError> {
+        if target.is_empty() || target.starts_with('/') || target.starts_with('~') {
+            return Err(FsError::InvalidPath(format!(
+                "symbolic link target must be a relative path: {target}"
+            )));
+        }
+        let link_path = self.resolve_path(link)?;
+        self.no_root_operation(&link_path, "create symbolic link")?;
+        if fs::symlink_metadata(&link_path).is_ok() {
+            return Err(FsError::AlreadyExists(link.to_string()));
+        }
+        Self::parent_is_directory(&link_path, link)?;
+        let parent = link_path
+            .parent()
+            .ok_or_else(|| FsError::InvalidPath(link.to_string()))?;
+        let target_path = parent.join(target);
+        self.ensure_inside(&target_path, target)
+            .map_err(|error| Self::reframe(error, target))?;
+        fs::metadata(&target_path).map_err(|error| {
+            Self::reframe(Self::map_metadata_error(&target_path, &error), target)
+        })?;
+        create_symlink(target, &link_path)
+            .map_err(|error| Self::io_error("create symbolic link", Path::new(link), &error))
+    }
+
+    fn read_link(&self, input: &str) -> Result<String, FsError> {
+        let path = self.resolve_path(input)?;
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| Self::reframe(Self::map_metadata_error(&path, &error), input))?;
+        if !metadata.file_type().is_symlink() {
+            return Err(FsError::InvalidPath(format!(
+                "not a symbolic link: {input}"
+            )));
+        }
+        fs::read_link(&path)
+            .map(|target| target.to_string_lossy().into_owned())
+            .map_err(|error| Self::io_error("read symbolic link", Path::new(input), &error))
+    }
+
     fn remove(&self, input: &str, recursive: bool, force: bool) -> Result<(), FsError> {
         let path = match self.resolve_path(input) {
             Ok(path) => path,
@@ -770,6 +827,26 @@ mod tests {
         fs.change_dir("-").expect("previous directory restored");
         assert_eq!(fs.current_dir_display(), "~");
         fs.remove("work", true, false).expect("directory removed");
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn creates_reads_and_confines_symbolic_links() {
+        let root = test_root();
+        let fs = SandboxedFileSystem::new(&root).expect("root created");
+        fs.touch("target.txt").expect("target created");
+        fs.write("target.txt", b"linked", false)
+            .expect("target written");
+        fs.make_symlink("target.txt", "link.txt")
+            .expect("link created");
+        assert_eq!(fs.read_link("link.txt").expect("link read"), "target.txt");
+        assert!(fs.metadata("link.txt").expect("link metadata").is_symlink);
+        assert_eq!(fs.read("link.txt").expect("link target read"), b"linked");
+        assert!(matches!(
+            fs.make_symlink("../outside.txt", "escape.txt"),
+            Err(FsError::OutsideSandbox(_))
+        ));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

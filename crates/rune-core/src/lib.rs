@@ -798,6 +798,16 @@ mod tests {
         assert_eq!(session.execute_line("cd work").status, 0);
         assert_eq!(session.execute_line("echo hello > note.txt").status, 0);
         assert_eq!(session.execute_line("cat note.txt").stdout, "hello\n");
+        assert_eq!(session.execute_line("ln -s note.txt note-link").status, 0);
+        assert_eq!(
+            session.execute_line("readlink note-link").stdout,
+            "note.txt\n"
+        );
+        assert_eq!(session.execute_line("cat note-link").stdout, "hello\n");
+        assert!(session
+            .execute_line("ln -s ../missing.txt dangling-link")
+            .stderr
+            .contains("no such file or directory"));
         assert_eq!(session.execute_line("pwd").stdout, "~/work\n");
         assert_eq!(session.execute_line("mkdir -p source/nested").status, 0);
         assert_eq!(
