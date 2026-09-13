@@ -5,7 +5,9 @@ use rune_fs::{FsError, VirtualFileSystem};
 const STATE_DIRECTORY: &str = "~/.rune";
 const STATE_PATH: &str = "~/.rune/session.state";
 const STATE_HEADER: &str = "RUNE_SESSION_STATE_V1";
-const HISTORY_LIMIT: usize = 1_000;
+pub(super) const MAX_HISTORY_ENTRIES: usize = 10_000;
+pub(super) const MAX_HISTORY_BYTES: usize = 4 * 1024 * 1024;
+const MAX_SESSION_STATE_BYTES: usize = MAX_HISTORY_BYTES + 256 * 1024;
 pub(super) const PROFILE_PATH: &str = "~/.rune_profile";
 const PROFILE_LIMIT: usize = 64 * 1024;
 
@@ -20,6 +22,9 @@ pub(super) fn load(filesystem: &dyn VirtualFileSystem) -> SessionState {
     let Ok(bytes) = filesystem.read(STATE_PATH) else {
         return SessionState::default();
     };
+    if bytes.len() > MAX_SESSION_STATE_BYTES {
+        return SessionState::default();
+    }
     let Ok(content) = String::from_utf8(bytes) else {
         return SessionState::default();
     };
@@ -72,9 +77,20 @@ fn serialize(
     bookmarks: &BTreeMap<String, String>,
 ) -> String {
     let mut content = format!("{STATE_HEADER}\ncwd={}\n", escape(current_directory));
-    for command in history.iter().rev().take(HISTORY_LIMIT).rev() {
+    let mut persisted_history = Vec::new();
+    let mut history_bytes = 0_usize;
+    for command in history.iter().rev().take(MAX_HISTORY_ENTRIES) {
+        let escaped = escape(command);
+        let record_bytes = "history=".len() + escaped.len() + 1;
+        if history_bytes.saturating_add(record_bytes) > MAX_HISTORY_BYTES {
+            break;
+        }
+        history_bytes += record_bytes;
+        persisted_history.push(escaped);
+    }
+    for escaped in persisted_history.iter().rev() {
         content.push_str("history=");
-        content.push_str(&escape(command));
+        content.push_str(escaped);
         content.push('\n');
     }
     for (name, path) in bookmarks {
@@ -88,18 +104,27 @@ fn serialize(
 }
 
 fn parse(content: &str) -> Option<SessionState> {
+    if content.len() > MAX_SESSION_STATE_BYTES {
+        return None;
+    }
     let mut lines = content.lines();
     if lines.next()? != STATE_HEADER {
         return None;
     }
     let mut state = SessionState::default();
+    let mut history_bytes = 0_usize;
     for line in lines {
         let (key, raw_value) = line.split_once('=')?;
         match key {
             "cwd" if state.current_directory.is_none() => {
                 state.current_directory = Some(unescape(raw_value)?);
             }
-            "history" if state.history.len() < HISTORY_LIMIT => {
+            "history" if state.history.len() < MAX_HISTORY_ENTRIES => {
+                let record_bytes = "history=".len() + raw_value.len() + 1;
+                if history_bytes.saturating_add(record_bytes) > MAX_HISTORY_BYTES {
+                    return None;
+                }
+                history_bytes += record_bytes;
                 state.history.push(unescape(raw_value)?);
             }
             "bookmark" => {
@@ -115,6 +140,28 @@ fn parse(content: &str) -> Option<SessionState> {
         }
     }
     Some(state)
+}
+
+pub(super) fn apply_history_limit(history: &mut Vec<String>, max_entries: usize) {
+    let max_entries = max_entries.min(MAX_HISTORY_ENTRIES);
+    if history.len() > max_entries {
+        let excess = history.len() - max_entries;
+        history.drain(0..excess);
+    }
+
+    let mut retained_bytes = 0_usize;
+    let mut keep_from = history.len();
+    for (index, command) in history.iter().enumerate().rev() {
+        let record_bytes = "history=".len() + escape(command).len() + 1;
+        if retained_bytes.saturating_add(record_bytes) > MAX_HISTORY_BYTES {
+            break;
+        }
+        retained_bytes += record_bytes;
+        keep_from = index;
+    }
+    if keep_from > 0 {
+        history.drain(0..keep_from);
+    }
 }
 
 fn is_valid_bookmark_name(name: &str) -> bool {
@@ -150,7 +197,7 @@ fn unescape(value: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse, serialize};
+    use super::{parse, serialize, MAX_HISTORY_BYTES};
     use std::collections::BTreeMap;
 
     #[test]
@@ -176,5 +223,17 @@ mod tests {
             parse("RUNE_SESSION_STATE_V1\nbookmark=project\t~\nbookmark=project\t~/work\n")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn bounds_serialized_history_by_bytes() {
+        let commands = (0..2_000)
+            .map(|index| format!("echo {}", "x".repeat(4_096 + index % 8)))
+            .collect::<Vec<_>>();
+        let content = serialize("~", &commands, &BTreeMap::new());
+        assert!(content.len() <= MAX_HISTORY_BYTES + 64);
+        let state = parse(&content).expect("bounded state should remain valid");
+        assert!(state.history.len() < commands.len());
+        assert_eq!(state.history.last(), commands.last());
     }
 }

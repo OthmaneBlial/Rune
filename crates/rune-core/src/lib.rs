@@ -207,6 +207,7 @@ impl Session {
         let state = persistence::load(session.filesystem.as_ref());
         session.load_startup_profile();
         session.history = state.history;
+        session.apply_history_limit();
         session.bookmarks = state.bookmarks;
         if let Some(directory) = state.current_directory {
             let _ = session.filesystem.change_dir(&directory);
@@ -452,10 +453,7 @@ impl Session {
         }
         if record_history {
             self.history.push(history_entry(line));
-            if self.history.len() > self.history_limit {
-                let excess = self.history.len() - self.history_limit;
-                self.history.drain(0..excess);
-            }
+            persistence::apply_history_limit(&mut self.history, self.history_limit);
         }
 
         let plan = match parse(line) {
@@ -655,11 +653,7 @@ impl Session {
 
     fn apply_history_limit(&mut self) {
         self.history_limit = self.config.history_limit();
-        if self.history.len() <= self.history_limit {
-            return;
-        }
-        let excess = self.history.len() - self.history_limit;
-        self.history.drain(0..excess);
+        persistence::apply_history_limit(&mut self.history, self.history_limit);
     }
 
     fn find_installed_command(&self, name: &str) -> Result<Option<InstalledCommand>, FsError> {
@@ -923,8 +917,8 @@ fn package_runtime_failure(command: &str, error: &rune_package::PackageError) ->
 #[cfg(test)]
 mod tests {
     use super::{
-        Session, MAX_COMMAND_INPUT_BYTES, MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES,
-        OUTPUT_TRUNCATION_MARKER,
+        persistence::MAX_HISTORY_BYTES, Session, MAX_COMMAND_INPUT_BYTES, MAX_OUTPUT_BYTES,
+        MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES, OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -1193,6 +1187,41 @@ mod tests {
         assert!(output.stderr.contains("command line exceeds"));
         assert!(session.history().is_empty());
         assert_eq!(session.last_status(), 2);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn bounds_total_history_storage_even_when_record_limit_is_large() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(
+            session
+                .execute_line("config set history-limit 10000")
+                .status,
+            0
+        );
+
+        let long_command = format!("true {}", "x".repeat(MAX_COMMAND_INPUT_BYTES - 5));
+        let repetitions = MAX_HISTORY_BYTES / long_command.len() + 2;
+        for _ in 0..repetitions {
+            assert_eq!(session.execute_line(&long_command).status, 2);
+        }
+
+        let stored_bytes: usize = session
+            .history()
+            .iter()
+            .map(|command| "history=".len() + command.len() + 1)
+            .sum();
+        assert!(stored_bytes <= MAX_HISTORY_BYTES);
+        assert!(session.history().len() < repetitions + 1);
+        session.persist().expect("bounded history persisted");
+        assert!(
+            std::fs::metadata(root.join(".rune/session.state"))
+                .expect("session state exists")
+                .len()
+                <= u64::try_from(MAX_HISTORY_BYTES + 64).expect("history size fits in u64")
+        );
+
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
