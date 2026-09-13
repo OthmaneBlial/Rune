@@ -2099,6 +2099,7 @@ mod tests {
         std::fs::write(root.join("nested.rc"), b"echo nested\n").expect("nested file written");
         std::fs::write(root.join("args.rc"), b"echo $0 $1 $2 $# $@\n")
             .expect("argument script written");
+        std::fs::write(root.join("stdin.rc"), b"cat -\n").expect("stdin script written");
         std::fs::write(
             root.join("outer.rc"),
             b"source args.rc inner\necho outer:$1\n",
@@ -2121,6 +2122,9 @@ mod tests {
         let with_arguments = session.execute_line("source args.rc alpha beta");
         assert_eq!(with_arguments.status, 0);
         assert_eq!(with_arguments.stdout, "args.rc alpha beta 2 alpha beta\n");
+        let sourced_stdin = session.execute_line("echo piped | source stdin.rc");
+        assert_eq!(sourced_stdin.status, 0);
+        assert_eq!(sourced_stdin.stdout, "piped\n");
         let nested_arguments = session.execute_line("source outer.rc parent");
         assert_eq!(nested_arguments.status, 0);
         assert_eq!(
