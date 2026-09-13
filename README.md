@@ -72,9 +72,9 @@ whole-file unified view, returning status 0 when equal, 1 when different, and
 ordering with `-r`, and adjacent-result deduplication with `-u`.
 `awk` provides a Rust-owned bounded text-processing subset: `-F` field
 separators, `$0`/`$1...`, `NF`/`NR`/`FNR`, `print`, `FS`/`OFS` assignments,
-`BEGIN`/`END`, literal `/text/` filters, simple equality, and literal
-contains/not-contains predicates. It accepts UTF-8 stdin or confined files,
-and does not execute arbitrary awk code or regular expressions.
+`BEGIN`/`END`, regular-expression `/.../` filters, simple equality, and
+regex-aware `~`/`!~` predicates. It accepts UTF-8 stdin or confined files and
+does not execute arbitrary awk code.
 Command substitutions execute through the same Rust planner with a bounded
 nesting depth; their stdout loses trailing newlines, shell state is isolated,
 and filesystem writes remain real VFS writes.

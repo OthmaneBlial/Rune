@@ -1,3 +1,5 @@
+use regex::Regex;
+
 use crate::{fs_failure, usage, CommandContext, CommandOutput};
 
 const MAX_AWK_PROGRAM_BYTES: usize = 16 * 1024;
@@ -6,6 +8,7 @@ const MAX_AWK_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_AWK_LINES: usize = 10_000;
 const MAX_AWK_RULES: usize = 64;
 const MAX_AWK_STATEMENTS: usize = 64;
+const MAX_AWK_REGEX_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Clone)]
 struct Rule {
@@ -18,12 +21,18 @@ enum Pattern {
     Always,
     Begin,
     End,
-    Contains(String),
+    Regex(Regex),
     Comparison {
         value: ValueRef,
         operator: Comparison,
-        right: String,
+        right: PatternValue,
     },
+}
+
+#[derive(Debug, Clone)]
+enum PatternValue {
+    Literal(String),
+    Regex(Regex),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -248,7 +257,7 @@ fn parse_pattern(pattern: &str) -> Result<Pattern, String> {
         return Ok(Pattern::End);
     }
     if pattern.starts_with('/') && pattern.ends_with('/') && pattern.len() >= 2 {
-        return Ok(Pattern::Contains(pattern[1..pattern.len() - 1].to_string()));
+        return Ok(Pattern::Regex(parse_regex_literal(pattern)?));
     }
     for (operator_text, operator) in [
         ("!~", Comparison::DoesNotContain),
@@ -258,7 +267,10 @@ fn parse_pattern(pattern: &str) -> Result<Pattern, String> {
     ] {
         if let Some(index) = pattern.find(operator_text) {
             let left = parse_value_ref(pattern[..index].trim())?;
-            let right = parse_pattern_value(pattern[index + operator_text.len()..].trim())?;
+            let right = parse_pattern_value(
+                pattern[index + operator_text.len()..].trim(),
+                matches!(operator, Comparison::Contains | Comparison::DoesNotContain),
+            )?;
             return Ok(Pattern::Comparison {
                 value: left,
                 operator,
@@ -266,14 +278,47 @@ fn parse_pattern(pattern: &str) -> Result<Pattern, String> {
             });
         }
     }
-    Err("unsupported pattern; use /text/, FIELD == VALUE, or FIELD ~ /text/".to_string())
+    Err("unsupported pattern; use /regex/, FIELD == VALUE, or FIELD ~ /regex/".to_string())
 }
 
-fn parse_pattern_value(value: &str) -> Result<String, String> {
-    if value.starts_with('/') && value.ends_with('/') && value.len() >= 2 {
-        return Ok(value[1..value.len() - 1].to_string());
+fn parse_pattern_value(value: &str, regex_allowed: bool) -> Result<PatternValue, String> {
+    if regex_allowed && value.starts_with('/') && value.ends_with('/') && value.len() >= 2 {
+        return Ok(PatternValue::Regex(parse_regex_literal(value)?));
     }
-    parse_literal(value)
+    if value.starts_with('/') && value.ends_with('/') && value.len() >= 2 {
+        return Ok(PatternValue::Literal(value[1..value.len() - 1].to_string()));
+    }
+    parse_literal(value).map(PatternValue::Literal)
+}
+
+fn parse_regex_literal(value: &str) -> Result<Regex, String> {
+    let body = &value[1..value.len() - 1];
+    if body.len() > MAX_AWK_REGEX_BYTES {
+        return Err(format!(
+            "regular expression exceeds the {MAX_AWK_REGEX_BYTES}-byte limit"
+        ));
+    }
+    let mut pattern = String::with_capacity(body.len());
+    let mut escaped = false;
+    for character in body.chars() {
+        if escaped {
+            if character == '/' {
+                pattern.push('/');
+            } else {
+                pattern.push('\\');
+                pattern.push(character);
+            }
+            escaped = false;
+        } else if character == '\\' {
+            escaped = true;
+        } else {
+            pattern.push(character);
+        }
+    }
+    if escaped {
+        pattern.push('\\');
+    }
+    Regex::new(&pattern).map_err(|error| format!("invalid regular expression: {error}"))
 }
 
 fn parse_value_ref(value: &str) -> Result<ValueRef, String> {
@@ -345,7 +390,7 @@ fn execute_rules(
             | (Pattern::End, ExecutionPhase::End, None) => true,
             (Pattern::Begin | Pattern::End, _, _) => false,
             (pattern, ExecutionPhase::Record, record) => pattern_matches(pattern, record),
-            (Pattern::Always | Pattern::Comparison { .. } | Pattern::Contains(_), _, _) => false,
+            (Pattern::Always | Pattern::Comparison { .. } | Pattern::Regex(_), _, _) => false,
         };
         if matches {
             execute_statements(&rule.statements, runtime, record)?;
@@ -359,7 +404,7 @@ fn pattern_matches(pattern: &Pattern, record: Option<&Record>) -> bool {
     match pattern {
         Pattern::Always => true,
         Pattern::Begin | Pattern::End => false,
-        Pattern::Contains(value) => record.line.contains(value),
+        Pattern::Regex(regex) => regex.is_match(&record.line),
         Pattern::Comparison {
             value,
             operator,
@@ -367,12 +412,23 @@ fn pattern_matches(pattern: &Pattern, record: Option<&Record>) -> bool {
         } => {
             let left = value_of(*value, record);
             match operator {
-                Comparison::Equal => left == *right,
-                Comparison::NotEqual => left != *right,
-                Comparison::Contains => left.contains(right),
-                Comparison::DoesNotContain => !left.contains(right),
+                Comparison::Equal => {
+                    matches!(right, PatternValue::Literal(value) if left == *value)
+                }
+                Comparison::NotEqual => {
+                    !matches!(right, PatternValue::Literal(value) if left == *value)
+                }
+                Comparison::Contains => matches_pattern_value(&left, right),
+                Comparison::DoesNotContain => !matches_pattern_value(&left, right),
             }
         }
+    }
+}
+
+fn matches_pattern_value(value: &str, pattern: &PatternValue) -> bool {
+    match pattern {
+        PatternValue::Literal(pattern) => value.contains(pattern),
+        PatternValue::Regex(regex) => regex.is_match(value),
     }
 }
 

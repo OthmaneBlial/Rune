@@ -264,9 +264,9 @@ oversized comparisons before the table is allocated.
 
 `awk` is a Rust-owned field-processing subset. It supports one-character or
 whitespace `FS`, `OFS`, `$0`/`$1...`, `NF`/`NR`/`FNR`, `print`, `BEGIN`/`END`,
-literal line filters, and simple equality or contains predicates. Programs,
-UTF-8 input, output, rules, and statements are bounded; arbitrary awk code and
-regular-expression evaluation are intentionally outside this boundary.
+regular-expression line filters, simple equality, and regex-aware `~`/`!~`
+predicates. Programs, regexes, UTF-8 input, output, rules, and statements are
+bounded; arbitrary awk code remains outside this boundary.
 
 The `find` built-in walks the same virtual filesystem through `metadata` and
 `list`; it never traverses the host root directly. Its initial surface supports

@@ -2951,10 +2951,20 @@ mod tests {
         assert_eq!(selected.status, 0);
         assert_eq!(selected.stdout, "ok:red\n");
 
+        let regex = session.execute_line("awk -F, '$1 ~ /^o/ { print $1 }' rows.csv");
+        assert_eq!(regex.status, 0);
+        assert_eq!(regex.stdout, "ok\n");
+        let record_regex = session.execute_line("awk '/^skip/ { print $1 }' rows.csv");
+        assert_eq!(record_regex.status, 0);
+        assert_eq!(record_regex.stdout, "skip,2,blue\n");
+
         let ended = session.execute_line("awk 'END { print \"done\" }' rows.csv");
         assert_eq!(ended.status, 0);
         assert_eq!(ended.stdout, "done\n");
         assert_eq!(session.execute_line("awk -F, 'next' rows.csv").status, 2);
+        let invalid_regex = session.execute_line("awk '/[/{ print }' rows.csv");
+        assert_eq!(invalid_regex.status, 2);
+        assert!(invalid_regex.stderr.contains("invalid regular expression"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
