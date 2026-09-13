@@ -33,9 +33,9 @@ working iOS application or a feature-parity claim.
 ## Current status
 
 The first Rust vertical slice is implemented and locally verified. It executes
-the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `cksum`, `curl`, `echo`, `expr`, `jsc`, `lua`, `python3`, `md5`, `mkdir`,
+the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `cksum`, `curl`, `date`, `echo`, `expr`, `jsc`, `lua`, `python3`, `md5`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
-`setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `unlink`, `tee`, `tr`, `xxd`,
+`setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
 `true`, `false`, `cut`, `head`, `tail`, `grep`, `sort`, `uniq`, `wc`, `wasm`, `pkg`, `tar`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
@@ -70,8 +70,12 @@ semantics for pipelines and captured stdout/stderr.
 `base64` encodes stdin or one confined file and decodes strict standard Base64
 back to UTF-8, with a 768 KiB input bound and explicit errors for malformed or
 non-text decoded data.
-`cksum` computes the POSIX CRC checksum for one bounded VFS file or stdin,
+`date` prints the current local or UTC time using a bounded Rust-owned format
+surface; clock-setting and platform-specific date parsing are intentionally not
+exposed. `cksum` computes the POSIX CRC checksum for one bounded VFS file or stdin,
 including the input length in its stable two-field output.
+`sum` computes bounded BSD-style checksums by default and the bounded System V
+variant with `-s`; it is a compatibility utility, not a cryptographic digest.
 `md5` computes the standard MD5 digest for one bounded VFS file or stdin for
 legacy compatibility workflows; it is not a security primitive.
 `expr` evaluates bounded integer arithmetic and comparisons, plus `length`,

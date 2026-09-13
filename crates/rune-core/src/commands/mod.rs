@@ -56,6 +56,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: utilities::cksum,
     },
     CommandDefinition {
+        name: "date",
+        summary: "print a bounded current date/time view",
+        handler: utilities::date,
+    },
+    CommandDefinition {
         name: "cd",
         summary: "change the current directory",
         handler: filesystem::cd,
@@ -259,6 +264,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "sort",
         summary: "sort input lines",
         handler: text::sort,
+    },
+    CommandDefinition {
+        name: "sum",
+        summary: "print a bounded BSD or System V checksum",
+        handler: utilities::sum,
     },
     CommandDefinition {
         name: "sleep",

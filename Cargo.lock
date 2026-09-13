@@ -1348,6 +1348,7 @@ dependencies = [
 name = "rune-core"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "rune-fs",
  "rune-package",
  "rune-runtime",

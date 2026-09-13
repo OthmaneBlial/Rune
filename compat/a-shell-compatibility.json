@@ -16,7 +16,7 @@
   ],
   "comparison_states": ["verified", "pending", "not-started"],
   "policy": "A status becomes supported only after direct reference behavior and Rune regression tests exist. Partial means a bounded Rune subset is implemented; it is not a parity claim.",
-  "last_reviewed": "2026-09-13",
+  "last_reviewed": "2026-09-14",
   "areas": {
     "shell": {
       "status": "partial",
@@ -25,7 +25,7 @@
     },
     "commands": {
       "status": "partial",
-      "rune_evidence": ["crates/rune-core/src/commands/mod.rs", "crates/rune-core/src/commands/shell.rs", "crates/rune-core/src/commands/text.rs", "crates/rune-core/src/lib.rs", "crates/rune-ffi/src/lib.rs"],
+      "rune_evidence": ["crates/rune-core/src/commands/mod.rs", "crates/rune-core/src/commands/shell.rs", "crates/rune-core/src/commands/text.rs", "crates/rune-core/src/commands/utilities.rs", "crates/rune-core/src/lib.rs", "crates/rune-ffi/src/lib.rs"],
       "reference_comparison": "pending"
     },
     "filesystem": {

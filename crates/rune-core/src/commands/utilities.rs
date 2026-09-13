@@ -1,5 +1,7 @@
 use std::fmt::Write as _;
 
+use chrono::{DateTime, Local, Utc};
+
 use crate::{fs_failure, usage, CommandContext, CommandOutput};
 use rune_package::sha256_hex;
 
@@ -7,6 +9,8 @@ const MAX_HEXDUMP_INPUT: usize = 256 * 1024;
 const MAX_BASE64_INPUT: usize = 768 * 1024;
 const MAX_CKSUM_INPUT: usize = 16 * 1024 * 1024;
 const MAX_MD5_INPUT: usize = 16 * 1024 * 1024;
+const MAX_SUM_INPUT: usize = 16 * 1024 * 1024;
+const MAX_DATE_FORMAT_BYTES: usize = 1024;
 const MAX_DISK_USAGE_ENTRIES: usize = 10_000;
 const MAX_EXPR_ARGUMENTS: usize = 64;
 const MAX_EXPR_TEXT_BYTES: usize = 64 * 1024;
@@ -168,6 +172,119 @@ pub(super) fn cksum(context: &mut CommandContext<'_>) -> CommandOutput {
         );
     }
     CommandOutput::success(format!("{} {}\n", posix_cksum(&bytes), bytes.len()))
+}
+
+pub(super) fn date(context: &mut CommandContext<'_>) -> CommandOutput {
+    let mut utc = false;
+    let mut format = None;
+    let mut parse_options = true;
+    for argument in context.args {
+        if parse_options && argument == "--" {
+            parse_options = false;
+        } else if parse_options && matches!(argument.as_str(), "-u" | "--utc") {
+            utc = true;
+        } else if (parse_options && argument.starts_with('-'))
+            || format.is_some()
+            || !argument.starts_with('+')
+        {
+            return usage("date", "usage: date [-u|--utc] [+FORMAT]");
+        } else {
+            let value = &argument[1..];
+            if value.len() > MAX_DATE_FORMAT_BYTES {
+                return CommandOutput::failure(
+                    1,
+                    format!("date: format exceeds {MAX_DATE_FORMAT_BYTES} bytes\n"),
+                );
+            }
+            format = Some(value);
+        }
+    }
+
+    let output = if utc {
+        format_date(&Utc::now(), format)
+    } else {
+        format_date(&Local::now(), format)
+    };
+    CommandOutput::success(format!("{output}\n"))
+}
+
+fn format_date<T>(date: &DateTime<T>, format: Option<&str>) -> String
+where
+    T: chrono::TimeZone,
+    T::Offset: std::fmt::Display,
+{
+    date.format(format.unwrap_or("%a %b %e %H:%M:%S %Z %Y"))
+        .to_string()
+}
+
+pub(super) fn sum(context: &mut CommandContext<'_>) -> CommandOutput {
+    let mut system_v = false;
+    let mut paths = Vec::new();
+    let mut parse_options = true;
+    for argument in context.args {
+        if parse_options && argument == "--" {
+            parse_options = false;
+        } else if parse_options && argument == "-s" {
+            system_v = true;
+        } else if parse_options && argument == "-r" {
+            system_v = false;
+        } else if parse_options && argument.starts_with('-') {
+            return usage("sum", "usage: sum [-r|-s] [--] [FILE ...]");
+        } else {
+            paths.push(argument.as_str());
+        }
+    }
+    if paths.is_empty() {
+        paths.push("-");
+    }
+
+    let mut output = String::new();
+    for path in paths {
+        let bytes = if path == "-" {
+            context.stdin.as_bytes().to_vec()
+        } else {
+            match context.fs.read(path) {
+                Ok(bytes) => bytes,
+                Err(error) => return fs_failure("sum", &error),
+            }
+        };
+        if bytes.len() > MAX_SUM_INPUT {
+            return CommandOutput::failure(
+                1,
+                format!("sum: input exceeds {MAX_SUM_INPUT} bytes\n"),
+            );
+        }
+        let checksum = if system_v {
+            system_v_sum(&bytes)
+        } else {
+            bsd_sum(&bytes)
+        };
+        let blocks = if system_v {
+            bytes.len().saturating_add(511) / 512
+        } else {
+            bytes.len().saturating_add(1023) / 1024
+        };
+        if path == "-" && context.args.len() <= 2 {
+            let _ = writeln!(output, "{checksum} {blocks}");
+        } else {
+            let _ = writeln!(output, "{checksum} {blocks} {path}");
+        }
+    }
+    CommandOutput::success(output)
+}
+
+fn bsd_sum(bytes: &[u8]) -> u16 {
+    bytes.iter().fold(0_u16, |checksum, byte| {
+        checksum.rotate_right(1).wrapping_add(u16::from(*byte))
+    })
+}
+
+fn system_v_sum(bytes: &[u8]) -> u16 {
+    let checksum = bytes
+        .iter()
+        .fold(0_u32, |checksum, byte| checksum + u32::from(*byte));
+    u16::try_from(((checksum & 0xffff) + (checksum >> 16)) & u32::from(u16::MAX))
+        .unwrap_or_default()
 }
 
 pub(super) fn md5(context: &mut CommandContext<'_>) -> CommandOutput {

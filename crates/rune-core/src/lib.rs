@@ -4109,6 +4109,21 @@ mod tests {
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
         assert_eq!(session.execute_line("echo -n ready").stdout, "ready");
         assert_eq!(session.execute_line("sleep 0").status, 0);
+        let date = session.execute_line("date -u +%Y-%m-%d");
+        assert_eq!(date.status, 0);
+        assert_eq!(date.stdout.len(), 11);
+        assert!(date.stdout.ends_with('\n'));
+        assert!(date.stdout.as_bytes()[0..4].iter().all(u8::is_ascii_digit));
+        assert_eq!(&date.stdout[4..5], "-");
+        assert!(date.stdout.as_bytes()[5..7].iter().all(u8::is_ascii_digit));
+        assert_eq!(&date.stdout[7..8], "-");
+        assert!(date.stdout.as_bytes()[8..10].iter().all(u8::is_ascii_digit));
+        assert_eq!(session.execute_line("printf abc | sum").stdout, "16556 1\n");
+        assert_eq!(
+            session.execute_line("printf abc | sum -s").stdout,
+            "294 1\n"
+        );
+        assert_eq!(session.execute_line("sum --bad").status, 2);
         assert_eq!(session.execute_line("sleep 301").status, 2);
         assert_eq!(session.execute_line("sleep nope").status, 2);
         assert_eq!(
