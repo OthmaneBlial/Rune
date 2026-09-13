@@ -83,6 +83,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::clear,
     },
     CommandDefinition {
+        name: "compress",
+        summary: "compress bounded VFS files with LZW",
+        handler: compression::compress,
+    },
+    CommandDefinition {
         name: "cp",
         summary: "copy files or bounded directory trees",
         handler: filesystem::cp,
@@ -366,6 +371,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "unzip",
         summary: "extract bounded uncompressed ZIP archives",
         handler: archive::unzip,
+    },
+    CommandDefinition {
+        name: "uncompress",
+        summary: "decompress bounded .Z files with LZW",
+        handler: compression::uncompress,
     },
     CommandDefinition {
         name: "unlink",

@@ -68,6 +68,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "cd"
             | "cksum"
             | "cp"
+            | "compress"
             | "cut"
             | "curl"
             | "diff"
@@ -100,6 +101,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "tee"
             | "touch"
             | "unzip"
+            | "uncompress"
             | "unlink"
             | "wasm"
             | "xxd"
@@ -2604,6 +2606,31 @@ mod tests {
 
         assert_eq!(session.execute_line("gzip -c note.txt").status, 2);
         assert_eq!(session.execute_line("gunzip note.txt").status, 1);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn compresses_and_decompresses_bounded_lzw_files() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let source: Vec<u8> = (0_usize..20_000)
+            .map(|index| u8::try_from(index % 251).expect("pattern fits in a byte"))
+            .collect();
+        std::fs::write(root.join("payload.bin"), &source).expect("source written");
+
+        let compressed = session.execute_line("compress payload.bin");
+        assert_eq!(compressed.status, 0);
+        assert!(compressed.stdout.contains("payload.bin -> payload.bin.Z"));
+        assert!(root.join("payload.bin.Z").exists());
+        assert_eq!(session.execute_line("rm payload.bin").status, 0);
+
+        let decompressed = session.execute_line("uncompress payload.bin.Z");
+        assert_eq!(decompressed.status, 0, "{decompressed:?}");
+        assert_eq!(
+            std::fs::read(root.join("payload.bin")).expect("output read"),
+            source
+        );
+        assert_eq!(session.execute_line("uncompress payload.bin").status, 1);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

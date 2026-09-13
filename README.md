@@ -37,7 +37,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
 `setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
-`true`, `false`, `awk`, `cut`, `head`, `tail`, `grep`, `gzip`, `gunzip`, `sort`, `uniq`, `wc`, `wasm`, `pkg`, `tar`,
+`true`, `false`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
 `help`, `history`, `sleep`, `uname`, `which`, `whoami`, `pbcopy`, `pbpaste`,
 `source`, and `.` against a
@@ -167,8 +167,8 @@ For the three-root Apple layout, WASI receives `/` for Documents/home and
 explicit `/Library` and `/tmp` preopens; single-root and external-folder
 sessions receive only `/`. No arbitrary guest preopen is inherited.
 ZIP compression methods, broader WASI resource policy, and the broader Python
-stdlib/package surface remain planned; gzip file transforms are implemented as
-a separate bounded Rust command layer.
+stdlib/package surface remain planned; `.gz` and `.Z` file transforms are
+implemented as separate bounded Rust command layers.
 
 The package flow supports `pkg info MANIFEST|NAME [VERSION]`, `pkg verify
 MANIFEST`, `pkg install MANIFEST`, `pkg update MANIFEST`, `pkg list`, `pkg search
@@ -198,12 +198,12 @@ eventual native target; URLSession, ATS, transport, and device behavior remain
 unverified without an Apple runtime.
 
 The Rust core also provides bounded zip -r ARCHIVE FILE ..., unzip ARCHIVE
-[DESTINATION], tar -cf/-tf/-xf ARCHIVE, gzip FILE ..., and gunzip FILE.gz ...
-commands. ZIP uses stored ZIP32 entries through the VFS and verifies CRC32
-before extraction. Tar uses UTF-8 USTAR entries with long names split across
-the standard name/prefix fields. Gzip is a file-to-file Rust backend: it keeps
-the source, refuses binary stdin/stdout mode and refuses to overwrite
-destinations, and caps both
+[DESTINATION], tar -cf/-tf/-xf ARCHIVE, gzip FILE ..., gunzip FILE.gz ...,
+compress FILE ..., and uncompress FILE.Z ... commands. ZIP uses stored ZIP32
+entries through the VFS and verifies CRC32 before extraction. Tar uses UTF-8
+USTAR entries with long names split across the standard name/prefix fields.
+Gzip and `.Z` LZW are file-to-file Rust backends: they keep the source, refuse
+binary stdin/stdout mode and refuse to overwrite destinations, and cap both
 input and decompressed output at 64 MiB. These commands reject absolute or
 parent-traversal archive names, links, unsupported entry types, and archives
 above 64 MiB or 10,000 entries. ZIP compression methods, ZIP64, PAX
@@ -408,7 +408,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded package metadata, integrity, local WASM installation, and local update
 - [x] Portable runtime request/output contract
 - [x] Bounded Rust-owned history, font, font-size, scrollback, toolbar-visible, theme, cursor-color, cursor-shape, background, and foreground configuration
-- [x] Bounded stored ZIP/USTAR tar and gzip file transforms with path validation
+- [x] Bounded stored ZIP/USTAR tar and gzip/.Z file transforms with path validation
 - [x] Explicit host HTTP capability and bounded `curl` transport boundary
 - [x] Bounded HTTPS registry index, remote search, and explicit-version update policy
 - [x] Bounded Python subset runtime evaluation

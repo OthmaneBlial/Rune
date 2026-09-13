@@ -374,10 +374,10 @@ absolute paths, and dot or parent components, then verifies each local entry's
 name, bounds, and CRC. USTAR extraction verifies header checksums, rejects
 absolute or parent paths, duplicate names, links, device nodes, and unsupported
 extensions before writing into the confined destination. The separate gzip
-command layer uses the Rust flate2 backend for bounded file-to-file transforms,
-preserving sources and refusing overwrites or binary stdout. ZIP64, ZIP
-compression methods, PAX extensions, and broad external compatibility are not
-claimed.
+command layer uses the Rust flate2 backend, while `compress`/`uncompress` use a
+bounded 9-bit block-mode LZW `.Z` profile. Both are file-to-file transforms that
+preserve sources and refuse overwrites or binary stdout. ZIP64, ZIP compression
+methods, PAX extensions, and broad external compatibility are not claimed.
 The `pkg info` and `pkg verify` built-ins expose only local manifest inspection
 and verification through the VFS. `pkg info NAME [VERSION]` can also resolve
 an installed manifest, but refuses an unversioned lookup when multiple
