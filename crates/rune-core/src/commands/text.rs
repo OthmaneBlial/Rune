@@ -594,12 +594,16 @@ fn append_diff_line(output: &mut String, prefix: char, line: &str) {
 }
 
 pub(super) fn sed(context: &mut CommandContext<'_>) -> CommandOutput {
-    let (suppress_default, script, paths) = match parse_sed_args(context.args) {
+    let (suppress_default, scripts, paths) = match parse_sed_args(context.args) {
         Ok(parsed) => parsed,
         Err(output) => return output,
     };
-    let script = match parse_substitution(&script) {
-        Ok(script) => script,
+    let scripts = match scripts
+        .iter()
+        .map(|script| parse_substitution(script))
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(scripts) => scripts,
         Err(message) => return usage("sed", &message),
     };
     let text = match read_inputs(context, "sed", &paths) {
@@ -612,13 +616,21 @@ pub(super) fn sed(context: &mut CommandContext<'_>) -> CommandOutput {
             line.strip_suffix('\r')
                 .map_or((line, "\n"), |line| (line, "\r\n"))
         });
-        let (transformed, matched) = apply_substitution(body, &script);
+        let mut transformed = body.to_string();
+        let mut prints = Vec::new();
+        for script in &scripts {
+            let (next, matched) = apply_substitution(&transformed, script);
+            transformed = next;
+            if script.print_on_match && matched {
+                prints.push(transformed.clone());
+            }
+        }
         if !suppress_default {
             stdout.push_str(&transformed);
             stdout.push_str(ending);
         }
-        if script.print_on_match && matched {
-            stdout.push_str(&transformed);
+        for printed in prints {
+            stdout.push_str(&printed);
             stdout.push_str(ending);
         }
     }
@@ -790,21 +802,64 @@ struct Substitution {
     print_on_match: bool,
 }
 
-fn parse_sed_args(args: &[String]) -> Result<(bool, String, Vec<String>), CommandOutput> {
+fn parse_sed_args(args: &[String]) -> Result<(bool, Vec<String>, Vec<String>), CommandOutput> {
     let mut suppress_default = false;
+    let mut scripts = Vec::new();
+    let mut paths = Vec::new();
+    let mut parse_options = true;
+    let mut expression_option_seen = false;
+    let mut positional_script_seen = false;
     let mut index = 0;
-    if args.first().is_some_and(|argument| argument == "-n") {
-        suppress_default = true;
+    while index < args.len() {
+        let argument = &args[index];
+        if parse_options && argument == "--" {
+            parse_options = false;
+        } else if parse_options && argument == "-n" {
+            suppress_default = true;
+        } else if parse_options && matches!(argument.as_str(), "-e" | "--expression") {
+            index += 1;
+            let Some(script) = args.get(index) else {
+                return Err(sed_usage());
+            };
+            scripts.push(script.clone());
+            expression_option_seen = true;
+        } else if parse_options && argument.starts_with("--expression=") {
+            let script = argument.trim_start_matches("--expression=");
+            if script.is_empty() {
+                return Err(sed_usage());
+            }
+            scripts.push(script.to_string());
+            expression_option_seen = true;
+        } else if parse_options && argument.starts_with("-e") {
+            let script = &argument[2..];
+            if script.is_empty() {
+                return Err(sed_usage());
+            }
+            scripts.push(script.to_string());
+            expression_option_seen = true;
+        } else if parse_options && argument.starts_with('-') {
+            return Err(sed_usage());
+        } else if !expression_option_seen && !positional_script_seen {
+            scripts.push(argument.clone());
+            positional_script_seen = true;
+            parse_options = false;
+        } else {
+            parse_options = false;
+            paths.push(argument.clone());
+        }
         index += 1;
     }
-    let Some(script) = args.get(index) else {
-        return Err(usage(
-            "sed",
-            "usage: sed [-n] 's/PATTERN/REPLACEMENT/[gp]' [file ...]",
-        ));
-    };
-    let paths = args[index + 1..].to_vec();
-    Ok((suppress_default, script.clone(), paths))
+    if scripts.is_empty() {
+        return Err(sed_usage());
+    }
+    Ok((suppress_default, scripts, paths))
+}
+
+fn sed_usage() -> CommandOutput {
+    usage(
+        "sed",
+        "usage: sed [-n] [-e 's/PATTERN/REPLACEMENT/[gp]'] ... [file ...]",
+    )
 }
 
 fn parse_substitution(script: &str) -> Result<Substitution, String> {

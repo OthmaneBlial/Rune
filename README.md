@@ -53,10 +53,10 @@ prints metadata exposed by the VFS and does not invent POSIX permissions or
 timestamps.
 Assignments are expanded left-to-right, remain session-local, and can also be
 issued without a command.
-The text pipeline also supports a bounded regular-expression `sed` substitution
-surface: `s///` with optional `g`/`p` flags and `-n`, plus `&`, `$1`, and `\1`
-replacement references. Addresses, scripts beyond one substitution, and full
-BSD/POSIX compatibility are not implemented yet.
+The text pipeline also supports bounded regular-expression `sed` substitutions:
+one or more `s///` scripts supplied positionally or with `-e`, applied in order,
+with optional `g`/`p` flags and `-n`, plus `&`, `$1`, and `\1` replacement
+references. Addresses and full BSD/POSIX compatibility are not implemented yet.
 The text pipeline also includes bounded `cut` field/character selection
 (`-f`, `-c`, `-d`, and `-s`) over stdin or sandbox files. Its text filters
 accept `-` as an explicit stdin path when file operands are present.

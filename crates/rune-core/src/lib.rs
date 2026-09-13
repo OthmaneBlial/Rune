@@ -5045,9 +5045,21 @@ mod tests {
         );
         assert_eq!(
             session
+                .execute_line("sed -e 's/beta/Rune/' -e 's/Rune/CORE/' lines.txt")
+                .stdout,
+            "CORE\nalpha\nCORE\n"
+        );
+        assert_eq!(
+            session
                 .execute_line("echo one one | sed -n 's/one/two/gp'")
                 .stdout,
             "two two\n"
+        );
+        assert_eq!(
+            session
+                .execute_line("printf 'one\\n' | sed -n -e 's/one/two/p' -e 's/two/three/p'")
+                .stdout,
+            "two\nthree\n"
         );
         assert_eq!(
             session

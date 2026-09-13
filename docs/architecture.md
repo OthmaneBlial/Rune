@@ -242,12 +242,12 @@ the terminal and native-transfer limits.
 The current registry includes bounded text filters (`awk`, `cut`, `head`, `tail`,
 `grep`, `sed`, `sort`, `uniq`, `wc`, and `diff`). They consume the same in-memory pipeline stdin
 as file commands, accept `-` as an explicit stdin operand, and never delegate
-to a host shell. `sed` supports one bounded regular-expression `s///`
-substitution with `g` and `p` flags plus `-n`; replacements may reference the
-whole match with `&` or a capture with `$1`/`\1`. Addresses, multiple scripts,
-and complete BSD/POSIX option compatibility remain outside this profile. These
-option surfaces are deliberately smaller than POSIX utilities until
-compatibility tests justify expanding them.
+to a host shell. `sed` supports one or more bounded regular-expression `s///`
+scripts supplied positionally or with `-e`, applied in order, with `g` and `p`
+flags plus `-n`; replacements may reference the whole match with `&` or a
+capture with `$1`/`\1`. Addresses and complete BSD/POSIX option compatibility
+remain outside this profile. These option surfaces are deliberately smaller
+than POSIX utilities until compatibility tests justify expanding them.
 `grep` compiles bounded Rust regular expressions and supports `-i`, `-v`, `-n`,
 `-c`, `-E`, and `-e`; `-F` and `fgrep` use fixed-string matching, while
 `egrep` selects the regular-expression mode. Invalid patterns and patterns

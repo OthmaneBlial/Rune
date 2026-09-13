@@ -124,8 +124,9 @@ fixed-string `fgrep`, invalid-pattern rejection, `sort -n`, combined `-nru`
 flags, and deduplicated numeric output; field keys, locale collation, and full
 POSIX sort/grep compatibility remain outside the bounded profile.
 The text pipeline tests also cover regular-expression `sed` substitutions,
-capture replacement, and invalid-pattern rejection; addresses and multiple
-scripts remain outside the bounded profile.
+capture replacement, ordered multiple `-e` scripts, `p` printing with `-n`,
+and invalid-pattern rejection; addresses and full POSIX script compatibility
+remain outside the bounded profile.
 The filesystem resource test uses a sparse file to verify the 64 MiB read,
 append, and copy guards without allocating a large in-memory fixture.
 The directory resource test creates 10,001 small entries and verifies that
