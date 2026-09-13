@@ -160,6 +160,12 @@ Stdin from the enclosing pipeline is preserved for the script's first command.
 Sourced files inherit the current virtual directory and session state; they do
 not invoke a host shell. Each sourced file is limited to 256 KiB and 1,024
 lines, and nested sourcing stops at 16 levels with a status-2 error.
+`sh -c SCRIPT` and `dash -c SCRIPT` use the same Rust parser and script
+executor for inline scripts. An optional command name becomes `$0`, following
+arguments become bounded `$1...` values, and stdin/redirections remain inside
+the current virtual session; no host shell or process is started. Shell-script
+nesting shares the 16-level source limit and accepts at most 64 positional
+arguments.
 
 The Apple source layer declares command and script App Intents that construct a
 normal `RuneFFISession` rooted at the app Documents directory and return the

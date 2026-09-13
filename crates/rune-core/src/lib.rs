@@ -1138,8 +1138,10 @@ impl Session {
         expansion_stderr.push_str(&redirection_stderr);
 
         let source_command = matches!(program.as_str(), "source" | ".");
+        let shell_command = matches!(program.as_str(), "sh" | "dash");
         let xargs_command = program == "xargs";
         let installed_command = if source_command
+            || shell_command
             || xargs_command
             || command.program.parts().is_empty()
             || self.registry.find(&program).is_some()
@@ -1155,6 +1157,15 @@ impl Session {
             CommandOutput::success("")
         } else if source_command {
             self.execute_source(
+                &program,
+                &arguments,
+                record_history,
+                source_depth,
+                &redirections.stdin,
+                sink,
+            )
+        } else if shell_command {
+            self.execute_shell_command(
                 &program,
                 &arguments,
                 record_history,
@@ -1188,6 +1199,50 @@ impl Session {
         self.update_directory_environment(previous_directory);
         self.apply_output_redirections(&program, &mut output, redirections);
         self.last_status = output.status;
+        output
+    }
+
+    fn execute_shell_command(
+        &mut self,
+        command: &str,
+        arguments: &[String],
+        record_history: bool,
+        source_depth: usize,
+        external_stdin: &str,
+        sink: &mut dyn EventSink,
+    ) -> CommandOutput {
+        if arguments.first().map(String::as_str) != Some("-c")
+            || arguments.get(1).is_none()
+            || arguments.len() > MAX_SOURCE_ARGUMENTS + 3
+        {
+            return usage(
+                command,
+                &format!("usage: {command} -c SCRIPT [NAME [ARG ...]]"),
+            );
+        }
+        if source_depth >= MAX_SOURCE_DEPTH {
+            return CommandOutput::failure(
+                2,
+                format!("{command}: shell nesting exceeds the {MAX_SOURCE_DEPTH}-level limit\n"),
+            );
+        }
+        let script = &arguments[1];
+        let name = arguments
+            .get(2)
+            .cloned()
+            .unwrap_or_else(|| command.to_string());
+        let mut parameters = Vec::with_capacity(arguments.len() - 1);
+        parameters.push(name);
+        parameters.extend(arguments.iter().skip(3).cloned());
+        let previous_parameters = std::mem::replace(&mut self.script_parameters, parameters);
+        let output = self.execute_script_internal(
+            script,
+            record_history,
+            source_depth + 1,
+            external_stdin,
+            sink,
+        );
+        self.script_parameters = previous_parameters;
         output
     }
 
@@ -3399,6 +3454,30 @@ mod tests {
         let oversized = session.execute_line("source oversized.rc");
         assert_eq!(oversized.status, 2);
         assert!(oversized.stderr.contains("file exceeds the"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn executes_bounded_sh_c_scripts_through_the_rust_planner() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("sh -c 'echo hello'").stdout, "hello\n");
+        assert_eq!(
+            session
+                .execute_line("sh -c 'echo $0:$1:$2:$#:$@' runner first second")
+                .stdout,
+            "runner:first:second:2:first second\n"
+        );
+        assert_eq!(
+            session.execute_line("echo piped | dash -c 'cat'").stdout,
+            "piped\n"
+        );
+        assert_eq!(
+            session.execute_line("sh -c 'echo one; echo two'").stdout,
+            "one\ntwo\n"
+        );
+        assert_eq!(session.execute_line("sh").status, 2);
+        assert_eq!(session.execute_line("sh -x 'echo not-run'").status, 2);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

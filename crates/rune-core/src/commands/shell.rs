@@ -23,6 +23,16 @@ pub(super) fn source(_context: &mut CommandContext<'_>) -> CommandOutput {
     usage("source", "usage: source FILE [ARG ...]")
 }
 
+/// `sh -c` and `dash -c` are dispatched by the session so their script can
+/// reuse the Rust parser and the current virtual session state.
+pub(super) fn sh(_context: &mut CommandContext<'_>) -> CommandOutput {
+    usage("sh", "usage: sh -c SCRIPT [NAME [ARG ...]]")
+}
+
+pub(super) fn dash(_context: &mut CommandContext<'_>) -> CommandOutput {
+    usage("dash", "usage: dash -c SCRIPT [NAME [ARG ...]]")
+}
+
 pub(super) fn printf(context: &mut CommandContext<'_>) -> CommandOutput {
     let Some(format) = context.args.first() else {
         return usage("printf", "usage: printf FORMAT [ARG ...]");

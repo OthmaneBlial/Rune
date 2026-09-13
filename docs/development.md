@@ -76,7 +76,9 @@ Redirection tests cover append writes, `2>&1`, `1>&2`, `&>`, left-to-right
 duplication order, and carrying merged stderr through a pipeline.
 Script tests also cover bounded positional arguments (`$0`, `$1...`, `$#`, and
 `$@`), preservation of pipeline stdin, and restoration of outer parameters
-after nested source calls.
+after nested source calls. The inline `sh -c`/`dash -c` tests cover the same
+Rust planner, positional values, pipeline stdin, sequencing, and rejection of
+unsupported shell modes without starting a host process.
 Shell parser tests cover quoted and nested `$(...)` forms and unclosed
 substitution rejection. The core integration test covers stdout capture,
 trailing-newline removal, nested substitutions, redirection targets, and

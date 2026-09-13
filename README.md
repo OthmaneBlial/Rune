@@ -40,7 +40,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 `true`, `false`, `ar`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
 `help`, `history`, `sleep`, `uname`, `which`, `whoami`, `xargs`, `pbcopy`, `pbpaste`,
-`source`, and `.` against a
+`source`, `.`, `sh`, and `dash` against a
 bounded filesystem,
 including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
@@ -110,6 +110,9 @@ path. Scripts receive bounded positional values as `$0`, `$1...`, `$#`, and
 `$@`; stdin from an enclosing pipeline is preserved for the script's first
 command. Nested sourcing is capped at 16 levels and accepts at most 64
 arguments.
+`sh -c SCRIPT` and `dash -c SCRIPT` execute an inline bounded script through
+that same Rust planner, with an optional `$0` name and up to 64 positional
+arguments; they never start a host shell.
 The Rust session and C/Swift bridge also expose cooperative cancellation at
 command, pipeline, script, and bounded traversal boundaries, returning status
 130; `sleep` polls that same cancellation flag in bounded 25 ms intervals, while
@@ -400,6 +403,7 @@ git check-ignore -v base/a-shell
 - [x] Leading environment assignments
 - [x] Bounded session-local command aliases
 - [x] Bounded script-file sourcing with positional arguments and nested execution limits
+- [x] Bounded `sh -c`/`dash -c` inline scripts with positional arguments
 - [x] Cooperative command cancellation boundary, including cancellable `sleep`
 - [x] `&&` and `||` conditional chaining
 - [x] Bounded recursive `find` traversal

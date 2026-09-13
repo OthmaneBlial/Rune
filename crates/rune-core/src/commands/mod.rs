@@ -107,6 +107,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: text::cut,
     },
     CommandDefinition {
+        name: "dash",
+        summary: "execute a bounded Rust-parsed script with dash -c",
+        handler: shell::dash,
+    },
+    CommandDefinition {
         name: "config",
         summary: "inspect or change Rust-owned session settings",
         handler: config::config,
@@ -305,6 +310,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "sha256",
         summary: "print a SHA-256 digest for bounded input",
         handler: utilities::sha256,
+    },
+    CommandDefinition {
+        name: "sh",
+        summary: "execute a bounded Rust-parsed script with sh -c",
+        handler: shell::sh,
     },
     CommandDefinition {
         name: "sort",
