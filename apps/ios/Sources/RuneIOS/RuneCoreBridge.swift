@@ -21,6 +21,9 @@ private func rune_session_execute(
 @_silgen_name("rune_session_current_directory")
 private func rune_session_current_directory(_ handle: OpaquePointer?) -> UnsafeMutablePointer<CChar>?
 
+@_silgen_name("rune_session_history")
+private func rune_session_history(_ handle: OpaquePointer?) -> UnsafeMutablePointer<CChar>?
+
 @_silgen_name("rune_string_free")
 private func rune_string_free(_ value: UnsafeMutablePointer<CChar>?)
 
@@ -79,5 +82,15 @@ public final class RuneFFISession {
         let stdout = raw.stdout.map { String(cString: $0) } ?? ""
         let stderr = raw.stderr.map { String(cString: $0) } ?? ""
         return RuneCommandResult(stdout: stdout, stderr: stderr, status: raw.status)
+    }
+
+    public func history() -> [String] {
+        guard let pointer = rune_session_history(handle) else {
+            return []
+        }
+        defer { rune_string_free(pointer) }
+        let value = String(cString: pointer)
+        guard !value.isEmpty else { return [] }
+        return value.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
     }
 }

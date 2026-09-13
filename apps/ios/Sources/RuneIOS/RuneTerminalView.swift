@@ -27,6 +27,8 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var initializationError: String?
 
     private let session: RuneFFISession?
+    private var history: [String] = []
+    private var historyCursor: Int?
 
     public init(rootURL: URL? = nil) {
         let root = rootURL ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
@@ -38,6 +40,7 @@ public final class RuneTerminalModel: ObservableObject {
         do {
             session = try RuneFFISession(rootURL: root)
             currentDirectory = session?.currentDirectory ?? "~"
+            history = session?.history() ?? []
         } catch {
             session = nil
             initializationError = error.localizedDescription
@@ -49,6 +52,7 @@ public final class RuneTerminalModel: ObservableObject {
         guard !line.isEmpty else { return }
         entries.append(.init(kind: .command, text: "\(currentDirectory) $ \(line)"))
         command = ""
+        historyCursor = nil
         guard let session else {
             entries.append(.init(kind: .stderr, text: initializationError ?? "Rune session unavailable."))
             return
@@ -64,6 +68,26 @@ public final class RuneTerminalModel: ObservableObject {
             entries.append(.init(kind: .status, text: "[exit \(result.status)]"))
         }
         currentDirectory = session.currentDirectory
+        history = session.history()
+    }
+
+    public func previousHistory() {
+        guard !history.isEmpty else { return }
+        let current = historyCursor ?? history.count
+        historyCursor = max(current - 1, 0)
+        command = history[historyCursor ?? 0]
+    }
+
+    public func nextHistory() {
+        guard let current = historyCursor else { return }
+        let next = current + 1
+        if next >= history.count {
+            historyCursor = nil
+            command = ""
+        } else {
+            historyCursor = next
+            command = history[next]
+        }
     }
 }
 
@@ -133,6 +157,16 @@ public struct RuneTerminalView: View {
                     .lineLimit(1...4)
                     .onSubmit(model.submit)
                     .accessibilityLabel("Command input")
+                Button(action: model.previousHistory) {
+                    Image(systemName: "chevron.up")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Previous command")
+                Button(action: model.nextHistory) {
+                    Image(systemName: "chevron.down")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Next command")
                 Button(action: model.submit) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)

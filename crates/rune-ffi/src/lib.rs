@@ -115,6 +115,19 @@ pub extern "C" fn rune_session_current_directory(handle: *const std::ffi::c_void
     into_owned_c_string(&directory)
 }
 
+/// Returns the restored and in-session history as one newline-separated owned
+/// string. Rune command lines are single-line records at this stage.
+#[no_mangle]
+pub extern "C" fn rune_session_history(handle: *const std::ffi::c_void) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the pointer is read-only and owned by the Swift session.
+    let session = unsafe { &*handle.cast::<RuneSession>() };
+    let history = session.core.history().join("\n");
+    into_owned_c_string(&history)
+}
+
 /// Releases a string returned by Rune's C ABI.
 ///
 /// # Safety
