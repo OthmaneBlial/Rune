@@ -168,6 +168,9 @@ through security-scoped bookmarks. The source-only Apple layer stores at most
 128 named bookmark records and 512 KiB of bookmark data, resolves stale records,
 keeps each security scope alive for its active Rust session, and passes Rust
 only the approved root URL. Entitlements and runtime access remain unverified.
+Regular-file reads, appends, and copies are bounded at 64 MiB before their
+contents are allocated or duplicated; this is separate from the terminal and
+native-transfer limits.
 
 The current registry includes bounded text filters (`cut`, `head`, `tail`,
 `grep`, `sed`, `sort`, `uniq`, and `wc`). They consume the same in-memory pipeline stdin

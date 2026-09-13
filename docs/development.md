@@ -29,6 +29,8 @@ payloads containing NUL bytes across the Rust/FFI boundary.
 The archive integration test creates nested files, extracts them into a new
 confined destination, and rejects an escaping extraction destination. It does
 not establish compatibility with compressed or ZIP64 archives.
+The filesystem resource test uses a sparse file to verify the 64 MiB read,
+append, and copy guards without allocating a large in-memory fixture.
 The source-only Apple check also parses the external-folder bookmark layer;
 that syntax check does not prove security-scoped access, entitlements, or Files
 picker behavior on a device.

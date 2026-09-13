@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 51%**
+**Overall progress: 52%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -21,7 +21,7 @@ working iOS application or a feature-parity claim.
 | Rust workspace | 70% |
 | Shell tokenizer/parser | 63% |
 | Command runtime | 82% |
-| Sandboxed filesystem | 58% |
+| Sandboxed filesystem | 62% |
 | Sessions/history | 62% |
 | Configuration | 23% |
 | WASM | 36% |
@@ -119,6 +119,11 @@ CRC32 before extraction, reject absolute or parent-traversal archive names, and
 cap archives at 64 MiB and 10,000 entries. Compression methods, ZIP64,
 encrypted archives, and compatibility with every external ZIP producer remain
 unsupported until separately tested.
+
+The host-backed VFS also rejects regular-file reads, appends, and copies over
+64 MiB before allocating or copying their contents. This limit is independent
+of the smaller 16 MiB native file-transfer boundary and the 1 MiB terminal
+output boundary.
 
 The portable core also supports session-local virtual directory bookmarks with
 `bookmark`, `showmarks`, `jump`, `cd ~NAME`, `renamemark`, and `deletemark`.

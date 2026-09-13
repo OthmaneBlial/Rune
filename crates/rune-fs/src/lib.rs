@@ -103,6 +103,7 @@ pub trait VirtualFileSystem {
 }
 
 const MAX_COPY_ENTRIES: usize = 10_000;
+const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// A host-backed filesystem with a strict virtual root.
 #[derive(Debug, Clone)]
@@ -416,6 +417,7 @@ impl SandboxedFileSystem {
         source_label: &str,
         destination_label: &str,
         copied: &mut usize,
+        copied_bytes: &mut u64,
     ) -> Result<(), FsError> {
         fs::create_dir(destination)
             .map_err(|error| Self::io_error("copy", Path::new(destination_label), &error))?;
@@ -451,8 +453,24 @@ impl SandboxedFileSystem {
                     &source_child_label,
                     &destination_child_label,
                     copied,
+                    copied_bytes,
                 )?;
             } else if metadata.is_file() {
+                *copied_bytes =
+                    copied_bytes
+                        .checked_add(metadata.len())
+                        .ok_or_else(|| FsError::Io {
+                            operation: "copy".to_string(),
+                            path: source_child_label.clone(),
+                            message: format!("file tree exceeds {MAX_FILE_BYTES} bytes"),
+                        })?;
+                if *copied_bytes > MAX_FILE_BYTES {
+                    return Err(FsError::Io {
+                        operation: "copy".to_string(),
+                        path: source_child_label.clone(),
+                        message: format!("file tree exceeds {MAX_FILE_BYTES} bytes"),
+                    });
+                }
                 fs::copy(&source_child, &destination_child).map_err(|error| {
                     Self::io_error("copy", Path::new(&destination_child_label), &error)
                 })?;
@@ -595,12 +613,32 @@ impl VirtualFileSystem for SandboxedFileSystem {
         if !metadata.is_file() {
             return Err(FsError::NotFile(input.to_string()));
         }
+        if metadata.len() > MAX_FILE_BYTES {
+            return Err(FsError::Io {
+                operation: "read".to_string(),
+                path: input.to_string(),
+                message: format!("file exceeds {MAX_FILE_BYTES} bytes"),
+            });
+        }
         fs::read(&path).map_err(|error| Self::io_error("read", Path::new(input), &error))
     }
 
     fn write(&self, input: &str, content: &[u8], append: bool) -> Result<(), FsError> {
         let path = self.resolve_path(input)?;
         Self::parent_is_directory(&path, input)?;
+        let existing_bytes = if append {
+            fs::metadata(&path).map_or(0, |metadata| metadata.len())
+        } else {
+            0
+        };
+        let requested_bytes = existing_bytes.saturating_add(content.len() as u64);
+        if requested_bytes > MAX_FILE_BYTES {
+            return Err(FsError::Io {
+                operation: "write".to_string(),
+                path: input.to_string(),
+                message: format!("file exceeds {MAX_FILE_BYTES} bytes"),
+            });
+        }
         let mut options = OpenOptions::new();
         options.create(true).write(true);
         if append {
@@ -744,12 +782,14 @@ impl VirtualFileSystem for SandboxedFileSystem {
             }
             Self::parent_is_directory(&destination_path, destination)?;
             let mut copied = 0;
+            let mut copied_bytes = 0;
             let result = Self::copy_directory(
                 &source_path,
                 &destination_path,
                 source,
                 destination,
                 &mut copied,
+                &mut copied_bytes,
             );
             if result.is_err() {
                 let _ = fs::remove_dir_all(&destination_path);
@@ -760,6 +800,13 @@ impl VirtualFileSystem for SandboxedFileSystem {
             return Err(FsError::NotFile(source.to_string()));
         }
         Self::parent_is_directory(&destination_path, destination)?;
+        if source_metadata.len() > MAX_FILE_BYTES {
+            return Err(FsError::Io {
+                operation: "copy".to_string(),
+                path: source.to_string(),
+                message: format!("file exceeds {MAX_FILE_BYTES} bytes"),
+            });
+        }
         fs::copy(&source_path, &destination_path)
             .map(|_| ())
             .map_err(|error| Self::io_error("copy", Path::new(destination), &error))
@@ -787,7 +834,7 @@ impl VirtualFileSystem for SandboxedFileSystem {
 
 #[cfg(test)]
 mod tests {
-    use super::{FsError, SandboxedFileSystem, VirtualFileSystem};
+    use super::{FsError, SandboxedFileSystem, VirtualFileSystem, MAX_FILE_BYTES};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -899,6 +946,28 @@ mod tests {
             b"hello"
         );
         assert!(matches!(fs.metadata("copy"), Err(FsError::NotFound(_))));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn rejects_file_reads_writes_and_copies_over_the_size_limit() {
+        let root = test_root();
+        let large_path = root.join("large.bin");
+        let file = std::fs::File::create(&large_path).expect("large file created");
+        file.set_len(MAX_FILE_BYTES + 1).expect("sparse file sized");
+        let fs = SandboxedFileSystem::new(&root).expect("root created");
+
+        let read_error = fs.read("large.bin").expect_err("large read rejected");
+        assert!(read_error.to_string().contains("exceeds 67108864 bytes"));
+        let write_error = fs
+            .write("large.bin", b"x", true)
+            .expect_err("large append rejected");
+        assert!(write_error.to_string().contains("exceeds 67108864 bytes"));
+        let copy_error = fs
+            .copy("large.bin", "large-copy.bin", false)
+            .expect_err("large copy rejected");
+        assert!(copy_error.to_string().contains("exceeds 67108864 bytes"));
+        assert!(!root.join("large-copy.bin").exists());
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
