@@ -1236,6 +1236,9 @@ impl Session {
                         &self.script_parameters,
                     )
                     .value;
+                    if let Err(error) = self.filesystem.write(&path, &[], *append) {
+                        return Err(fs_failure(program, &error));
+                    }
                     stdout = OutputTarget::File {
                         path,
                         append: *append,
@@ -1250,6 +1253,9 @@ impl Session {
                         &self.script_parameters,
                     )
                     .value;
+                    if let Err(error) = self.filesystem.write(&path, &[], *append) {
+                        return Err(fs_failure(program, &error));
+                    }
                     stderr = OutputTarget::File {
                         path,
                         append: *append,
@@ -1264,6 +1270,9 @@ impl Session {
                         &self.script_parameters,
                     )
                     .value;
+                    if let Err(error) = self.filesystem.write(&path, &[], *append) {
+                        return Err(fs_failure(program, &error));
+                    }
                     let target = OutputTarget::File {
                         path,
                         append: *append,
@@ -1967,6 +1976,15 @@ mod tests {
             session.execute_line("cat append.txt").stdout,
             "first\nsecond\n"
         );
+
+        let replaced = session.execute_line("echo retained > created-then-replaced.txt 1>&2");
+        assert_eq!(replaced.status, 0);
+        assert!(replaced.stdout.is_empty());
+        assert_eq!(replaced.stderr, "retained\n");
+        assert!(session
+            .execute_line("cat created-then-replaced.txt")
+            .stdout
+            .is_empty());
 
         let to_stderr = session.execute_line("echo redirected 1>&2");
         assert_eq!(to_stderr.status, 0);
