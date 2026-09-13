@@ -34,6 +34,11 @@ status. Later async execution and streaming can be introduced behind the same
 conceptual event boundary once iOS cancellation and rendering requirements are
 specified.
 
+A synchronous command response is capped at 1 MiB per stdout or stderr
+channel. The cap is applied after redirections, so terminal rendering cannot
+receive unbounded output; a visible truncation marker is emitted and the
+underlying command status is preserved.
+
 Execution plans preserve `;`, `&&`, and `||` as connectors between pipelines.
 The core evaluates them left-to-right and skips only the next pipeline when
 the connector's status condition is not met; a skipped branch does not invent

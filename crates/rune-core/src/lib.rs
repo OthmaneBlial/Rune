@@ -14,6 +14,8 @@ use rune_fs::{FsError, VirtualFileSystem};
 use rune_shell::{parse, CommandPlan, Connector, ExecutionPlan, Redirection, Word, WordPart};
 
 const MAX_ALIAS_EXPANSIONS: usize = 32;
+const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
+const OUTPUT_TRUNCATION_MARKER: &str = "\n[rune: output truncated at 1048576 bytes]\n";
 
 /// The result of one command or complete command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -229,7 +231,9 @@ impl Session {
         if plan.is_empty() {
             return CommandOutput::success("");
         }
-        self.execute_plan(&plan)
+        let mut output = self.execute_plan(&plan);
+        limit_output(&mut output);
+        output
     }
 
     fn load_startup_profile(&mut self) {
@@ -501,6 +505,28 @@ fn history_entry(line: &str) -> String {
     }
 }
 
+fn limit_output(output: &mut CommandOutput) {
+    let stdout_truncated = truncate_channel(&mut output.stdout);
+    let stderr_truncated = truncate_channel(&mut output.stderr);
+    if stdout_truncated && !stderr_truncated {
+        output.stderr.push_str(OUTPUT_TRUNCATION_MARKER);
+    }
+}
+
+fn truncate_channel(channel: &mut String) -> bool {
+    if channel.len() <= MAX_OUTPUT_BYTES {
+        return false;
+    }
+    let retained = MAX_OUTPUT_BYTES.saturating_sub(OUTPUT_TRUNCATION_MARKER.len());
+    let mut end = retained;
+    while !channel.is_char_boundary(end) {
+        end -= 1;
+    }
+    channel.truncate(end);
+    channel.push_str(OUTPUT_TRUNCATION_MARKER);
+    true
+}
+
 pub(crate) fn usage(command: &str, message: &str) -> CommandOutput {
     CommandOutput::failure(2, format!("{command}: {message}\n"))
 }
@@ -511,7 +537,7 @@ pub(crate) fn fs_failure(command: &str, error: &FsError) -> CommandOutput {
 
 #[cfg(test)]
 mod tests {
-    use super::Session;
+    use super::{Session, MAX_OUTPUT_BYTES, OUTPUT_TRUNCATION_MARKER};
     use rune_fs::SandboxedFileSystem;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -596,6 +622,23 @@ mod tests {
         assert!(output.stderr.contains("command not found"));
         assert_eq!(output.status, 127);
         assert_eq!(session.execute_line("echo $?").stdout, "127\n");
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn bounds_large_terminal_output_without_changing_command_status() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        std::fs::write(
+            root.join("large.txt"),
+            vec![b'x'; MAX_OUTPUT_BYTES + OUTPUT_TRUNCATION_MARKER.len() + 128],
+        )
+        .expect("large file written");
+        let output = session.execute_line("cat large.txt");
+        assert_eq!(output.status, 0);
+        assert!(output.stdout.len() <= MAX_OUTPUT_BYTES);
+        assert!(output.stdout.ends_with(OUTPUT_TRUNCATION_MARKER));
+        assert_eq!(output.stderr, OUTPUT_TRUNCATION_MARKER);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

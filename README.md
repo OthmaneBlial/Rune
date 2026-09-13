@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 20%**
+**Overall progress: 21%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -20,7 +20,7 @@ working iOS application or a feature-parity claim.
 |---|---:|
 | Rust workspace | 70% |
 | Shell tokenizer/parser | 60% |
-| Command runtime | 68% |
+| Command runtime | 71% |
 | Sandboxed filesystem | 48% |
 | Sessions/history | 32% |
 | WASM | 0% |
@@ -45,6 +45,8 @@ issued without a command.
 The text pipeline also supports a bounded literal `sed` substitution surface:
 `s///` with optional `g`/`p` flags and `-n`; regular expressions and addresses
 are not implemented yet.
+A synchronous command response is capped at 1 MiB per output channel; a
+truncation marker is emitted rather than allowing unbounded terminal output.
 Environment changes are not serialized. A bounded `~/.rune_profile` is loaded
 on restore; its supported Rust built-ins can update the session environment and
 define aliases, with output surfaced to the CLI/native boundary without
@@ -126,6 +128,7 @@ git check-ignore -v base/a-shell
 - [x] `&&` and `||` conditional chaining
 - [x] Bounded recursive `find` traversal
 - [x] Bounded literal `sed` substitutions
+- [x] Bounded terminal output channels
 
 ### Phase 3 — Developer environment
 
