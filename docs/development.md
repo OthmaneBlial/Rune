@@ -9,8 +9,8 @@
 ## Local checks
 
 Run `./scripts/ci.sh` from the repository root. It runs formatting, Clippy,
-workspace tests, and a workspace build. The project intentionally does not use
-GitHub Actions or cloud CI.
+workspace unit and integration tests, and a workspace build. The project
+intentionally does not use GitHub Actions or cloud CI.
 
 ## Commit boundaries
 
