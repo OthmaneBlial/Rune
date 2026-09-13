@@ -4840,23 +4840,6 @@ mod tests {
             "alpha\n"
         );
         assert_eq!(
-            session.execute_line("grep '^a' lines.txt").stdout,
-            "alpha\n"
-        );
-        assert_eq!(
-            session.execute_line("egrep 'alpha|beta' lines.txt").stdout,
-            "beta\nalpha\nbeta\n"
-        );
-        assert_eq!(session.execute_line("echo '[a' > literal.data").status, 0);
-        assert_eq!(
-            session.execute_line("fgrep '[a' literal.data").stdout,
-            "[a\n"
-        );
-        assert_eq!(
-            session.execute_line("grep -e '^a' lines.txt").stdout,
-            "alpha\n"
-        );
-        assert_eq!(
             session.execute_line("grep -n alpha lines.txt").stdout,
             "2:alpha\n"
         );
@@ -4902,6 +4885,47 @@ mod tests {
         assert_eq!(session.execute_line("wc -l lines.txt").stdout, "3\n");
         assert_eq!(session.execute_line("echo *.txt").stdout, "lines.txt\n");
         assert_eq!(session.execute_line("echo \"*.txt\"").stdout, "*.txt\n");
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn executes_bounded_regular_expression_text_modes() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("echo beta > lines.txt").status, 0);
+        assert_eq!(session.execute_line("echo alpha >> lines.txt").status, 0);
+        assert_eq!(session.execute_line("echo beta >> lines.txt").status, 0);
+        assert_eq!(
+            session.execute_line("grep '^a' lines.txt").stdout,
+            "alpha\n"
+        );
+        assert_eq!(
+            session.execute_line("egrep 'alpha|beta' lines.txt").stdout,
+            "beta\nalpha\nbeta\n"
+        );
+        assert_eq!(
+            session.execute_line("grep -e '^a' lines.txt").stdout,
+            "alpha\n"
+        );
+        assert_eq!(session.execute_line("echo '[a' > literal.data").status, 0);
+        assert_eq!(
+            session.execute_line("fgrep '[a' literal.data").stdout,
+            "[a\n"
+        );
+        let invalid_grep = session.execute_line("grep '[' lines.txt");
+        assert_eq!(invalid_grep.status, 2);
+        assert!(invalid_grep.stderr.contains("invalid regular expression"));
+        assert_eq!(
+            session
+                .execute_line("sed 's/([a-z]+)/[$1]/g' lines.txt")
+                .stdout,
+            "[beta]\n[alpha]\n[beta]\n"
+        );
+        let invalid_sed_pattern = session.execute_line("sed 's/[//g' lines.txt");
+        assert_eq!(invalid_sed_pattern.status, 2);
+        assert!(invalid_sed_pattern
+            .stderr
+            .contains("invalid regular expression"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

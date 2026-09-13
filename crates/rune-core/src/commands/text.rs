@@ -784,7 +784,7 @@ fn read_inputs(
 }
 
 struct Substitution {
-    pattern: String,
+    pattern: Regex,
     replacement: String,
     global: bool,
     print_on_match: bool,
@@ -815,10 +815,17 @@ fn parse_substitution(script: &str) -> Result<Substitution, String> {
     let delimiter = characters
         .next()
         .ok_or_else(|| "substitution is missing its delimiter".to_string())?;
-    let pattern = read_script_section(&mut characters, delimiter)?;
-    if pattern.is_empty() {
+    let pattern_text = read_script_section(&mut characters, delimiter)?;
+    if pattern_text.is_empty() {
         return Err("substitution pattern must not be empty".to_string());
     }
+    if pattern_text.len() > MAX_GREP_PATTERN_BYTES {
+        return Err(format!(
+            "substitution pattern exceeds the {MAX_GREP_PATTERN_BYTES}-byte limit"
+        ));
+    }
+    let pattern = Regex::new(&pattern_text)
+        .map_err(|error| format!("invalid regular expression: {error}"))?;
     let replacement = read_script_section(&mut characters, delimiter)?;
     let flags = characters.collect::<String>();
     let mut global = false;
@@ -846,7 +853,12 @@ fn read_script_section(
     let mut escaped = false;
     for character in characters {
         if escaped {
-            section.push(character);
+            if character == delimiter || character == '\\' {
+                section.push(character);
+            } else {
+                section.push('\\');
+                section.push(character);
+            }
             escaped = false;
         } else if character == '\\' {
             escaped = true;
@@ -860,37 +872,63 @@ fn read_script_section(
 }
 
 fn apply_substitution(line: &str, script: &Substitution) -> (String, bool) {
-    if script.global {
-        let mut output = String::new();
-        let mut remaining = line;
-        let mut matched = false;
-        while let Some(index) = remaining.find(&script.pattern) {
-            matched = true;
-            output.push_str(&remaining[..index]);
-            output.push_str(&replacement_text(
-                &script.replacement,
-                &remaining[index..index + script.pattern.len()],
-            ));
-            remaining = &remaining[index + script.pattern.len()..];
+    let mut output = String::new();
+    let mut last_end = 0;
+    let mut matched = false;
+    for (index, captures) in script.pattern.captures_iter(line).enumerate() {
+        if !script.global && index > 0 {
+            break;
         }
-        output.push_str(remaining);
-        (output, matched)
-    } else if let Some(index) = line.find(&script.pattern) {
-        let mut output = String::new();
-        output.push_str(&line[..index]);
-        output.push_str(&replacement_text(
-            &script.replacement,
-            &line[index..index + script.pattern.len()],
-        ));
-        output.push_str(&line[index + script.pattern.len()..]);
+        let Some(full_match) = captures.get(0) else {
+            continue;
+        };
+        output.push_str(&line[last_end..full_match.start()]);
+        output.push_str(&replacement_text(&script.replacement, &captures));
+        last_end = full_match.end();
+        matched = true;
+    }
+    if matched {
+        output.push_str(&line[last_end..]);
         (output, true)
     } else {
         (line.to_string(), false)
     }
 }
 
-fn replacement_text(replacement: &str, matched: &str) -> String {
-    replacement.replace('&', matched)
+fn replacement_text(replacement: &str, captures: &regex::Captures<'_>) -> String {
+    let characters = replacement.chars().collect::<Vec<_>>();
+    let mut output = String::new();
+    let mut index = 0;
+    while index < characters.len() {
+        let character = characters[index];
+        let (escaped, next_index) = if character == '\\' || character == '$' {
+            (true, index + 1)
+        } else {
+            (false, index)
+        };
+        if escaped && next_index < characters.len() && characters[next_index].is_ascii_digit() {
+            let group = characters[next_index].to_digit(10).unwrap_or_default() as usize;
+            if let Some(value) = captures.get(group) {
+                output.push_str(value.as_str());
+            }
+            index = next_index + 1;
+        } else if character == '&' {
+            if let Some(value) = captures.get(0) {
+                output.push_str(value.as_str());
+            }
+            index += 1;
+        } else if character == '\\' && next_index < characters.len() {
+            output.push(characters[next_index]);
+            index = next_index + 1;
+        } else if character == '$' && next_index < characters.len() {
+            output.push('$');
+            index += 1;
+        } else {
+            output.push(character);
+            index += 1;
+        }
+    }
+    output
 }
 
 fn lines_with_endings(text: &str) -> Vec<&str> {
