@@ -20,6 +20,10 @@ Run `./scripts/ci.sh` from the repository root. It runs formatting, Clippy,
 workspace unit and integration tests, and a workspace build. The project
 intentionally does not use GitHub Actions or cloud CI.
 
+Run `./scripts/demo.sh` for a real two-process CLI workflow covering file
+creation, recursive copy, configuration persistence, restore, metadata, usage,
+and history. It uses a temporary root and removes only that root on exit.
+
 ## Commit boundaries
 
 Keep commits small enough to describe one coherent behavior. Before a push:
