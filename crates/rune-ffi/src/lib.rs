@@ -103,6 +103,28 @@ pub extern "C" fn rune_session_execute(
     into_output(&output)
 }
 
+/// Executes a newline-delimited automation script through the same Rust
+/// parser and command registry as interactive input.
+#[no_mangle]
+pub extern "C" fn rune_session_execute_script(
+    handle: *mut std::ffi::c_void,
+    script: *const c_char,
+) -> RuneOutput {
+    let Some(script) = read_string(script) else {
+        let output = CommandOutput::failure(2, "rune: script is not valid UTF-8\n");
+        return into_output(&output);
+    };
+    if handle.is_null() {
+        let output = CommandOutput::failure(1, "rune: session is unavailable\n");
+        return into_output(&output);
+    }
+    // SAFETY: Swift serializes access to the opaque session handle and does
+    // not call this after rune_session_destroy.
+    let session = unsafe { &mut *handle.cast::<RuneSession>() };
+    let output = session.core.execute_script(&script);
+    into_output(&output)
+}
+
 /// Returns the current virtual directory as an owned C string.
 #[no_mangle]
 pub extern "C" fn rune_session_current_directory(handle: *const std::ffi::c_void) -> *mut c_char {
@@ -181,7 +203,8 @@ pub unsafe extern "C" fn rune_string_free(value: *mut c_char) {
 mod tests {
     use super::{
         rune_session_commands, rune_session_current_directory, rune_session_destroy,
-        rune_session_execute, rune_session_new, rune_session_startup_output, rune_string_free,
+        rune_session_execute, rune_session_execute_script, rune_session_new,
+        rune_session_startup_output, rune_string_free,
     };
     use std::ffi::{CStr, CString};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -249,6 +272,32 @@ mod tests {
         // SAFETY: directory was returned by rune_session_current_directory.
         unsafe { rune_string_free(directory) };
         rune_session_destroy(reopened);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn c_abi_executes_a_multiline_automation_script() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rune-ffi-script-test-{suffix}"));
+        std::fs::create_dir_all(&root).expect("test root created");
+        let root_string = CString::new(root.to_string_lossy().as_bytes()).expect("valid root");
+        let handle = rune_session_new(root_string.as_ptr());
+        assert!(!handle.is_null());
+        let script = CString::new("echo first\n\nfalse\necho last").expect("valid script");
+        let output = rune_session_execute_script(handle, script.as_ptr());
+        assert_eq!(output.status, 0);
+        assert_eq!(c_string(output.stdout), "first\nlast\n");
+        assert!(c_string(output.stderr).is_empty());
+        // SAFETY: both pointers were returned by rune_session_execute_script
+        // and are released exactly once.
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+        rune_session_destroy(handle);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

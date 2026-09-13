@@ -10,6 +10,11 @@ invent terminal output. The Rust static library must be linked by the eventual
 Xcode application target; a Swift package manifest alone is not an App Store
 application project.
 
+The bridge also exposes a newline-delimited Rust automation script entry point
+for a future Shortcuts adapter. It runs each non-empty line through the same
+parser and registry, preserving combined stdout, stderr, and the last status;
+native Shortcuts registration remains unverified and is not included here.
+
 The Rust handle restores and persists only the virtual working directory and
 typed command history in `~/.rune/session.state` inside the configured sandbox.
 Environment variables and aliases are not serialized. History persistence is

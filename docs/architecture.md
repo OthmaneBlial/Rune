@@ -146,3 +146,9 @@ Apple source integration will be added without installing a new Xcode or
 simulator footprint. Until an existing Apple toolchain is explicitly used,
 Swift compilation and runtime behavior remain unverified gates rather than
 assumed capabilities.
+
+Automation uses the same ownership boundary: `Session::execute_script` runs
+non-empty newline-delimited lines through the Rust parser and returns combined
+stdout/stderr plus the last status. `rune-ffi` and the Swift source bridge
+expose that method for a future Apple Shortcuts adapter; they do not register
+an Intent or claim Shortcuts runtime compatibility yet.

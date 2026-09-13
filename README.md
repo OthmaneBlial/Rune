@@ -25,7 +25,7 @@ working iOS application or a feature-parity claim.
 | Sessions/history | 38% |
 | WASM | 23% |
 | Native iOS UI | 9% |
-| Swift/Rust bridge | 6% |
+| Swift/Rust bridge | 8% |
 | Package manager | 25% |
 | Compatibility evidence | 2% |
 
@@ -90,6 +90,10 @@ The portable core also supports session-local virtual directory bookmarks with
 They persist with the session state and remain confined to the configured VFS;
 external folders and security-scoped bookmark resolution are still Apple-side
 work.
+
+The FFI and Swift source boundary also exposes a newline-delimited automation
+script method for a future Shortcuts adapter. It is Rust-executed and locally
+tested, but native Shortcuts registration remains unverified.
 
 Runtime providers use a small Rust-owned request/output contract. WASM is the
 first provider; Python, JavaScript, and Lua are named extension points only and

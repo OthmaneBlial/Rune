@@ -236,6 +236,31 @@ impl Session {
         self.execute_line_internal(input, true)
     }
 
+    /// Executes a bounded newline-delimited automation script.
+    ///
+    /// Empty lines are ignored. Every non-empty line is sent through the same
+    /// parser and command registry as interactive input, and execution
+    /// continues after a failed line so automation can observe the complete
+    /// output. The returned status is the status of the last executed line.
+    pub fn execute_script(&mut self, script: &str) -> CommandOutput {
+        let mut output = CommandOutput::success("");
+        let mut executed = false;
+        for line in script.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            executed = true;
+            let line_output = self.execute_line(line);
+            output.stdout.push_str(&line_output.stdout);
+            output.stderr.push_str(&line_output.stderr);
+            output.status = line_output.status;
+        }
+        if executed {
+            limit_output(&mut output);
+        }
+        output
+    }
+
     fn execute_line_internal(&mut self, input: &str, record_history: bool) -> CommandOutput {
         let line = input.trim_matches(['\r', '\n', ' ']);
         if line.is_empty() {

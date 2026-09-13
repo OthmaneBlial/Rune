@@ -18,6 +18,12 @@ private func rune_session_execute(
     _ input: UnsafePointer<CChar>
 ) -> RuneFFIOutput
 
+@_silgen_name("rune_session_execute_script")
+private func rune_session_execute_script(
+    _ handle: OpaquePointer?,
+    _ script: UnsafePointer<CChar>
+) -> RuneFFIOutput
+
 @_silgen_name("rune_session_current_directory")
 private func rune_session_current_directory(_ handle: OpaquePointer?) -> UnsafeMutablePointer<CChar>?
 
@@ -81,6 +87,11 @@ public final class RuneFFISession {
 
     public func execute(_ command: String) -> RuneCommandResult {
         let raw = command.withCString { rune_session_execute(handle, $0) }
+        return consume(raw)
+    }
+
+    public func executeScript(_ script: String) -> RuneCommandResult {
+        let raw = script.withCString { rune_session_execute_script(handle, $0) }
         return consume(raw)
     }
 
