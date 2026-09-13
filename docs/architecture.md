@@ -153,6 +153,11 @@ or script boundary returns status 130. This keeps the UI callback responsive
 without pretending that a synchronous filesystem or runtime operation can be
 forcefully interrupted.
 
+The Swift transcript is a separate presentation cache capped at 4,096 entries
+and 8 MiB of UTF-8 text. It evicts oldest rendered events at the boundary;
+Rust output limits, command history, and sandbox files remain independent of
+that UI eviction policy.
+
 The filesystem starts with a host-backed root for local development. The root
 is a policy boundary: paths are resolved relative to it, `~` maps to the root,
 and traversal outside the root is rejected. An Apple adapter will map that

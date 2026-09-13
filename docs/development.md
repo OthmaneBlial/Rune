@@ -31,6 +31,8 @@ not prove SwiftUI rendering, tab lifecycle, iPad multi-window behavior, or
 Apple runtime integration.
 The source-only UI also contains background-task and cancellation code, but
 there is no Apple concurrency, device, or runtime validation in this workspace.
+Its transcript cache has explicit entry and byte bounds in source, but that
+presentation policy cannot be runtime-tested without SwiftUI.
 
 ## Local checks
 

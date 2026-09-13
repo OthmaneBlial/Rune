@@ -151,6 +151,11 @@ currently running synchronous Rust operation may still finish before its next
 boundary; background execution, cancellation, and Apple runtime behavior are
 not device-validated here.
 
+The Swift transcript also applies a separate 4,096-entry/8 MiB in-memory
+window, dropping the oldest rendered events when the window is exceeded. This
+protects the UI from unbounded replay growth while Rust retains its own
+bounded per-command output and persisted history policies.
+
 The portable configuration boundary currently supports bounded `history-limit`,
 `font-size`, and `theme` settings through `config get`, `config set`, and
 `config reset`. It persists in `~/.rune/config.state`, and SwiftUI consumes
@@ -218,8 +223,9 @@ git check-ignore -v base/a-shell
 - [x] Repository and Rust workspace
 - [x] Local-only quality workflow
 - [x] First command execution slice
-- [ ] SwiftUI iOS application shell
-- [ ] Stable Rust/Swift bridge
+- [x] Source-only SwiftUI iOS frontend boundary
+- [x] Source-only C/Swift bridge
+- [ ] Apple target and runtime validation
 
 ### Phase 2 — Core shell
 

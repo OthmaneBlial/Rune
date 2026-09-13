@@ -41,6 +41,11 @@ alive while the matching Rust session is active, and hands Rust only the
 approved folder root. This is source/API evidence; picker behavior and
 entitlements remain unverified without an Apple build/runtime.
 
+Rendered transcript entries are bounded to 4,096 events and 8 MiB in the
+SwiftUI model; the oldest events are discarded when either bound is reached.
+This is a display-memory policy and does not alter Rust command history or
+files stored in the sandbox.
+
 `RuneFFISession.cancel()` forwards a cooperative cancellation request to Rust;
 the next command boundary returns status 130. It is a cancellation signal, not
 an unsafe force-stop of a synchronous operation.

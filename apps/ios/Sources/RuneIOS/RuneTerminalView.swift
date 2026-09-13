@@ -23,6 +23,8 @@ public struct RuneTranscriptEntry: Identifiable, Hashable, Sendable {
 @MainActor
 public final class RuneTerminalModel: ObservableObject {
     private static let clearSequence = "\u{1b}[2J\u{1b}[H"
+    private static let maximumTranscriptEntries = 4_096
+    private static let maximumTranscriptBytes = 8 * 1024 * 1024
 
     @Published public private(set) var entries: [RuneTranscriptEntry] = []
     @Published public var command = ""
@@ -39,6 +41,7 @@ public final class RuneTerminalModel: ObservableObject {
     private var history: [String] = []
     private var historyCursor: Int?
     private var executionTask: Task<Void, Never>?
+    private var transcriptBytes = 0
 
     public init(rootURL: URL? = nil, sessionID: String? = nil) {
         self.sessionID = sessionID
@@ -75,13 +78,13 @@ public final class RuneTerminalModel: ObservableObject {
             history = session?.history() ?? []
             if let startup = session?.takeStartupOutput() {
                 if !startup.stdout.isEmpty {
-                    entries.append(.init(kind: .stdout, text: startup.stdout))
+                    appendEntry(.init(kind: .stdout, text: startup.stdout))
                 }
                 if !startup.stderr.isEmpty {
-                    entries.append(.init(kind: .stderr, text: startup.stderr))
+                    appendEntry(.init(kind: .stderr, text: startup.stderr))
                 }
                 if startup.status != 0 {
-                    entries.append(.init(kind: .status, text: "[profile exit \(startup.status)]"))
+                    appendEntry(.init(kind: .status, text: "[profile exit \(startup.status)]"))
                 }
             }
             refreshConfiguration()
@@ -112,7 +115,7 @@ public final class RuneTerminalModel: ObservableObject {
             history = nextSession.history()
             historyCursor = nil
             command = ""
-            entries.removeAll()
+            clearTranscript()
             initializationError = nil
             if let startup = nextSession.takeStartupOutput() {
                 append(startup)
@@ -132,11 +135,11 @@ public final class RuneTerminalModel: ObservableObject {
         guard !isExecuting else { return }
         let line = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty else { return }
-        entries.append(.init(kind: .command, text: "\(currentDirectory) $ \(line)"))
+        appendEntry(.init(kind: .command, text: "\(currentDirectory) $ \(line)"))
         command = ""
         historyCursor = nil
         guard let session else {
-            entries.append(.init(kind: .stderr, text: initializationError ?? "Rune session unavailable."))
+            appendEntry(.init(kind: .stderr, text: initializationError ?? "Rune session unavailable."))
             return
         }
         isExecuting = true
@@ -165,18 +168,34 @@ public final class RuneTerminalModel: ObservableObject {
     private func append(_ result: RuneCommandResult) {
         var stdout = result.stdout
         if let clearRange = stdout.range(of: Self.clearSequence, options: .backwards) {
-            entries.removeAll()
+            clearTranscript()
             stdout = String(stdout[clearRange.upperBound...])
         }
         if !stdout.isEmpty {
-            entries.append(.init(kind: .stdout, text: stdout))
+            appendEntry(.init(kind: .stdout, text: stdout))
         }
         if !result.stderr.isEmpty {
-            entries.append(.init(kind: .stderr, text: result.stderr))
+            appendEntry(.init(kind: .stderr, text: result.stderr))
         }
         if result.status != 0 {
-            entries.append(.init(kind: .status, text: "[exit \(result.status)]"))
+            appendEntry(.init(kind: .status, text: "[exit \(result.status)]"))
         }
+    }
+
+    private func appendEntry(_ entry: RuneTranscriptEntry) {
+        entries.append(entry)
+        transcriptBytes += entry.text.utf8.count
+        while entries.count > Self.maximumTranscriptEntries
+            || transcriptBytes > Self.maximumTranscriptBytes {
+            guard let removed = entries.first else { break }
+            transcriptBytes = max(0, transcriptBytes - removed.text.utf8.count)
+            entries.removeFirst()
+        }
+    }
+
+    private func clearTranscript() {
+        entries.removeAll(keepingCapacity: true)
+        transcriptBytes = 0
     }
 
     private func refreshConfiguration() {
