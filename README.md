@@ -96,9 +96,12 @@ filesystem and executes WASI preview1 `_start` in Rust. It exposes
 stdin/stdout/stderr, arguments, and the session environment, plus one explicit
 WASI preopen at `/` mapped to Rune's approved sandbox root. Capability-based
 opening keeps guest filesystem calls inside that root; no host process or
-network capability is inherited. Module bytes, interpreter fuel, linear
-memory, tables, and captured output are bounded. Compression, broader WASI
-resource policy, and non-WASM language runtimes remain planned.
+network capability is inherited. Session executions consume cancellation at
+runtime boundaries and return status 130 when it is observed. A WASM call may
+finish before a cancellation callback is observed. Module bytes,
+interpreter fuel, linear memory, tables, and captured output are bounded.
+Compression, broader WASI resource policy, and non-WASM language runtimes
+remain planned.
 
 The local package flow supports `pkg info MANIFEST|NAME [VERSION]`, `pkg verify
 MANIFEST`, `pkg install MANIFEST`, `pkg list`, `pkg search QUERY`, and `pkg

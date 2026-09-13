@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 
 /// A runtime family Rune may eventually host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -57,6 +58,9 @@ pub struct RuntimeRequest<'a> {
     /// Optional approved host directory exposed as the runtime's filesystem
     /// capability. `None` means that filesystem access is unavailable.
     pub preopened_root: Option<&'a Path>,
+    /// Optional cooperative cancellation flag checked at provider-defined
+    /// execution boundaries.
+    pub cancellation: Option<&'a AtomicBool>,
 }
 
 impl<'a> RuntimeRequest<'a> {
@@ -78,6 +82,7 @@ impl<'a> RuntimeRequest<'a> {
             environment,
             stdin,
             preopened_root: None,
+            cancellation: None,
         }
     }
 
@@ -85,6 +90,13 @@ impl<'a> RuntimeRequest<'a> {
     #[must_use]
     pub const fn with_preopened_root(mut self, root: Option<&'a Path>) -> Self {
         self.preopened_root = root;
+        self
+    }
+
+    /// Adds a cooperative cancellation flag to the runtime request.
+    #[must_use]
+    pub const fn with_cancellation(mut self, cancellation: Option<&'a AtomicBool>) -> Self {
+        self.cancellation = cancellation;
         self
     }
 

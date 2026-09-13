@@ -10,7 +10,9 @@ The portable WASM slice is validated through Rust tests and does not require
 Xcode, a simulator, an Apple SDK, or a third-party Apple dependency.
 WASM tests also verify an explicit preopen can be supplied and observed while
 the default runner remains filesystem-free; the preopen is limited to Rune's
-approved sandbox root.
+approved sandbox root. A pre-cancelled module is rejected with status 130;
+in-flight WASM cancellation remains cooperative because the current Wasmi call
+does not expose a safe mid-stack interrupt API.
 Package metadata and local WASM installation tests are also local-only; no
 registry or download is needed to validate the manifest, digest, and bounded
 package-tree boundaries.

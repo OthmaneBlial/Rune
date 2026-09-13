@@ -8,12 +8,15 @@ use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use std::io::{self, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rune_runtime::{Runtime, RuntimeError, RuntimeKind, RuntimeOutput, RuntimeRequest};
 use wasi_common::pipe::{ReadPipe, WritePipe};
 use wasi_common::WasiCtx;
 use wasmi::{
-    Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, TypedResumableCall,
+    errors::{ErrorKind, FuelError},
+    Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, TypedFunc,
+    TypedResumableCall,
 };
 use wasmi_wasi::sync::{add_to_linker, ambient_authority, Dir, WasiCtxBuilder};
 
@@ -122,7 +125,14 @@ impl WasmRunner {
         environment: &BTreeMap<String, String>,
         stdin: &str,
     ) -> Result<WasmExecution, WasmError> {
-        self.execute_with_preopened_root(wasm, argv0, args, environment, stdin, None)
+        self.execute_with_options(
+            wasm,
+            argv0,
+            args,
+            environment,
+            stdin,
+            WasmExecutionOptions::default(),
+        )
     }
 
     /// Executes a WASI preview1 module with an optional capability-scoped root.
@@ -144,6 +154,28 @@ impl WasmRunner {
         environment: &BTreeMap<String, String>,
         stdin: &str,
         preopened_root: Option<&Path>,
+    ) -> Result<WasmExecution, WasmError> {
+        self.execute_with_options(
+            wasm,
+            argv0,
+            args,
+            environment,
+            stdin,
+            WasmExecutionOptions {
+                preopened_root,
+                cancellation: None,
+            },
+        )
+    }
+
+    fn execute_with_options(
+        &self,
+        wasm: &[u8],
+        argv0: &str,
+        args: &[String],
+        environment: &BTreeMap<String, String>,
+        stdin: &str,
+        options: WasmExecutionOptions<'_>,
     ) -> Result<WasmExecution, WasmError> {
         if wasm.len() > self.limits.max_module_bytes {
             return Err(WasmError::ModuleTooLarge {
@@ -167,7 +199,7 @@ impl WasmRunner {
             stdin,
             stdout_pipe.clone(),
             stderr_pipe.clone(),
-            preopened_root,
+            options.preopened_root,
         )?;
 
         let limits = StoreLimitsBuilder::new()
@@ -186,10 +218,6 @@ impl WasmRunner {
             },
         );
         store.limiter(|state| &mut state.limits);
-        store
-            .set_fuel(self.limits.fuel)
-            .map_err(|error| WasmError::StartFunction(error.to_string()))?;
-
         let mut linker = Linker::new(&engine);
         add_to_linker(&mut linker, |state: &mut HostState| &mut state.wasi)
             .map_err(|error| WasmError::Linker(error.to_string()))?;
@@ -202,22 +230,8 @@ impl WasmRunner {
             .get_typed_func::<(), ()>(&store, "_start")
             .map_err(|error| WasmError::StartFunction(error.to_string()))?;
 
-        let (status, runtime_error) = match start.call_resumable(&mut store, ()) {
-            Ok(TypedResumableCall::Finished(())) => (0, None),
-            Ok(TypedResumableCall::Resumable(invocation)) => {
-                let error = invocation.host_error();
-                let status = error.i32_exit_status().unwrap_or(1);
-                let runtime_error = error
-                    .i32_exit_status()
-                    .is_none()
-                    .then(|| format!("\nrune: wasm: {error}\n"));
-                (status, runtime_error)
-            }
-            Err(error) => {
-                let runtime_error = format!("\nrune: wasm: {error}\n");
-                (1, Some(runtime_error))
-            }
-        };
+        let (status, runtime_error) =
+            run_start(start, &mut store, self.limits.fuel, options.cancellation)?;
 
         drop(store);
         let mut stdout = stdout_pipe
@@ -237,6 +251,58 @@ impl WasmRunner {
             status,
         })
     }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct WasmExecutionOptions<'a> {
+    preopened_root: Option<&'a Path>,
+    cancellation: Option<&'a AtomicBool>,
+}
+
+fn run_start(
+    start: TypedFunc<(), ()>,
+    store: &mut Store<HostState>,
+    fuel_limit: u64,
+    cancellation: Option<&AtomicBool>,
+) -> Result<(i32, Option<String>), WasmError> {
+    if cancellation.is_some_and(|flag| flag.swap(false, Ordering::AcqRel)) {
+        return Ok((130, Some("\nrune: wasm: command cancelled\n".to_string())));
+    }
+    store
+        .set_fuel(fuel_limit)
+        .map_err(|error| WasmError::StartFunction(error.to_string()))?;
+
+    let call = start.call_resumable(&mut *store, ());
+    match call {
+        Ok(TypedResumableCall::Finished(())) => {
+            if let Some(cancellation) = cancellation {
+                cancellation.store(false, Ordering::Release);
+            }
+            Ok((0, None))
+        }
+        Err(error) => {
+            if is_out_of_fuel(&error)
+                && cancellation.is_some_and(|flag| flag.swap(false, Ordering::AcqRel))
+            {
+                return Ok((130, Some("\nrune: wasm: command cancelled\n".to_string())));
+            }
+            Ok((1, Some(format!("\nrune: wasm: {error}\n"))))
+        }
+        Ok(TypedResumableCall::Resumable(invocation)) => {
+            let error = invocation.host_error();
+            if let Some(status) = error.i32_exit_status() {
+                return Ok((status, None));
+            }
+            if cancellation.is_some_and(|flag| flag.swap(false, Ordering::AcqRel)) {
+                return Ok((130, Some("\nrune: wasm: command cancelled\n".to_string())));
+            }
+            Ok((1, Some(format!("\nrune: wasm: {error}\n"))))
+        }
+    }
+}
+
+fn is_out_of_fuel(error: &wasmi::Error) -> bool {
+    matches!(error.kind(), ErrorKind::Fuel(FuelError::OutOfFuel))
 }
 
 fn build_wasi_context(
@@ -288,14 +354,17 @@ impl Runtime for WasmRunner {
                 provider: self.kind(),
             });
         }
-        let execution = WasmRunner::execute_with_preopened_root(
+        let execution = WasmRunner::execute_with_options(
             self,
             request.source,
             request.program_name,
             request.args,
             request.environment,
             request.stdin,
-            request.preopened_root,
+            WasmExecutionOptions {
+                preopened_root: request.preopened_root,
+                cancellation: request.cancellation,
+            },
         )
         .map_err(|error| RuntimeError::Execution(error.to_string()))?;
         Ok(RuntimeOutput {
@@ -359,6 +428,7 @@ fn output_to_string(output: &mut BoundedOutput) -> String {
 mod tests {
     use super::{WasmLimits, WasmRunner};
     use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     #[test]
     fn wasi_module_can_write_to_captured_stdout() {
@@ -401,6 +471,29 @@ mod tests {
             .expect("fuel exhaustion is a guest failure");
         assert_eq!(execution.status, 1);
         assert!(execution.stderr.contains("all fuel consumed"));
+    }
+
+    #[test]
+    fn cancellable_module_stops_before_wasm_execution() {
+        let wasm =
+            wat::parse_str(r#"(module (func (export "_start") (loop br 0)))"#).expect("valid WAT");
+        let cancellation = AtomicBool::new(true);
+        let execution = WasmRunner::default()
+            .execute_with_options(
+                &wasm,
+                "cancel.wasm",
+                &[],
+                &BTreeMap::new(),
+                "",
+                super::WasmExecutionOptions {
+                    preopened_root: None,
+                    cancellation: Some(&cancellation),
+                },
+            )
+            .expect("cancellation should be a guest result");
+        assert_eq!(execution.status, 130);
+        assert!(execution.stderr.contains("command cancelled"));
+        assert!(!cancellation.load(Ordering::Acquire));
     }
 
     #[test]

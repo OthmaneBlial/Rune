@@ -234,7 +234,11 @@ Rune's sandbox; host process and network APIs are not linked. Each invocation
 bounds module bytes, interpreter fuel, linear memory, tables, and captured
 output. Guest traps become a failed command while preserving captured output;
 explicit WASI exits preserve their exit status. Fine-grained per-operation
-WASI rights and additional runtime families remain planned.
+WASI rights and additional runtime families remain planned. Session-backed
+requests pass the atomic cancellation boundary to the provider; WASM consumes
+it before execution or when a fuel stop is observed and returns status 130 with
+a diagnostic. A call that finishes before an observation may complete
+normally, matching the cooperative contract.
 
 The VFS exposes its host root to this boundary only as an optional borrowed
 capability. Sandboxed host VFS instances return their canonical root; other

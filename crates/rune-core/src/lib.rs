@@ -169,6 +169,7 @@ pub struct CommandContext<'a> {
     pub(crate) command_definitions: &'a [CommandDefinition],
     pub(crate) runtime: &'a dyn Runtime,
     pub(crate) filesystem_root: Option<PathBuf>,
+    pub(crate) cancellation: &'a AtomicBool,
 }
 
 /// One independent terminal session.
@@ -785,6 +786,7 @@ impl Session {
                 command_definitions: self.registry.definitions(),
                 runtime: &self.wasm_runner,
                 filesystem_root,
+                cancellation: &self.cancellation_requested,
             };
             handler(&mut context)
         } else if let Some(installed_command) = installed_command {
@@ -935,7 +937,8 @@ impl Session {
             &self.environment,
             stdin,
         )
-        .with_preopened_root(self.filesystem.host_root());
+        .with_preopened_root(self.filesystem.host_root())
+        .with_cancellation(Some(&self.cancellation_requested));
         match Runtime::execute(&self.wasm_runner, &request) {
             Ok(execution) => CommandOutput {
                 stdout: execution.stdout,

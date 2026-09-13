@@ -17,7 +17,8 @@ pub(super) fn wasm(context: &mut CommandContext<'_>) -> CommandOutput {
         context.env,
         context.stdin,
     )
-    .with_preopened_root(context.filesystem_root.as_deref());
+    .with_preopened_root(context.filesystem_root.as_deref())
+    .with_cancellation(Some(context.cancellation));
     let execution = match context.runtime.execute(&request) {
         Ok(execution) => execution,
         Err(error) => {
