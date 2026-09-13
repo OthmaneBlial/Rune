@@ -76,8 +76,9 @@ require a configurable policy. The Rust core also persists bounded
 `history-limit`, `font-size`, `scrollback-limit`, and `theme` configuration in
 `~/.rune/config.state`. The bridge exposes both key/value inspection and
 validated set/reset calls without creating history entries; the source-only
-Swift view provides a settings sheet for font size, scrollback, theme, and
-reset. Cursor styling and toolbar preferences are not wired through yet.
+Swift view provides a settings sheet for font size, scrollback, theme, reset,
+and Rust-persisted toolbar visibility. Cursor styling is not wired through
+yet.
 
 On restore, the Rust core reads a maximum of 64 KiB from `~/.rune_profile`,
 skips blank/full-line comment entries, runs only registered Rune built-ins, and

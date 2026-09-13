@@ -12,6 +12,7 @@ const MAX_FONT_SIZE: u8 = 32;
 const DEFAULT_SCROLLBACK_LIMIT: usize = 4_096;
 const MIN_SCROLLBACK_LIMIT: usize = 128;
 const MAX_SCROLLBACK_LIMIT: usize = 8_192;
+const DEFAULT_TOOLBAR_VISIBLE: bool = true;
 const DEFAULT_THEME: TerminalTheme = TerminalTheme::Ink;
 
 /// Themes understood by the portable configuration contract.
@@ -48,6 +49,7 @@ pub struct TerminalConfig {
     history_limit: usize,
     font_size: u8,
     scrollback_limit: usize,
+    toolbar_visible: bool,
     theme: TerminalTheme,
 }
 
@@ -57,6 +59,7 @@ impl Default for TerminalConfig {
             history_limit: DEFAULT_HISTORY_LIMIT,
             font_size: DEFAULT_FONT_SIZE,
             scrollback_limit: DEFAULT_SCROLLBACK_LIMIT,
+            toolbar_visible: DEFAULT_TOOLBAR_VISIBLE,
             theme: DEFAULT_THEME,
         }
     }
@@ -82,6 +85,14 @@ impl TerminalConfig {
         self.scrollback_limit
     }
 
+    /// Returns whether the native terminal input toolbar is visible by
+    /// default. This is a presentation setting persisted by Rust so native
+    /// frontends share one configuration source.
+    #[must_use]
+    pub const fn toolbar_visible(&self) -> bool {
+        self.toolbar_visible
+    }
+
     /// Returns the configured terminal color theme.
     #[must_use]
     pub const fn theme(&self) -> TerminalTheme {
@@ -98,6 +109,10 @@ impl TerminalConfig {
 
     pub(super) fn set_scrollback_limit(&mut self, value: usize) {
         self.scrollback_limit = value;
+    }
+
+    pub(super) fn set_toolbar_visible(&mut self, value: bool) {
+        self.toolbar_visible = value;
     }
 
     pub(super) fn set_theme(&mut self, value: TerminalTheme) {
@@ -120,10 +135,11 @@ impl TerminalConfig {
             Err(error) => return Err(error),
         }
         let content = format!(
-            "{CONFIG_HEADER}\nhistory_limit={}\nfont_size={}\nscrollback_limit={}\ntheme={}\n",
+            "{CONFIG_HEADER}\nhistory_limit={}\nfont_size={}\nscrollback_limit={}\ntoolbar_visible={}\ntheme={}\n",
             self.history_limit,
             self.font_size,
             self.scrollback_limit,
+            self.toolbar_visible,
             self.theme.as_str()
         );
         filesystem.write(CONFIG_PATH, content.as_bytes(), false)
@@ -212,6 +228,25 @@ pub(super) fn update_scrollback_limit(
     Ok(())
 }
 
+pub(super) fn update_toolbar_visible(
+    filesystem: &mut dyn VirtualFileSystem,
+    config: &mut TerminalConfig,
+    value: &str,
+) -> Result<(), String> {
+    let parsed = match value {
+        "true" | "1" => true,
+        "false" | "0" => false,
+        _ => return Err("toolbar-visible must be true or false".to_string()),
+    };
+    let previous = config.clone();
+    config.set_toolbar_visible(parsed);
+    if let Err(error) = config.save(filesystem) {
+        *config = previous;
+        return Err(format!("could not persist configuration: {error}"));
+    }
+    Ok(())
+}
+
 pub(super) fn update(
     filesystem: &mut dyn VirtualFileSystem,
     config: &mut TerminalConfig,
@@ -222,9 +257,10 @@ pub(super) fn update(
         "history-limit" => update_history_limit(filesystem, config, value),
         "font-size" => update_font_size(filesystem, config, value),
         "scrollback-limit" => update_scrollback_limit(filesystem, config, value),
+        "toolbar-visible" => update_toolbar_visible(filesystem, config, value),
         "theme" => update_theme(filesystem, config, value),
         _ => Err(
-            "unknown key; available keys: history-limit, font-size, scrollback-limit, theme"
+            "unknown key; available keys: history-limit, font-size, scrollback-limit, toolbar-visible, theme"
                 .to_string(),
         ),
     }
@@ -252,6 +288,7 @@ fn parse(content: &str) -> Option<TerminalConfig> {
     let mut seen_history_limit = false;
     let mut seen_font_size = false;
     let mut seen_scrollback_limit = false;
+    let mut seen_toolbar_visible = false;
     let mut seen_theme = false;
     for line in lines {
         let (key, value) = line.split_once('=')?;
@@ -280,6 +317,14 @@ fn parse(content: &str) -> Option<TerminalConfig> {
                 config.scrollback_limit = scrollback_limit;
                 seen_scrollback_limit = true;
             }
+            "toolbar_visible" if !seen_toolbar_visible => {
+                config.toolbar_visible = match value {
+                    "true" => true,
+                    "false" => false,
+                    _ => return None,
+                };
+                seen_toolbar_visible = true;
+            }
             "theme" if !seen_theme => {
                 config.theme = TerminalTheme::parse(value)?;
                 seen_theme = true;
@@ -294,7 +339,7 @@ fn parse(content: &str) -> Option<TerminalConfig> {
 mod tests {
     use super::{
         parse, TerminalConfig, TerminalTheme, CONFIG_HEADER, DEFAULT_FONT_SIZE,
-        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_THEME,
+        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_THEME, DEFAULT_TOOLBAR_VISIBLE,
     };
 
     #[test]
@@ -304,6 +349,7 @@ mod tests {
         assert_eq!(config.history_limit(), 25);
         assert_eq!(config.font_size(), DEFAULT_FONT_SIZE);
         assert_eq!(config.scrollback_limit(), DEFAULT_SCROLLBACK_LIMIT);
+        assert_eq!(config.toolbar_visible(), DEFAULT_TOOLBAR_VISIBLE);
         assert_eq!(config.theme(), DEFAULT_THEME);
     }
 
@@ -325,10 +371,15 @@ mod tests {
                 .scrollback_limit(),
             2048
         );
+        let toolbar = format!("{content}toolbar_visible=false\ntheme=ember\n");
+        assert!(!parse(&toolbar)
+            .expect("toolbar visibility should parse")
+            .toolbar_visible());
         assert!(parse("RUNE_CONFIG_V1\nfont_size=7\n").is_none());
         assert!(parse("RUNE_CONFIG_V1\nfont_size=33\n").is_none());
         assert!(parse("RUNE_CONFIG_V1\nscrollback_limit=127\n").is_none());
         assert!(parse("RUNE_CONFIG_V1\nscrollback_limit=8193\n").is_none());
+        assert!(parse("RUNE_CONFIG_V1\ntoolbar_visible=maybe\n").is_none());
         assert!(parse("RUNE_CONFIG_V1\ntheme=unknown\n").is_none());
     }
 
@@ -346,6 +397,10 @@ mod tests {
         assert_eq!(
             TerminalConfig::default().scrollback_limit(),
             DEFAULT_SCROLLBACK_LIMIT
+        );
+        assert_eq!(
+            TerminalConfig::default().toolbar_visible(),
+            DEFAULT_TOOLBAR_VISIBLE
         );
         assert_eq!(TerminalConfig::default().theme(), DEFAULT_THEME);
         assert!(parse("not-rune-config\n").is_none());

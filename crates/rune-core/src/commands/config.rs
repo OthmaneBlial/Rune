@@ -11,12 +11,12 @@ pub(super) fn config(context: &mut CommandContext<'_>) -> CommandOutput {
         "set" if context.args.len() == 3 => set(context, &context.args[1], &context.args[2]),
         "set" => usage(
             "config",
-            "usage: config set history-limit|font-size|scrollback-limit|theme VALUE",
+            "usage: config set history-limit|font-size|scrollback-limit|toolbar-visible|theme VALUE",
         ),
         "reset" if context.args.len() == 1 => reset(context),
         "get" => usage(
             "config",
-            "usage: config get history-limit|font-size|scrollback-limit|theme",
+            "usage: config get history-limit|font-size|scrollback-limit|toolbar-visible|theme",
         ),
         _ => usage("config", "usage: config [get KEY|set KEY VALUE|reset]"),
     }
@@ -30,6 +30,11 @@ fn show(context: &CommandContext<'_>) -> CommandOutput {
         stdout,
         "scrollback-limit={}",
         context.config.scrollback_limit()
+    );
+    let _ = writeln!(
+        stdout,
+        "toolbar-visible={}",
+        context.config.toolbar_visible()
     );
     let _ = writeln!(stdout, "theme={}", context.config.theme().as_str());
     CommandOutput::success(stdout)
@@ -48,10 +53,14 @@ fn get(context: &CommandContext<'_>, key: &str) -> CommandOutput {
             "scrollback-limit={}\n",
             context.config.scrollback_limit()
         )),
+        "toolbar-visible" => CommandOutput::success(format!(
+            "toolbar-visible={}\n",
+            context.config.toolbar_visible()
+        )),
         "theme" => CommandOutput::success(format!("theme={}\n", context.config.theme().as_str())),
         _ => usage(
             "config",
-            "unknown key; available keys: history-limit, font-size, scrollback-limit, theme",
+            "unknown key; available keys: history-limit, font-size, scrollback-limit, toolbar-visible, theme",
         ),
     }
 }

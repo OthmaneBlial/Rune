@@ -98,9 +98,9 @@ values, and the session applies them immediately. SwiftUI consumes all four
 settings; the public session and C ABI also expose validated set/reset
 operations that do not add shell text to history, allowing native settings
 surfaces to use the same Rust policy. The source-only SwiftUI sheet uses that
-boundary for font size, scrollback, theme, and reset; its scrollback window
-also remains subject to an 8 MiB byte cap. Cursor styling and toolbar
-preferences remain outside the current contract.
+boundary for font size, scrollback, theme, reset, and toolbar visibility; its
+scrollback window also remains subject to an 8 MiB byte cap. Cursor styling
+remains outside the current contract.
 
 The `history` built-in can render the full session, a bounded recent count,
 search matching entries with `history search QUERY ...`, or clear the mutable
@@ -182,8 +182,8 @@ source-only settings sheet. An optional bounded input toolbar adds
 Tab/completion, Escape, Ctrl-C, display-clear, and paste controls. These
 controls dispatch into the existing Swift model and Rust FFI rather than
 maintaining a second command, configuration, or history implementation; the
-toolbar visibility preference is presentation-only Swift state. Their
-behavior still needs Apple keyboard/runtime validation.
+toolbar visibility preference is persisted by Rust and surfaced through the
+same FFI. Their behavior still needs Apple keyboard/runtime validation.
 
 The filesystem starts with a host-backed root for local development. The root
 is a policy boundary: paths are resolved relative to it, `~` maps to the root,

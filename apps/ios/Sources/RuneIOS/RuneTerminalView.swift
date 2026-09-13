@@ -36,6 +36,7 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var workspaceName = "Documents"
     @Published public private(set) var fontSize: CGFloat = 15
     @Published public private(set) var scrollbackLimit = Self.defaultScrollbackLimit
+    @Published public private(set) var toolbarVisible = true
     @Published public private(set) var theme = "ink"
     @Published public private(set) var initializationError: String?
     @Published public private(set) var isExecuting = false
@@ -313,6 +314,12 @@ public final class RuneTerminalModel: ObservableObject {
                         Self.maximumTranscriptEntries
                     )
                 }
+            case "toolbar-visible":
+                if ["true", "1"].contains(pair[1]) {
+                    toolbarVisible = true
+                } else if ["false", "0"].contains(pair[1]) {
+                    toolbarVisible = false
+                }
             case "theme":
                 if ["ink", "light", "ember"].contains(pair[1]) {
                     theme = pair[1]
@@ -364,7 +371,6 @@ public struct RuneTerminalView: View {
     @FocusState private var inputFocused: Bool
     @State private var isImportingFolder = false
     @State private var isShowingSettings = false
-    @AppStorage("rune.toolbar-visible") private var toolbarVisible = true
 
     public init(rootURL: URL? = nil, sessionID: String? = nil) {
         _model = StateObject(wrappedValue: RuneTerminalModel(rootURL: rootURL, sessionID: sessionID))
@@ -496,7 +502,7 @@ public struct RuneTerminalView: View {
                     }
                 }
 
-                if toolbarVisible {
+                if model.toolbarVisible {
                     RuneInputToolbar(model: model) {
                         inputFocused = true
                     }
@@ -576,7 +582,7 @@ public struct RuneTerminalView: View {
             }
         }
         .sheet(isPresented: $isShowingSettings) {
-            RuneSettingsView(model: model, toolbarVisible: $toolbarVisible)
+            RuneSettingsView(model: model)
         }
         .onAppear { inputFocused = true }
     }
@@ -593,7 +599,6 @@ public struct RuneTerminalView: View {
 
 private struct RuneSettingsView: View {
     @ObservedObject var model: RuneTerminalModel
-    @Binding var toolbarVisible: Bool
     @Environment(\.dismiss) private var dismiss
 
     private let themes = ["ink", "light", "ember"]
@@ -602,7 +607,18 @@ private struct RuneSettingsView: View {
         NavigationStack {
             Form {
                 Section("Terminal") {
-                    Toggle("Show input toolbar", isOn: $toolbarVisible)
+                    Toggle(
+                        "Show input toolbar",
+                        isOn: Binding(
+                            get: { model.toolbarVisible },
+                            set: {
+                                model.setConfiguration(
+                                    key: "toolbar-visible",
+                                    value: $0 ? "true" : "false"
+                                )
+                            }
+                        )
+                    )
 
                     HStack {
                         Text("Font size")

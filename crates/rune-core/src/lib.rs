@@ -1712,6 +1712,7 @@ mod tests {
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
         assert_eq!(session.configuration().history_limit(), 1_000);
         assert_eq!(session.configuration().scrollback_limit(), 4_096);
+        assert!(session.configuration().toolbar_visible());
         assert_eq!(session.execute_line("config set history-limit 3").status, 0);
         assert_eq!(
             session.execute_line("config get history-limit").stdout,
@@ -1736,6 +1737,16 @@ mod tests {
         assert_eq!(
             session.execute_line("config get scrollback-limit").stdout,
             "scrollback-limit=2048\n"
+        );
+        assert_eq!(
+            session
+                .execute_line("config set toolbar-visible false")
+                .status,
+            0
+        );
+        assert_eq!(
+            session.execute_line("config get toolbar-visible").stdout,
+            "toolbar-visible=false\n"
         );
         assert_eq!(session.execute_line("echo one").status, 0);
         assert_eq!(session.execute_line("echo two").status, 0);
@@ -1766,11 +1777,13 @@ mod tests {
         assert_eq!(restored.configuration().history_limit(), 3);
         assert_eq!(restored.configuration().font_size(), 20);
         assert_eq!(restored.configuration().scrollback_limit(), 2_048);
+        assert!(!restored.configuration().toolbar_visible());
         assert_eq!(restored.configuration().theme().as_str(), "ember");
         assert!(restored.history().len() <= 3);
         assert_eq!(restored.execute_line("config reset").status, 0);
         assert_eq!(restored.configuration().history_limit(), 1_000);
         assert_eq!(restored.configuration().scrollback_limit(), 4_096);
+        assert!(restored.configuration().toolbar_visible());
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
@@ -1782,6 +1795,11 @@ mod tests {
         let changed = session.set_configuration("font-size", "20");
         assert_eq!(changed.status, 0);
         assert_eq!(session.configuration().font_size(), 20);
+        assert_eq!(
+            session.set_configuration("toolbar-visible", "false").status,
+            0
+        );
+        assert!(!session.configuration().toolbar_visible());
         assert_eq!(session.history(), ["echo keep"]);
 
         let invalid = session.set_configuration("theme", "paper");
