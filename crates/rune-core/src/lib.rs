@@ -2677,6 +2677,51 @@ mod tests {
     }
 
     #[test]
+    fn rejects_a_package_update_when_the_installed_manifest_name_is_tampered() {
+        let root = test_root();
+        let package_root = root.join("bundle/bin");
+        std::fs::create_dir_all(&package_root).expect("package directories created");
+        let wasm = package_wasm_probe();
+        let digest = rune_package::sha256_hex(&wasm);
+        std::fs::write(package_root.join("hello.wasm"), &wasm).expect("module written");
+        let manifest = format!(
+            r#"{{
+                "schema_version": 1,
+                "name": "local-update",
+                "version": "0.1.0",
+                "description": "Initial package",
+                "files": [{{"path": "bin/hello.wasm", "sha256": "{digest}"}}],
+                "commands": [{{"name": "local-update-command", "entry": "bin/hello.wasm"}}]
+            }}"#
+        );
+        let manifest_path = root.join("bundle/manifest.json");
+        std::fs::write(&manifest_path, &manifest).expect("manifest written");
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(
+            session
+                .execute_line("pkg install bundle/manifest.json")
+                .status,
+            0
+        );
+
+        let installed_manifest_path = root.join(".rune/packages/local-update/0.1.0/manifest.json");
+        let tampered_manifest = manifest.replace("local-update", "other-package");
+        std::fs::write(installed_manifest_path, tampered_manifest).expect("manifest modified");
+        let next_manifest = manifest.replace("0.1.0", "0.2.0");
+        std::fs::write(&manifest_path, next_manifest).expect("update manifest written");
+
+        let rejected = session.execute_line("pkg update bundle/manifest.json");
+        assert_eq!(rejected.status, 1);
+        assert!(rejected.stderr.contains("installed manifest name mismatch"));
+        assert!(root
+            .join(".rune/packages/local-update/0.1.0/manifest.json")
+            .exists());
+        assert!(!root.join(".rune/packages/local-update/0.2.0").exists());
+
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn executes_a_verified_rune_script_from_a_local_package() {
         let root = test_root();
         let package_root = root.join("script-bundle/bin");

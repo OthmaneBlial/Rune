@@ -227,6 +227,15 @@ fn update(
         Ok(manifest) => manifest,
         Err(output) => return output,
     };
+    if current_manifest.name != manifest.name {
+        return CommandOutput::failure(
+            1,
+            format!(
+                "pkg update: installed manifest name mismatch: expected {}, got {}\n",
+                manifest.name, current_manifest.name
+            ),
+        );
+    }
     if current_manifest.version == manifest.version {
         return CommandOutput::failure(
             1,
@@ -258,7 +267,7 @@ fn update(
         return failed_package_operation(context, &new_root, "pkg update", &error);
     }
 
-    let old_root = package_root(&current_manifest.name, &current_manifest.version);
+    let old_root = package_root(&manifest.name, &current_manifest.version);
     if let Err(error) = context.fs.remove(&old_root, true, false) {
         let _ = context.fs.remove(&new_root, true, false);
         return fs_failure("pkg update", &error);
