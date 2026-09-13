@@ -33,6 +33,16 @@ pub struct WasmLimits {
     pub table_elements: u32,
     /// Maximum captured bytes per output channel, including the marker.
     pub max_output_bytes: usize,
+    /// Maximum number of arguments after argv0.
+    pub max_arguments: usize,
+    /// Maximum combined UTF-8 bytes for argv0 and arguments.
+    pub max_argument_bytes: usize,
+    /// Maximum number of environment entries copied into WASI.
+    pub max_environment_entries: usize,
+    /// Maximum combined UTF-8 bytes for environment names and values.
+    pub max_environment_bytes: usize,
+    /// Maximum UTF-8 bytes copied into WASI stdin.
+    pub max_stdin_bytes: usize,
 }
 
 impl Default for WasmLimits {
@@ -43,6 +53,11 @@ impl Default for WasmLimits {
             memory_bytes: 64 * 1024 * 1024,
             table_elements: 10_000,
             max_output_bytes: 1024 * 1024,
+            max_arguments: 64,
+            max_argument_bytes: 64 * 1024,
+            max_environment_entries: 256,
+            max_environment_bytes: 64 * 1024,
+            max_stdin_bytes: 1024 * 1024,
         }
     }
 }
@@ -58,7 +73,16 @@ pub struct WasmExecution {
 /// Errors that prevent a WASM module from being started.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WasmError {
-    ModuleTooLarge { actual: usize, maximum: usize },
+    ModuleTooLarge {
+        actual: usize,
+        maximum: usize,
+    },
+    InputTooLarge {
+        input: &'static str,
+        actual: usize,
+        maximum: usize,
+        unit: &'static str,
+    },
     InvalidModule(String),
     WasiSetup(String),
     Linker(String),
@@ -72,6 +96,15 @@ impl Display for WasmError {
             Self::ModuleTooLarge { actual, maximum } => write!(
                 formatter,
                 "module is {actual} bytes; Rune allows at most {maximum} bytes"
+            ),
+            Self::InputTooLarge {
+                input,
+                actual,
+                maximum,
+                unit,
+            } => write!(
+                formatter,
+                "{input} input is {actual} {unit}; Rune allows at most {maximum} {unit}"
             ),
             Self::InvalidModule(message) => write!(formatter, "invalid module: {message}"),
             Self::WasiSetup(message) => write!(formatter, "WASI setup failed: {message}"),
@@ -183,6 +216,7 @@ impl WasmRunner {
                 maximum: self.limits.max_module_bytes,
             });
         }
+        validate_inputs(argv0, args, environment, stdin, self.limits)?;
 
         let mut config = Config::default();
         config.consume_fuel(true);
@@ -380,6 +414,62 @@ struct HostState {
     limits: StoreLimits,
 }
 
+fn validate_inputs(
+    argv0: &str,
+    args: &[String],
+    environment: &BTreeMap<String, String>,
+    stdin: &str,
+    limits: WasmLimits,
+) -> Result<(), WasmError> {
+    if args.len() > limits.max_arguments {
+        return Err(WasmError::InputTooLarge {
+            input: "argument count",
+            actual: args.len(),
+            maximum: limits.max_arguments,
+            unit: "entries",
+        });
+    }
+    let argument_bytes = argv0
+        .len()
+        .saturating_add(args.iter().map(String::len).sum::<usize>());
+    if argument_bytes > limits.max_argument_bytes {
+        return Err(WasmError::InputTooLarge {
+            input: "argument",
+            actual: argument_bytes,
+            maximum: limits.max_argument_bytes,
+            unit: "bytes",
+        });
+    }
+    if environment.len() > limits.max_environment_entries {
+        return Err(WasmError::InputTooLarge {
+            input: "environment entry count",
+            actual: environment.len(),
+            maximum: limits.max_environment_entries,
+            unit: "entries",
+        });
+    }
+    let environment_bytes = environment.iter().fold(0_usize, |total, (name, value)| {
+        total.saturating_add(name.len()).saturating_add(value.len())
+    });
+    if environment_bytes > limits.max_environment_bytes {
+        return Err(WasmError::InputTooLarge {
+            input: "environment",
+            actual: environment_bytes,
+            maximum: limits.max_environment_bytes,
+            unit: "bytes",
+        });
+    }
+    if stdin.len() > limits.max_stdin_bytes {
+        return Err(WasmError::InputTooLarge {
+            input: "stdin",
+            actual: stdin.len(),
+            maximum: limits.max_stdin_bytes,
+            unit: "bytes",
+        });
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 struct BoundedOutput {
     bytes: Vec<u8>,
@@ -426,7 +516,7 @@ fn output_to_string(output: &mut BoundedOutput) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{WasmLimits, WasmRunner};
+    use super::{WasmError, WasmLimits, WasmRunner};
     use std::collections::BTreeMap;
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -471,6 +561,83 @@ mod tests {
             .expect("fuel exhaustion is a guest failure");
         assert_eq!(execution.status, 1);
         assert!(execution.stderr.contains("all fuel consumed"));
+    }
+
+    #[test]
+    fn bounds_wasm_invocation_inputs_before_guest_setup() {
+        let wasm = wat::parse_str(r#"(module (func (export "_start")))"#).expect("valid WAT");
+        let mut environment = BTreeMap::new();
+        environment.insert("RUNE_TEST".to_string(), "ok".to_string());
+
+        let count_limited = WasmRunner::new(WasmLimits {
+            max_arguments: 1,
+            ..WasmLimits::default()
+        });
+        assert_eq!(
+            count_limited
+                .execute(
+                    &wasm,
+                    "demo.wasm",
+                    &["one".to_string(), "two".to_string()],
+                    &BTreeMap::new(),
+                    ""
+                )
+                .expect_err("argument count must be bounded"),
+            WasmError::InputTooLarge {
+                input: "argument count",
+                actual: 2,
+                maximum: 1,
+                unit: "entries"
+            }
+        );
+
+        let byte_limited = WasmRunner::new(WasmLimits {
+            max_argument_bytes: 4,
+            ..WasmLimits::default()
+        });
+        assert!(matches!(
+            byte_limited.execute(
+                &wasm,
+                "demo.wasm",
+                &["1234".to_string()],
+                &BTreeMap::new(),
+                ""
+            ),
+            Err(WasmError::InputTooLarge {
+                input: "argument",
+                actual: 13,
+                maximum: 4,
+                unit: "bytes"
+            })
+        ));
+
+        let environment_limited = WasmRunner::new(WasmLimits {
+            max_environment_entries: 0,
+            ..WasmLimits::default()
+        });
+        assert!(matches!(
+            environment_limited.execute(&wasm, "demo.wasm", &[], &environment, ""),
+            Err(WasmError::InputTooLarge {
+                input: "environment entry count",
+                actual: 1,
+                maximum: 0,
+                unit: "entries"
+            })
+        ));
+
+        let stdin_limited = WasmRunner::new(WasmLimits {
+            max_stdin_bytes: 2,
+            ..WasmLimits::default()
+        });
+        assert!(matches!(
+            stdin_limited.execute(&wasm, "demo.wasm", &[], &BTreeMap::new(), "too long"),
+            Err(WasmError::InputTooLarge {
+                input: "stdin",
+                actual: 8,
+                maximum: 2,
+                unit: "bytes"
+            })
+        ));
     }
 
     #[test]
