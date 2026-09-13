@@ -25,7 +25,7 @@ working iOS application or a feature-parity claim.
 | Sessions/history | 62% |
 | Configuration | 23% |
 | WASM | 38% |
-| Native iOS UI | 41% |
+| Native iOS UI | 42% |
 | Swift/Rust bridge | 34% |
 | Package manager | 36% |
 | Compatibility evidence | 2% |
@@ -288,6 +288,7 @@ git check-ignore -v base/a-shell
 - [x] Source-only external folders and bounded security-scoped bookmarks
 - [x] Rust-namespaced sessions and source-only terminal tabs
 - [x] Source-only typed iPad window routing
+- [x] Source-only native keyboard shortcuts
 - [ ] iPad multi-window behavior
 - [x] Source-only command/script/file App Intent declarations
 - [ ] Apple Shortcuts registration and runtime validation

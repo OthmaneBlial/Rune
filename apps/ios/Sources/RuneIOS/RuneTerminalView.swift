@@ -286,6 +286,7 @@ public struct RuneTerminalView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(palette.cyan)
                     .accessibilityLabel("Open a folder")
+                    .keyboardShortcut("o", modifiers: [.command])
                     if model.isExecuting {
                         Button {
                             model.cancel()
@@ -296,6 +297,7 @@ public struct RuneTerminalView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(palette.ember)
                         .accessibilityLabel("Cancel command")
+                        .keyboardShortcut(".", modifiers: [.command])
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
@@ -409,6 +411,7 @@ public struct RuneTerminalView: View {
                     .foregroundStyle(palette.muted)
                     .accessibilityLabel("Previous command")
                     .disabled(model.isExecuting)
+                    .keyboardShortcut(.upArrow, modifiers: [.command])
                     Button {
                         model.nextHistory()
                         inputFocused = true
@@ -419,6 +422,7 @@ public struct RuneTerminalView: View {
                     .foregroundStyle(palette.muted)
                     .accessibilityLabel("Next command")
                     .disabled(model.isExecuting)
+                    .keyboardShortcut(.downArrow, modifiers: [.command])
                     Button {
                         model.submit()
                         inputFocused = true
@@ -430,6 +434,7 @@ public struct RuneTerminalView: View {
                     .foregroundStyle(palette.cyan)
                     .accessibilityLabel("Execute command")
                     .disabled(model.isExecuting)
+                    .keyboardShortcut(.return, modifiers: [.command])
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)

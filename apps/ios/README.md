@@ -100,6 +100,8 @@ integration remain unverified.
   App Intents.
 - `RuneWorkspaceView.swift` declares the source-only independent-session tab
   container.
+- `RuneTerminalView.swift` declares source-only Command-key shortcuts for
+  folder import, cancellation, history navigation, and command execution.
 - `RuneTerminalView.swift` includes the `@main` SwiftUI application entry point
   and launches the source-only workspace view.
 - The bridge asks Rust for bounded command/path replacement candidates; it does

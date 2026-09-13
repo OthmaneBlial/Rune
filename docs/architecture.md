@@ -162,6 +162,12 @@ and 8 MiB of UTF-8 text. It evicts oldest rendered events at the boundary;
 Rust output limits, command history, and sandbox files remain independent of
 that UI eviction policy.
 
+The terminal view also declares native keyboard shortcuts for folder import,
+cooperative cancellation, history navigation, and command submission. These
+shortcuts dispatch into the existing Swift model and Rust FFI rather than
+maintaining a second command or history implementation. Their behavior still
+needs Apple keyboard/runtime validation.
+
 The filesystem starts with a host-backed root for local development. The root
 is a policy boundary: paths are resolved relative to it, `~` maps to the root,
 and traversal outside the root is rejected. An Apple adapter will map that
