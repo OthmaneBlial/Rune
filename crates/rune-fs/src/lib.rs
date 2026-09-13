@@ -103,6 +103,7 @@ pub trait VirtualFileSystem {
 }
 
 const MAX_COPY_ENTRIES: usize = 10_000;
+const MAX_DIRECTORY_ENTRIES: usize = 10_000;
 const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// A host-backed filesystem with a strict virtual root.
@@ -367,9 +368,18 @@ fn expand_glob_component(
             if !metadata.is_dir() {
                 continue;
             }
+            let mut entries_seen = 0;
             for entry in fs::read_dir(&candidate.physical).map_err(|error| {
                 SandboxedFileSystem::io_error("glob", Path::new(&candidate.virtual_path), &error)
             })? {
+                entries_seen += 1;
+                if entries_seen > MAX_DIRECTORY_ENTRIES {
+                    return Err(FsError::Io {
+                        operation: "glob".to_string(),
+                        path: input.to_string(),
+                        message: format!("directory exceeds {MAX_DIRECTORY_ENTRIES} entries"),
+                    });
+                }
                 let entry = entry.map_err(|error| {
                     SandboxedFileSystem::io_error(
                         "glob",
@@ -529,9 +539,18 @@ impl VirtualFileSystem for SandboxedFileSystem {
             return Err(FsError::NotDirectory(display_input.to_string()));
         }
         let mut entries = Vec::new();
+        let mut entries_seen = 0;
         for entry in fs::read_dir(&path)
             .map_err(|error| Self::io_error("list", Path::new(display_input), &error))?
         {
+            entries_seen += 1;
+            if entries_seen > MAX_DIRECTORY_ENTRIES {
+                return Err(FsError::Io {
+                    operation: "list".to_string(),
+                    path: display_input.to_string(),
+                    message: format!("directory exceeds {MAX_DIRECTORY_ENTRIES} entries"),
+                });
+            }
             let entry =
                 entry.map_err(|error| Self::io_error("list", Path::new(display_input), &error))?;
             let entry_path = entry.path();
@@ -834,7 +853,9 @@ impl VirtualFileSystem for SandboxedFileSystem {
 
 #[cfg(test)]
 mod tests {
-    use super::{FsError, SandboxedFileSystem, VirtualFileSystem, MAX_FILE_BYTES};
+    use super::{
+        FsError, SandboxedFileSystem, VirtualFileSystem, MAX_DIRECTORY_ENTRIES, MAX_FILE_BYTES,
+    };
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -991,6 +1012,21 @@ mod tests {
             fs.glob("missing*").expect("unmatched glob preserved"),
             ["missing*"]
         );
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn bounds_directory_listing_and_glob_enumeration() {
+        let root = test_root();
+        for index in 0..=MAX_DIRECTORY_ENTRIES {
+            std::fs::File::create(root.join(format!("entry-{index}")))
+                .expect("directory entry created");
+        }
+        let fs = SandboxedFileSystem::new(&root).expect("root created");
+        let listing = fs.list(Some("~")).expect_err("listing should be bounded");
+        assert!(listing.to_string().contains("directory exceeds"));
+        let glob = fs.glob("*").expect_err("glob should be bounded");
+        assert!(glob.to_string().contains("directory exceeds"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 }

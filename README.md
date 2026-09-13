@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 54%**
+**Overall progress: 55%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -21,7 +21,7 @@ working iOS application or a feature-parity claim.
 | Rust workspace | 70% |
 | Shell tokenizer/parser | 63% |
 | Command runtime | 82% |
-| Sandboxed filesystem | 62% |
+| Sandboxed filesystem | 64% |
 | Sessions/history | 62% |
 | Configuration | 23% |
 | WASM | 38% |
@@ -79,8 +79,9 @@ redaction marker in history before persistence; this is an initial defense, not
 a complete secret management policy.
 The iOS app is represented by
 source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
-and runtime gates remain unverified. Bounded current-directory/history
-persistence now exists in Rust; bounded `history-limit`, `font-size`, and
+and runtime gates remain unverified. Bounded directory enumeration and
+current-directory/history persistence now exist in Rust; bounded
+`history-limit`, `font-size`, and
 `theme` configuration is available, and the native source UI consumes the
 font size and three named palettes. Configurable redaction, cursor styling,
 and broader session recovery remain planned. Non-WASM language runtimes remain
@@ -126,7 +127,8 @@ unsupported until separately tested.
 The host-backed VFS also rejects regular-file reads, appends, and copies over
 64 MiB before allocating or copying their contents. This limit is independent
 of the smaller 16 MiB native file-transfer boundary and the 1 MiB terminal
-output boundary.
+output boundary. Directory listing and wildcard enumeration are capped at
+10,000 entries to keep large trees bounded before terminal rendering.
 
 The portable core also supports session-local virtual directory bookmarks with
 `bookmark`, `showmarks`, `jump`, `cd ~NAME`, `renamemark`, and `deletemark`.

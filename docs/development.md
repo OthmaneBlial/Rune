@@ -33,6 +33,8 @@ confined destination, and rejects an escaping extraction destination. It does
 not establish compatibility with compressed or ZIP64 archives.
 The filesystem resource test uses a sparse file to verify the 64 MiB read,
 append, and copy guards without allocating a large in-memory fixture.
+The directory resource test creates 10,001 small entries and verifies that
+both listing and wildcard enumeration stop at the 10,000-entry boundary.
 The source-only Apple check also parses the external-folder bookmark layer;
 that syntax check does not prove security-scoped access, entitlements, or Files
 picker behavior on a device.
