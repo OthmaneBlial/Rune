@@ -46,8 +46,8 @@ duplication order, and carrying merged stderr through a pipeline.
 Script tests also cover bounded positional arguments (`$0`, `$1...`, `$#`, and
 `$@`), preservation of pipeline stdin, and restoration of outer parameters
 after nested source calls.
-Completion tests also use only the confined VFS and do not require an Apple
-runtime.
+Completion tests also cover simple separated redirection targets, use only the
+confined VFS, and do not require an Apple runtime.
 Named-session tests use separate temporary VFS state namespaces and verify that
 working directories and history do not leak between Rust or FFI handles.
 History-search tests verify newest-first, case-insensitive matches, query bounds,

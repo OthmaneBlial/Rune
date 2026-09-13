@@ -289,7 +289,8 @@ of a line it returns built-in and installed-package command names; for
 supported path-oriented
 commands it lists only entries in the bounded VFS, preserves virtual prefixes
 such as `~/` and `../`, marks directories with `/`, and caps results at eight.
-Quoted, escaped, option, and compound-shell fragments are intentionally
+Simple separated `<`/`>` redirection targets use the same confined path list;
+quoted, escaped, option, and other compound-shell fragments are intentionally
 deferred until the completion grammar has structured replacement ranges.
 
 The Rust shell includes a bounded `printf` formatter for `%s`, `%c`, `%d`,

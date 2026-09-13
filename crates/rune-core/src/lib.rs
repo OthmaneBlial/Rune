@@ -610,7 +610,7 @@ impl Session {
         if input.is_empty()
             || input
                 .chars()
-                .any(|character| "|;&<>\\\"'#".contains(character))
+                .any(|character| "|;&\\\"'#".contains(character))
         {
             return Vec::new();
         }
@@ -650,15 +650,16 @@ impl Session {
             .find(char::is_whitespace)
             .map_or(input.len(), |offset| leading + offset);
         let command = &input[leading..command_end];
-        if !supports_path_completion(command) {
-            return Vec::new();
-        }
-
         let token_start = input
             .char_indices()
             .rev()
             .find(|(_, character)| character.is_whitespace())
             .map_or(0, |(offset, character)| offset + character.len_utf8());
+        let redirection_target = input[..token_start].trim_end().ends_with(['<', '>']);
+        if !supports_path_completion(command) && !redirection_target {
+            return Vec::new();
+        }
+
         let token = &input[token_start..];
         if token.starts_with('-') {
             return Vec::new();
@@ -2487,6 +2488,8 @@ mod tests {
         assert_eq!(session.completion_candidates("cat ~/do"), vec!["~/docs/"]);
         assert_eq!(session.completion_candidates("cat ./do"), vec!["./docs/"]);
         assert_eq!(session.completion_candidates("cd do"), vec!["docs/"]);
+        assert_eq!(session.completion_candidates("echo > do"), vec!["docs/"]);
+        assert_eq!(session.completion_candidates("echo < "), vec!["docs/"]);
         assert_eq!(session.completion_candidates("cat -"), Vec::<String>::new());
         assert!(session.completion_candidates("echo no").is_empty());
         assert!(session.completion_candidates("cat \"no").is_empty());
