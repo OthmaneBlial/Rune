@@ -46,6 +46,9 @@ non-UTF-8 decoded output, usage errors, and the 768 KiB input bound.
 Checksum tests cover the POSIX CRC vector and invalid operand counts.
 MD5 tests cover standard stdin/file vectors and invalid operand counts; the
 digest is compatibility evidence, not security evidence.
+`expr` tests cover precedence, comparisons, bounded text operations, division
+by zero, and missing operands; this is a tested subset, not POSIX expression
+parity.
 Redirection tests cover append writes, `2>&1`, `1>&2`, `&>`, left-to-right
 duplication order, and carrying merged stderr through a pipeline.
 Script tests also cover bounded positional arguments (`$0`, `$1...`, `$#`, and

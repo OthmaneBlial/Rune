@@ -8,6 +8,8 @@ const MAX_BASE64_INPUT: usize = 768 * 1024;
 const MAX_CKSUM_INPUT: usize = 16 * 1024 * 1024;
 const MAX_MD5_INPUT: usize = 16 * 1024 * 1024;
 const MAX_DISK_USAGE_ENTRIES: usize = 10_000;
+const MAX_EXPR_ARGUMENTS: usize = 64;
+const MAX_EXPR_TEXT_BYTES: usize = 64 * 1024;
 
 const BASE64_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -187,6 +189,243 @@ pub(super) fn md5(context: &mut CommandContext<'_>) -> CommandOutput {
         return CommandOutput::failure(1, format!("md5: input exceeds {MAX_MD5_INPUT} bytes\n"));
     }
     CommandOutput::success(format!("{}  {path}\n", md5_hex(&bytes)))
+}
+
+pub(super) fn expr(context: &mut CommandContext<'_>) -> CommandOutput {
+    if context.args.is_empty() {
+        return usage("expr", "usage: expr EXPRESSION");
+    }
+    if context.args.len() > MAX_EXPR_ARGUMENTS {
+        return expr_failure(format!("expression exceeds {MAX_EXPR_ARGUMENTS} arguments"));
+    }
+    if context
+        .args
+        .iter()
+        .any(|argument| argument.len() > MAX_EXPR_TEXT_BYTES)
+    {
+        return expr_failure(format!("text operand exceeds {MAX_EXPR_TEXT_BYTES} bytes"));
+    }
+
+    let value = match context.args.first().map(String::as_str) {
+        Some("length") => expr_length(context.args),
+        Some("index") => expr_index(context.args),
+        Some("substr") => expr_substr(context.args),
+        Some(_) => {
+            let mut parser = ExprParser::new(context.args);
+            let value = parser.parse_comparison();
+            match value {
+                Ok(value) if parser.is_at_end() => Ok(value),
+                Ok(_) => Err("unexpected operand".to_string()),
+                Err(error) => Err(error),
+            }
+        }
+        None => unreachable!("empty expression was checked above"),
+    };
+    match value {
+        Ok(value) => expr_value_output(&value),
+        Err(error) => expr_failure(error),
+    }
+}
+
+fn expr_failure(message: impl Into<String>) -> CommandOutput {
+    CommandOutput::failure(2, format!("expr: {}\n", message.into()))
+}
+
+fn expr_value_output(value: &ExprValue) -> CommandOutput {
+    let is_false = match value {
+        ExprValue::Integer(value) => *value == 0,
+        ExprValue::Text(value) => value.is_empty(),
+    };
+    CommandOutput {
+        stdout: format!("{}\n", value.display()),
+        stderr: String::new(),
+        status: i32::from(is_false),
+    }
+}
+
+fn expr_length(arguments: &[String]) -> Result<ExprValue, String> {
+    let [_, text] = arguments else {
+        return Err("usage: expr length STRING".to_string());
+    };
+    let length = i64::try_from(text.chars().count())
+        .map_err(|_| "string length exceeds integer range".to_string())?;
+    Ok(ExprValue::Integer(length))
+}
+
+fn expr_index(arguments: &[String]) -> Result<ExprValue, String> {
+    let [_, text, characters] = arguments else {
+        return Err("usage: expr index STRING CHARACTERS".to_string());
+    };
+    let index = text
+        .chars()
+        .position(|character| characters.chars().any(|candidate| candidate == character))
+        .map_or(0, |index| index + 1);
+    let index = i64::try_from(index).map_err(|_| "index exceeds integer range".to_string())?;
+    Ok(ExprValue::Integer(index))
+}
+
+fn expr_substr(arguments: &[String]) -> Result<ExprValue, String> {
+    let [_, text, start, length] = arguments else {
+        return Err("usage: expr substr STRING START LENGTH".to_string());
+    };
+    let start = parse_expr_integer(start, "START")?;
+    let length = parse_expr_integer(length, "LENGTH")?;
+    if start <= 0 || length <= 0 {
+        return Ok(ExprValue::Text(String::new()));
+    }
+    let start = usize::try_from(start - 1).map_err(|_| "START is too large".to_string())?;
+    let length = usize::try_from(length).map_err(|_| "LENGTH is too large".to_string())?;
+    Ok(ExprValue::Text(
+        text.chars().skip(start).take(length).collect(),
+    ))
+}
+
+fn parse_expr_integer(value: &str, label: &str) -> Result<i64, String> {
+    value
+        .parse::<i64>()
+        .map_err(|_| format!("{label} is not an integer: {value}"))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ExprValue {
+    Integer(i64),
+    Text(String),
+}
+
+impl ExprValue {
+    fn display(&self) -> String {
+        match self {
+            Self::Integer(value) => value.to_string(),
+            Self::Text(value) => value.clone(),
+        }
+    }
+}
+
+struct ExprParser<'a> {
+    arguments: &'a [String],
+    position: usize,
+}
+
+impl<'a> ExprParser<'a> {
+    fn new(arguments: &'a [String]) -> Self {
+        Self {
+            arguments,
+            position: 0,
+        }
+    }
+
+    fn is_at_end(&self) -> bool {
+        self.position == self.arguments.len()
+    }
+
+    fn current(&self) -> Option<&str> {
+        self.arguments.get(self.position).map(String::as_str)
+    }
+
+    fn advance(&mut self) -> Option<String> {
+        let value = self.arguments.get(self.position).cloned();
+        if value.is_some() {
+            self.position += 1;
+        }
+        value
+    }
+
+    fn parse_comparison(&mut self) -> Result<ExprValue, String> {
+        let mut left = self.parse_additive()?;
+        while let Some(operator) = self
+            .current()
+            .filter(|operator| is_expr_comparison_operator(operator))
+        {
+            let operator = operator.to_string();
+            self.advance();
+            let right = self.parse_additive()?;
+            left = ExprValue::Integer(i64::from(compare_expr_values(&left, &right, &operator)));
+        }
+        Ok(left)
+    }
+
+    fn parse_additive(&mut self) -> Result<ExprValue, String> {
+        let mut left = self.parse_multiplicative()?;
+        while let Some(operator) = self
+            .current()
+            .filter(|operator| matches!(*operator, "+" | "-"))
+        {
+            let operator = operator.to_string();
+            self.advance();
+            let right = self.parse_multiplicative()?;
+            left = apply_expr_arithmetic(left, right, &operator)?;
+        }
+        Ok(left)
+    }
+
+    fn parse_multiplicative(&mut self) -> Result<ExprValue, String> {
+        let mut left = self.parse_primary()?;
+        while let Some(operator) = self
+            .current()
+            .filter(|operator| matches!(*operator, "*" | "/" | "%"))
+        {
+            let operator = operator.to_string();
+            self.advance();
+            let right = self.parse_primary()?;
+            left = apply_expr_arithmetic(left, right, &operator)?;
+        }
+        Ok(left)
+    }
+
+    fn parse_primary(&mut self) -> Result<ExprValue, String> {
+        let value = self
+            .advance()
+            .ok_or_else(|| "missing operand".to_string())?;
+        Ok(value
+            .parse::<i64>()
+            .map_or_else(|_| ExprValue::Text(value), ExprValue::Integer))
+    }
+}
+
+fn is_expr_comparison_operator(operator: &str) -> bool {
+    matches!(operator, "=" | "!=" | "<" | "<=" | ">" | ">=")
+}
+
+fn compare_expr_values(left: &ExprValue, right: &ExprValue, operator: &str) -> bool {
+    let ordering = match (left, right) {
+        (ExprValue::Integer(left), ExprValue::Integer(right)) => left.cmp(right),
+        _ => left.display().cmp(&right.display()),
+    };
+    match operator {
+        "=" => ordering.is_eq(),
+        "!=" => !ordering.is_eq(),
+        "<" => ordering.is_lt(),
+        "<=" => !ordering.is_gt(),
+        ">" => ordering.is_gt(),
+        ">=" => !ordering.is_lt(),
+        _ => false,
+    }
+}
+
+fn apply_expr_arithmetic(
+    left: ExprValue,
+    right: ExprValue,
+    operator: &str,
+) -> Result<ExprValue, String> {
+    let (ExprValue::Integer(left), ExprValue::Integer(right)) = (left, right) else {
+        return Err(format!("operator {operator} requires integer operands"));
+    };
+    let value = match operator {
+        "+" => left.checked_add(right),
+        "-" => left.checked_sub(right),
+        "*" => left.checked_mul(right),
+        "/" => left.checked_div(right),
+        "%" => left.checked_rem(right),
+        _ => None,
+    }
+    .ok_or_else(|| {
+        if matches!(operator, "/" | "%") && right == 0 {
+            "division by zero".to_string()
+        } else {
+            format!("integer overflow for operator {operator}")
+        }
+    })?;
+    Ok(ExprValue::Integer(value))
 }
 
 fn encode_base64(bytes: &[u8]) -> String {

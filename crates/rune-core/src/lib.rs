@@ -68,6 +68,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "curl"
             | "diff"
             | "du"
+            | "expr"
             | "find"
             | "grep"
             | "head"
@@ -3951,6 +3952,30 @@ mod tests {
         let invalid = session.execute_line("md5 one two");
         assert_eq!(invalid.status, 2);
         assert!(invalid.stderr.contains("usage: md5"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn evaluates_bounded_expr_arithmetic_comparisons_and_text_operations() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("expr 2 + 3 '*' 4").stdout, "14\n");
+        assert_eq!(session.execute_line("expr 2 '>' 1").stdout, "1\n");
+        assert_eq!(session.execute_line("expr length hello").stdout, "5\n");
+        assert_eq!(session.execute_line("expr index hello e").stdout, "2\n");
+        assert_eq!(
+            session.execute_line("expr substr hello 2 3").stdout,
+            "ell\n"
+        );
+        let false_result = session.execute_line("expr 1 = 2");
+        assert_eq!(false_result.stdout, "0\n");
+        assert_eq!(false_result.status, 1);
+        let division_by_zero = session.execute_line("expr 1 / 0");
+        assert_eq!(division_by_zero.status, 2);
+        assert!(division_by_zero.stderr.contains("division by zero"));
+        let invalid = session.execute_line("expr 1 +");
+        assert_eq!(invalid.status, 2);
+        assert!(invalid.stderr.contains("missing operand"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

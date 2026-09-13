@@ -113,6 +113,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::env,
     },
     CommandDefinition {
+        name: "expr",
+        summary: "evaluate bounded integer and text expressions",
+        handler: utilities::expr,
+    },
+    CommandDefinition {
         name: "export",
         summary: "set session environment variables",
         handler: shell::export,

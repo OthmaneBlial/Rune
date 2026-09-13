@@ -33,7 +33,7 @@ working iOS application or a feature-parity claim.
 ## Current status
 
 The first Rust vertical slice is implemented and locally verified. It executes
-the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `cksum`, `curl`, `echo`, `md5`, `mkdir`,
+the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `cksum`, `curl`, `echo`, `expr`, `md5`, `mkdir`,
 `touch`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
 `setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `realpath`, `rmdir`, `sha256`, `stat`, `unlink`, `tee`, `tr`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
@@ -74,6 +74,9 @@ non-text decoded data.
 including the input length in its stable two-field output.
 `md5` computes the standard MD5 digest for one bounded VFS file or stdin for
 legacy compatibility workflows; it is not a security primitive.
+`expr` evaluates bounded integer arithmetic and comparisons, plus `length`,
+`index`, and `substr` text operations; regular-expression expressions and
+floating-point arithmetic remain outside this subset.
 A synchronous command response and each intermediate pipeline channel are
 capped at 1 MiB per output channel; a truncation marker is emitted rather
 than allowing unbounded terminal output.
@@ -373,6 +376,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded Base64 encode/decode utility
 - [x] Bounded POSIX `cksum` utility
 - [x] Bounded MD5 compatibility utility
+- [x] Bounded `expr` arithmetic and text utility
 - [x] Bounded `pbcopy`/`pbpaste` through an explicit host clipboard capability
 - [x] Bounded UTF-8 `diff` with unified output and comparison limits
 
