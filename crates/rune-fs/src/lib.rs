@@ -437,14 +437,27 @@ impl VirtualFileSystem for SandboxedFileSystem {
 #[cfg(test)]
 mod tests {
     use super::{FsError, SandboxedFileSystem, VirtualFileSystem};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_root() -> std::path::PathBuf {
-        let suffix = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock is after epoch")
-            .as_nanos();
-        std::env::temp_dir().join(format!("rune-fs-test-{suffix}"))
+        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+        loop {
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock is after epoch")
+                .as_nanos();
+            let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "rune-fs-test-{}-{timestamp}-{id}",
+                std::process::id()
+            ));
+            match std::fs::create_dir(&root) {
+                Ok(()) => return root,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => panic!("test root could not be created: {error}"),
+            }
+        }
     }
 
     #[test]

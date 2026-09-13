@@ -30,7 +30,8 @@ to history; the persisted working directory is restored after the profile.
 - The bridge receives the Rust built-in command registry for first-word
   suggestions; it does not advertise arbitrary host executables.
 - `RuneTerminalView.swift` renders stdout, stderr, and non-zero exit status
-  separately and applies the Rust-backed first-word suggestions.
+  separately, applies the Rust-backed first-word suggestions, and provides the
+  native focused command bar/history controls.
 - `swiftc -parse` and `swift package dump-package` pass with the already
   available Swift toolchain; the full package build is not used as evidence.
 - iOS compilation, simulator behavior, device behavior, and linking are

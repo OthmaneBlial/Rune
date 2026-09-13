@@ -24,7 +24,7 @@ working iOS application or a feature-parity claim.
 | Sandboxed filesystem | 35% |
 | Sessions/history | 32% |
 | WASM | 0% |
-| Native iOS UI | 7% |
+| Native iOS UI | 9% |
 | Swift/Rust bridge | 6% |
 | Package manager | 0% |
 | Compatibility evidence | 2% |
@@ -42,6 +42,8 @@ not serialized. A bounded `~/.rune_profile` is loaded on restore; its supported
 Rust built-ins can update the session environment and its output is surfaced to
 the CLI/native boundary without polluting history. The native source UI now
 receives the Rust command registry and offers first-word command suggestions.
+It also has a focused command bar, keyboard-aware history controls, an
+ink/cyan/ember console palette, and accessible completion controls.
 Interactive `export` and `setenv` lines are replaced by a redaction marker in
 history before persistence; this is an initial defense, not a complete secret
 management policy.
