@@ -308,10 +308,13 @@ an installed manifest, but refuses an unversioned lookup when multiple
 versions are present. `pkg install` copies a verified manifest and
 its declared files into the bounded `~/.rune/packages` tree; `pkg list` reads
 those installed manifests and `pkg remove` deletes an explicitly named package
-or version. Only declared `.wasm` command entries are executable today, and
-installed module bytes are verified again before execution. There is no
-network client, remote registry, or update flow yet. `pkg search QUERY` performs
-a bounded, case-insensitive search over installed package names, versions,
+or version. `pkg update MANIFEST` verifies a different local version, writes it
+alongside the current version, and removes the old version only after the new
+tree is complete; verification or materialization failure leaves the old
+version installed. Only declared `.wasm` command entries are executable today,
+and installed module bytes are verified again before execution. There is no
+network client or remote registry. `pkg search QUERY` performs a bounded,
+case-insensitive search over installed package names, versions,
 descriptions, and command names. Installed WASM commands receive no filesystem
 preopen by default. A manifest must explicitly declare
 `permissions.filesystem: true` before that command can receive the approved

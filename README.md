@@ -27,7 +27,7 @@ working iOS application or a feature-parity claim.
 | WASM | 45% |
 | Native iOS UI | 56% |
 | Swift/Rust bridge | 48% |
-| Package manager | 36% |
+| Package manager | 45% |
 | Compatibility evidence | 2% |
 
 ## Current status
@@ -121,8 +121,8 @@ Compression, broader WASI resource policy, and non-WASM language runtimes
 remain planned.
 
 The local package flow supports `pkg info MANIFEST|NAME [VERSION]`, `pkg verify
-MANIFEST`, `pkg install MANIFEST`, `pkg list`, `pkg search QUERY`, and `pkg
-remove NAME [VERSION]`. Once installed, `pkg info NAME` resolves the sole
+MANIFEST`, `pkg install MANIFEST`, `pkg update MANIFEST`, `pkg list`, `pkg search
+QUERY`, and `pkg remove NAME [VERSION]`. Once installed, `pkg info NAME` resolves the sole
 installed version; an explicit version is required when multiple versions are
 present. Install
 copies only SHA-256-verified files into `~/.rune/packages`; declared `.wasm`
@@ -130,8 +130,10 @@ commands can then run through the bounded WASI runtime, and `which` discovers
 their installed command names from the local package manifests. Installed
 WASM commands receive no filesystem preopen by default; a manifest must
 explicitly declare `permissions.filesystem: true` to request the approved Rune
-sandbox as `/`. Network transport, registry search, and update remain
-unsupported at this stage.
+sandbox as `/`. `pkg update MANIFEST` verifies and materializes a different
+local version before retiring the currently installed version; a failed
+verification or write keeps the old version. There is no network transport or
+remote registry yet, and `pkg search` remains an installed-manifest search.
 
 The Rust core also provides bounded zip -r ARCHIVE FILE ... and unzip ARCHIVE
 [DESTINATION] commands. They use ZIP32 stored entries through the VFS, verify
@@ -302,11 +304,11 @@ git check-ignore -v base/a-shell
 ### Phase 3 — Developer environment
 
 - [x] Bounded WASI preview1 runtime boundary and resource limits
-- [x] Bounded package metadata, integrity, and local WASM installation
+- [x] Bounded package metadata, integrity, local WASM installation, and local update
 - [x] Portable runtime request/output contract
 - [x] Bounded Rust-owned history, font-size, scrollback, and theme configuration
 - [x] Bounded stored ZIP creation/extraction with path validation
-- [ ] Network registry, search, and update policy
+- [ ] Network registry, remote search, and remote update policy
 - [ ] Python, JavaScript, and Lua runtime evaluation
 - [x] Rust-owned command/path completion and help metadata
 

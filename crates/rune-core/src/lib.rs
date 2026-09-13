@@ -2492,6 +2492,92 @@ mod tests {
     }
 
     #[test]
+    fn updates_an_installed_package_from_a_verified_local_manifest() {
+        let root = test_root();
+        let package_root = root.join("bundle/bin");
+        std::fs::create_dir_all(&package_root).expect("package directories created");
+        let wasm = package_wasm_probe();
+        let digest = rune_package::sha256_hex(&wasm);
+        std::fs::write(package_root.join("hello.wasm"), &wasm).expect("module written");
+
+        let initial_manifest = format!(
+            r#"{{
+                "schema_version": 1,
+                "name": "local-update",
+                "version": "0.1.0",
+                "description": "Initial package",
+                "files": [{{"path": "bin/hello.wasm", "sha256": "{digest}"}}],
+                "commands": [{{"name": "local-update-command", "entry": "bin/hello.wasm"}}]
+            }}"#
+        );
+        let manifest_path = root.join("bundle/manifest.json");
+        std::fs::write(&manifest_path, &initial_manifest).expect("initial manifest written");
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+
+        let installed = session.execute_line("pkg install bundle/manifest.json");
+        assert_eq!(installed.status, 0);
+        assert_eq!(installed.stdout, "installed local-update@0.1.0\n");
+        assert_eq!(session.execute_line("local-update-command").status, 7);
+
+        let invalid_update_manifest = format!(
+            r#"{{
+                "schema_version": 1,
+                "name": "local-update",
+                "version": "0.2.0",
+                "description": "Rejected update",
+                "files": [{{"path": "bin/hello.wasm", "sha256": "{}"}}],
+                "commands": [{{"name": "local-update-command", "entry": "bin/hello.wasm"}}]
+            }}"#,
+            "0".repeat(64)
+        );
+        std::fs::write(&manifest_path, invalid_update_manifest).expect("invalid update written");
+        let rejected = session.execute_line("pkg update bundle/manifest.json");
+        assert_eq!(rejected.status, 1);
+        assert!(rejected.stderr.contains("integrity mismatch"));
+        assert_eq!(
+            session.execute_line("pkg list").stdout,
+            "local-update@0.1.0\n"
+        );
+        assert_eq!(session.execute_line("local-update-command").status, 7);
+
+        let valid_update_manifest = format!(
+            r#"{{
+                "schema_version": 1,
+                "name": "local-update",
+                "version": "0.2.0",
+                "description": "Updated package",
+                "files": [{{"path": "bin/hello.wasm", "sha256": "{digest}"}}],
+                "commands": [{{"name": "local-update-command", "entry": "bin/hello.wasm"}}]
+            }}"#
+        );
+        std::fs::write(&manifest_path, valid_update_manifest).expect("valid update written");
+        let updated = session.execute_line("pkg update bundle/manifest.json");
+        assert_eq!(updated.status, 0);
+        assert_eq!(updated.stdout, "updated local-update from 0.1.0 to 0.2.0\n");
+        assert_eq!(
+            session.execute_line("pkg list").stdout,
+            "local-update@0.2.0\n"
+        );
+        assert!(session
+            .execute_line("pkg info local-update")
+            .stdout
+            .contains("Updated package"));
+        assert_eq!(
+            session.execute_line("pkg info local-update 0.1.0").status,
+            1
+        );
+        assert_eq!(session.execute_line("local-update-command").status, 7);
+        assert_eq!(
+            session
+                .execute_line("pkg update bundle/manifest.json")
+                .status,
+            1
+        );
+
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn grants_installed_wasm_filesystem_only_with_manifest_permission() {
         let root = test_root();
         let package_root = root.join("bundle/bin");

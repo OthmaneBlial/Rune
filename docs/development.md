@@ -20,7 +20,9 @@ package-tree boundaries. Manifest capabilities are explicit: installed WASM
 has no filesystem preopen unless `permissions.filesystem: true` is declared;
 tests cover both the denied-by-default and granted paths.
 The package search test is local-only as well and searches installed
-manifests without network access.
+manifests without network access. The package update test verifies that an
+invalid replacement leaves the old version runnable, while a verified local
+replacement is materialized before the old version is retired.
 Configuration tests are local-only as well and verify bounded history, font
 size, scrollback, and theme settings without requiring an Apple runtime. The
 scrollback setting accepts 128–8,192 rendered entries and remains subject to

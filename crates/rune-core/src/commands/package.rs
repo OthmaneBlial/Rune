@@ -12,7 +12,7 @@ pub(super) fn pkg(context: &mut CommandContext<'_>) -> CommandOutput {
     let Some(operation) = context.args.first().map(String::as_str) else {
         return usage(
             "pkg",
-            "usage: pkg info MANIFEST|NAME [VERSION]; pkg verify|install MANIFEST; pkg list|search QUERY; pkg remove NAME [VERSION]",
+            "usage: pkg info MANIFEST|NAME [VERSION]; pkg verify|install|update MANIFEST; pkg list|search QUERY; pkg remove NAME [VERSION]",
         );
     };
     match operation {
@@ -30,12 +30,12 @@ pub(super) fn pkg(context: &mut CommandContext<'_>) -> CommandOutput {
         }
         "remove" => remove(context),
         "info" => info_command(context),
-        "verify" | "install" => {
+        "verify" | "install" | "update" => {
             let Some(manifest_path) = context.args.get(1) else {
-                return usage("pkg", "usage: pkg verify|install MANIFEST");
+                return usage("pkg", "usage: pkg verify|install|update MANIFEST");
             };
             if context.args.len() != 2 {
-                return usage("pkg", "usage: pkg verify|install MANIFEST");
+                return usage("pkg", "usage: pkg verify|install|update MANIFEST");
             }
             let (manifest_bytes, manifest) = match read_manifest(context, manifest_path) {
                 Ok(manifest) => manifest,
@@ -44,13 +44,14 @@ pub(super) fn pkg(context: &mut CommandContext<'_>) -> CommandOutput {
             match operation {
                 "verify" => verify(context, manifest_path, &manifest),
                 "install" => install(context, manifest_path, &manifest_bytes, &manifest),
+                "update" => update(context, manifest_path, &manifest_bytes, &manifest),
                 _ => unreachable!("package operation was checked above"),
             }
         }
         _ => CommandOutput::failure(
             2,
             format!(
-                "pkg: unsupported operation: {operation}; available operations are info, verify, install, list, and remove\n"
+                "pkg: unsupported operation: {operation}; available operations are info, verify, install, update, list, and remove\n"
             ),
         ),
     }
@@ -203,29 +204,88 @@ fn install(
         Err(FsError::NotFound(_)) => {}
         Err(error) => return fs_failure("pkg install", &error),
     }
-    if let Err(error) = context.fs.make_directory(&install_root, true) {
-        return fs_failure("pkg install", &error);
-    }
-    for (path, bytes) in files {
-        let destination = format!("{install_root}/{path}");
-        let Some((parent, _)) = destination.rsplit_once('/') else {
-            return failed_install(context, &install_root, &FsError::InvalidPath(destination));
-        };
-        if let Err(error) = context.fs.make_directory(parent, true) {
-            return failed_install(context, &install_root, &error);
-        }
-        if let Err(error) = context.fs.write(&destination, &bytes, false) {
-            return failed_install(context, &install_root, &error);
-        }
-    }
-    let installed_manifest = format!("{install_root}/manifest.json");
-    if let Err(error) = context.fs.write(&installed_manifest, manifest_bytes, false) {
+    if let Err(error) = materialize_package(context, &install_root, manifest_bytes, &files) {
         return failed_install(context, &install_root, &error);
     }
     CommandOutput::success(format!(
         "installed {}@{}\n",
         manifest.name, manifest.version
     ))
+}
+
+fn update(
+    context: &mut CommandContext<'_>,
+    manifest_path: &str,
+    manifest_bytes: &[u8],
+    manifest: &PackageManifest,
+) -> CommandOutput {
+    let current_manifest_path = match installed_manifest_for_name(context, &manifest.name) {
+        Ok(path) => path,
+        Err(output) => return output,
+    };
+    let (_, current_manifest) = match read_manifest(context, &current_manifest_path) {
+        Ok(manifest) => manifest,
+        Err(output) => return output,
+    };
+    if current_manifest.version == manifest.version {
+        return CommandOutput::failure(
+            1,
+            format!(
+                "pkg: {}@{} is already installed; update requires a different version\n",
+                manifest.name, manifest.version
+            ),
+        );
+    }
+    let files = match read_verified_files(context, "pkg update", manifest_path, manifest) {
+        Ok(files) => files,
+        Err(output) => return output,
+    };
+    let new_root = package_root(&manifest.name, &manifest.version);
+    match context.fs.metadata(&new_root) {
+        Ok(_) => {
+            return CommandOutput::failure(
+                1,
+                format!(
+                    "pkg: {}@{} is already installed\n",
+                    manifest.name, manifest.version
+                ),
+            )
+        }
+        Err(FsError::NotFound(_)) => {}
+        Err(error) => return fs_failure("pkg update", &error),
+    }
+    if let Err(error) = materialize_package(context, &new_root, manifest_bytes, &files) {
+        return failed_package_operation(context, &new_root, "pkg update", &error);
+    }
+
+    let old_root = package_root(&current_manifest.name, &current_manifest.version);
+    if let Err(error) = context.fs.remove(&old_root, true, false) {
+        let _ = context.fs.remove(&new_root, true, false);
+        return fs_failure("pkg update", &error);
+    }
+    CommandOutput::success(format!(
+        "updated {} from {} to {}\n",
+        manifest.name, current_manifest.version, manifest.version
+    ))
+}
+
+fn materialize_package(
+    context: &mut CommandContext<'_>,
+    install_root: &str,
+    manifest_bytes: &[u8],
+    files: &[(String, Vec<u8>)],
+) -> Result<(), FsError> {
+    context.fs.make_directory(install_root, true)?;
+    for (path, bytes) in files {
+        let destination = format!("{install_root}/{path}");
+        let Some((parent, _)) = destination.rsplit_once('/') else {
+            return Err(FsError::InvalidPath(destination));
+        };
+        context.fs.make_directory(parent, true)?;
+        context.fs.write(&destination, bytes, false)?;
+    }
+    let installed_manifest = format!("{install_root}/manifest.json");
+    context.fs.write(&installed_manifest, manifest_bytes, false)
 }
 
 fn read_verified_files(
@@ -420,8 +480,17 @@ fn failed_install(
     install_root: &str,
     error: &FsError,
 ) -> CommandOutput {
+    failed_package_operation(context, install_root, "pkg install", error)
+}
+
+fn failed_package_operation(
+    context: &mut CommandContext<'_>,
+    install_root: &str,
+    operation: &str,
+    error: &FsError,
+) -> CommandOutput {
     let _ = context.fs.remove(install_root, true, false);
-    fs_failure("pkg install", error)
+    fs_failure(operation, error)
 }
 
 fn package_root(name: &str, version: &str) -> String {
