@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 24%**
+**Overall progress: 26%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
