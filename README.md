@@ -23,7 +23,7 @@ working iOS application or a feature-parity claim.
 | Command runtime | 71% |
 | Sandboxed filesystem | 48% |
 | Sessions/history | 32% |
-| WASM | 18% |
+| WASM | 22% |
 | Native iOS UI | 9% |
 | Swift/Rust bridge | 6% |
 | Package manager | 0% |

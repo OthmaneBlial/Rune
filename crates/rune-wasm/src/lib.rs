@@ -346,6 +346,74 @@ mod tests {
     }
 
     #[test]
+    fn wasi_stdin_is_connected_to_the_invocation_input() {
+        let wasm = wat::parse_str(
+            r#"
+                (module
+                  (import "wasi_snapshot_preview1" "fd_read"
+                    (func $fd_read (param i32 i32 i32 i32) (result i32)))
+                  (import "wasi_snapshot_preview1" "fd_write"
+                    (func $fd_write (param i32 i32 i32 i32) (result i32)))
+                  (memory (export "memory") 1)
+                  (data (i32.const 0) "\08\00\00\00\04\00\00\00")
+                  (func (export "_start")
+                    (i32.const 0)
+                    (i32.const 0)
+                    (i32.const 1)
+                    (i32.const 24)
+                    (call $fd_read)
+                    (drop)
+                    (i32.const 1)
+                    (i32.const 0)
+                    (i32.const 1)
+                    (i32.const 24)
+                    (call $fd_write)
+                    (drop)))
+            "#,
+        )
+        .expect("valid WAT");
+        let execution = WasmRunner::default()
+            .execute(&wasm, "stdin.wasm", &[], &BTreeMap::new(), "ping")
+            .expect("module should execute");
+        assert_eq!(execution.stdout, "ping");
+        assert_eq!(execution.status, 0);
+    }
+
+    #[test]
+    fn wasi_guest_has_no_preopened_directory() {
+        let wasm = wat::parse_str(
+            r#"
+                (module
+                  (import "wasi_snapshot_preview1" "fd_prestat_get"
+                    (func $fd_prestat_get (param i32 i32) (result i32)))
+                  (import "wasi_snapshot_preview1" "fd_write"
+                    (func $fd_write (param i32 i32 i32 i32) (result i32)))
+                  (memory (export "memory") 1)
+                  (data (i32.const 8) "no preopen\n")
+                  (data (i32.const 0) "\08\00\00\00\0b\00\00\00")
+                  (func (export "_start")
+                    (i32.const 3)
+                    (i32.const 32)
+                    (call $fd_prestat_get)
+                    (if
+                      (then
+                        (i32.const 1)
+                        (i32.const 0)
+                        (i32.const 1)
+                        (i32.const 24)
+                        (call $fd_write)
+                        (drop)))))
+            "#,
+        )
+        .expect("valid WAT");
+        let execution = WasmRunner::default()
+            .execute(&wasm, "sandbox.wasm", &[], &BTreeMap::new(), "")
+            .expect("module should execute");
+        assert_eq!(execution.stdout, "no preopen\n");
+        assert_eq!(execution.status, 0);
+    }
+
+    #[test]
     fn captured_wasm_output_is_bounded_before_returning_to_the_shell() {
         let wasm = wat::parse_str(
             r#"
