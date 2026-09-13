@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 40%**
+**Overall progress: 41%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -25,8 +25,8 @@ working iOS application or a feature-parity claim.
 | Sessions/history | 50% |
 | Configuration | 23% |
 | WASM | 23% |
-| Native iOS UI | 22% |
-| Swift/Rust bridge | 18% |
+| Native iOS UI | 23% |
+| Swift/Rust bridge | 19% |
 | Package manager | 33% |
 | Compatibility evidence | 2% |
 
@@ -121,11 +121,12 @@ Directory changes update the Rust-owned `PWD` and `OLDPWD` values. `cd -`
 returns to the previous directory and prints the resulting virtual path, while
 bookmark jumps and aliases that change directories use the same state update.
 
-The FFI and Swift source boundary also exposes a bounded newline-delimited
-automation script method for a future Shortcuts adapter. Rust rejects scripts
-larger than 256 KiB or 1,024 lines before execution and caps accumulated output
-per channel while running accepted scripts. It is locally tested, but native
-Shortcuts registration remains unverified.
+The FFI and Swift source boundary exposes bounded command and newline-delimited
+script execution for Shortcuts. Source-only App Intent declarations call that
+real Rust-backed API and return stdout/stderr/status as text; Rust rejects
+scripts larger than 256 KiB or 1,024 lines and caps accumulated output per
+channel. App Intent registration, entitlements, and runtime behavior remain
+unverified without an Apple build/runtime.
 
 The portable configuration boundary currently supports bounded `history-limit`,
 `font-size`, and `theme` settings through `config get`, `config set`, and
@@ -233,6 +234,7 @@ git check-ignore -v base/a-shell
 - [ ] Fast native terminal rendering
 - [ ] External folders and security-scoped bookmarks
 - [ ] Multiple sessions and iPad multi-window behavior
+- [x] Source-only command/script App Intent declarations
 - [ ] Apple Shortcuts actions
 - [ ] Accessibility and VoiceOver validation
 

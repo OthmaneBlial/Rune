@@ -20,6 +20,8 @@ runtime.
 The source-only Apple check also parses the external-folder bookmark layer;
 that syntax check does not prove security-scoped access, entitlements, or Files
 picker behavior on a device.
+It also parses the source-only App Intent declarations; the AppIntents module,
+registration, entitlements, and Shortcuts runtime remain unverified here.
 
 ## Local checks
 

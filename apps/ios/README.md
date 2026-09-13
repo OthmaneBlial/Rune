@@ -16,6 +16,11 @@ lines, then runs each non-empty line through the same parser and registry while
 preserving combined stdout, stderr, and the last status. Native Shortcuts
 registration remains unverified and is not included here.
 
+`RuneShortcuts.swift` now declares source-only `AppIntent` actions for command
+and script execution. They call the existing Rust FFI and return the real
+stdout/stderr/status result; App Intent registration, entitlements, and
+Shortcuts runtime behavior remain unverified without an Apple build.
+
 Individual command lines crossing the bridge are also rejected above the
 64-KiB Rust input limit before parsing or history recording.
 
@@ -61,6 +66,7 @@ directory is restored after the profile.
 - `RuneCoreBridge.swift` owns and frees Rust session handles/strings.
 - `RuneExternalFolderAccess.swift` owns bounded security-scoped bookmark
   storage and keeps approved folder access alive for a Rust session.
+- `RuneShortcuts.swift` declares Rust-backed command and script App Intents.
 - `RuneTerminalView.swift` includes the `@main` SwiftUI application entry point
   and launches the real terminal view.
 - The bridge asks Rust for bounded command/path replacement candidates; it does

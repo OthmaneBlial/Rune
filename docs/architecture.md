@@ -122,6 +122,12 @@ Sourced files inherit the current virtual directory and session state; they do
 not invoke a host shell. Each sourced file is limited to 256 KiB and 1,024
 lines, and nested sourcing stops at 16 levels with a status-2 error.
 
+The Apple source layer declares command and script App Intents that construct a
+normal `RuneFFISession` rooted at the app Documents directory and return the
+Rust result without reimplementing command behavior in Swift. This is a real
+automation boundary, but App Intent registration, entitlements, and Shortcuts
+runtime execution remain unverified until an Apple target can be built.
+
 The filesystem starts with a host-backed root for local development. The root
 is a policy boundary: paths are resolved relative to it, `~` maps to the root,
 and traversal outside the root is rejected. An Apple adapter will map that
