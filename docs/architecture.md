@@ -42,6 +42,13 @@ current shell environment can be changed by the Rust `export`, `unset`, and
 history policy will need configurable redaction before Rune handles workflows
 where users type credentials into commands.
 
+On restore, Rune reads at most 64 KiB from `~/.rune_profile`. It skips blank and
+full-line comment entries, executes each remaining line through the same Rust
+parser/registry, and returns profile stdout/stderr through the CLI or FFI. The
+profile is loaded before the persisted working directory is restored, so a
+session's saved `cwd` remains authoritative. Profile lines are not added to
+history, and unsupported commands fail visibly instead of reaching the host.
+
 The filesystem starts with a host-backed root for local development. The root
 is a policy boundary: paths are resolved relative to it, `~` maps to the root,
 and traversal outside the root is rejected. An Apple adapter will map that
