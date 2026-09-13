@@ -111,6 +111,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "tar"
             | "tee"
             | "touch"
+            | "tree"
             | "unzip"
             | "uncompress"
             | "unlink"
@@ -4750,6 +4751,29 @@ mod tests {
             "-: ASCII text\n"
         );
         assert_eq!(session.execute_line("file missing.txt text.txt").status, 1);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn renders_bounded_tree_output_without_following_symlinks() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("mkdir -p src/nested").status, 0);
+        assert_eq!(session.execute_line("touch src/note.txt .hidden").status, 0);
+        assert_eq!(session.execute_line("ln -s src/note.txt link").status, 0);
+        assert_eq!(session.execute_line("ln -s src linkdir").status, 0);
+
+        let tree = session.execute_line("tree .");
+        assert_eq!(tree.status, 0);
+        assert_eq!(
+            tree.stdout,
+            ".\n├── link@\n├── linkdir@\n└── src/\n    ├── nested/\n    └── note.txt\n"
+        );
+        assert_eq!(
+            session.execute_line("tree -a -d -L 2 .").stdout,
+            ".\n└── src/\n    └── nested/\n"
+        );
+        assert_eq!(session.execute_line("tree -L 0 .").status, 2);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

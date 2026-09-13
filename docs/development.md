@@ -73,6 +73,9 @@ the command remains a bounded subset rather than full platform-specific
 `file` tests cover VFS directories, empty/text/binary data, common archive and
 WASM magic prefixes, stdin, brief output, MIME output, and per-file failures;
 full `libmagic` database compatibility remains outside the profile.
+`tree` tests cover sorted nested output, hidden-entry filtering, directory-only
+mode, depth limits, symlink non-following, and invalid levels; full external
+`tree` option compatibility remains outside the profile.
 MD5 tests cover standard stdin/file vectors and invalid operand counts; the
 digest is compatibility evidence, not security evidence.
 `expr` tests cover precedence, comparisons, bounded text operations, division

@@ -3,6 +3,9 @@ use std::fmt::Write as _;
 use crate::{fs_failure, usage, CommandContext, CommandOutput};
 
 const FIND_ENTRY_LIMIT: usize = 10_000;
+const TREE_ENTRY_LIMIT: usize = 10_000;
+const TREE_OUTPUT_BYTES: usize = 512 * 1024;
+const TREE_MAX_DEPTH: usize = 64;
 
 pub(super) fn cd(context: &mut CommandContext<'_>) -> CommandOutput {
     if context.args.len() > 1 {
@@ -335,6 +338,161 @@ fn visit_find(
             visited,
             stdout,
         )?;
+    }
+    Ok(())
+}
+
+pub(super) fn tree(context: &mut CommandContext<'_>) -> CommandOutput {
+    let (options, path) = match parse_tree_args(context.args) {
+        Ok(parsed) => parsed,
+        Err(output) => return output,
+    };
+    let info = match context.fs.metadata(&path) {
+        Ok(info) => info,
+        Err(error) => return fs_failure("tree", &error),
+    };
+    let mut stdout = format!("{path}\n");
+    if info.is_directory && !info.is_symlink {
+        let mut visited = 1;
+        if let Err(output) =
+            append_tree_entries(context, &path, "", 0, options, &mut visited, &mut stdout)
+        {
+            return output;
+        }
+    }
+    CommandOutput::success(stdout)
+}
+
+#[derive(Clone, Copy)]
+struct TreeOptions {
+    show_hidden: bool,
+    directories_only: bool,
+    max_depth: usize,
+}
+
+fn parse_tree_args(args: &[String]) -> Result<(TreeOptions, String), CommandOutput> {
+    let mut options = TreeOptions {
+        show_hidden: false,
+        directories_only: false,
+        max_depth: TREE_MAX_DEPTH,
+    };
+    let mut path = None;
+    let mut parse_options = true;
+    let mut index = 0;
+    while index < args.len() {
+        let argument = &args[index];
+        if parse_options && argument == "--" {
+            parse_options = false;
+        } else if parse_options && matches!(argument.as_str(), "-a" | "--all") {
+            options.show_hidden = true;
+        } else if parse_options && matches!(argument.as_str(), "-d" | "--dirs-only") {
+            options.directories_only = true;
+        } else if parse_options && matches!(argument.as_str(), "-L" | "--level") {
+            index += 1;
+            let Some(value) = args.get(index) else {
+                return Err(tree_usage());
+            };
+            options.max_depth = parse_tree_depth(value)?;
+        } else if parse_options && argument.starts_with("-L") {
+            options.max_depth = parse_tree_depth(&argument[2..])?;
+        } else if parse_options && argument.starts_with("--level=") {
+            options.max_depth = parse_tree_depth(&argument[8..])?;
+        } else if parse_options && argument.starts_with('-') {
+            return Err(tree_usage());
+        } else if path.is_none() {
+            path = Some(argument.clone());
+            parse_options = false;
+        } else {
+            return Err(tree_usage());
+        }
+        index += 1;
+    }
+    Ok((options, path.unwrap_or_else(|| ".".to_string())))
+}
+
+fn parse_tree_depth(value: &str) -> Result<usize, CommandOutput> {
+    let depth = value
+        .parse::<usize>()
+        .map_err(|_| usage("tree", "-L/--level requires a positive integer"))?;
+    if depth == 0 || depth > TREE_MAX_DEPTH {
+        return Err(usage(
+            "tree",
+            &format!("-L/--level must be between 1 and {TREE_MAX_DEPTH}"),
+        ));
+    }
+    Ok(depth)
+}
+
+fn tree_usage() -> CommandOutput {
+    usage("tree", "usage: tree [-a] [-d] [-L level] [--] [directory]")
+}
+
+fn append_tree_entries(
+    context: &mut CommandContext<'_>,
+    path: &str,
+    indentation: &str,
+    depth: usize,
+    options: TreeOptions,
+    visited: &mut usize,
+    stdout: &mut String,
+) -> Result<(), CommandOutput> {
+    if depth >= options.max_depth {
+        return Ok(());
+    }
+    if let Some(output) = context.take_cancellation() {
+        return Err(output);
+    }
+    let entries = context
+        .fs
+        .list(Some(path))
+        .map_err(|error| fs_failure("tree", &error))?;
+    let entries = entries
+        .into_iter()
+        .filter(|entry| options.show_hidden || !entry.name.starts_with('.'))
+        .filter(|entry| !options.directories_only || entry.is_directory)
+        .collect::<Vec<_>>();
+    for (index, entry) in entries.iter().enumerate() {
+        if *visited >= TREE_ENTRY_LIMIT {
+            return Err(CommandOutput::failure(
+                1,
+                format!("tree: traversal exceeded {TREE_ENTRY_LIMIT} entries\n"),
+            ));
+        }
+        *visited += 1;
+        let is_last = index + 1 == entries.len();
+        let branch = if is_last { "└── " } else { "├── " };
+        let suffix = if entry.is_symlink {
+            "@"
+        } else if entry.is_directory {
+            "/"
+        } else {
+            ""
+        };
+        let line = format!("{indentation}{branch}{}{suffix}\n", entry.name);
+        if stdout.len().saturating_add(line.len()) > TREE_OUTPUT_BYTES {
+            return Err(CommandOutput::failure(
+                1,
+                format!("tree: output exceeds {TREE_OUTPUT_BYTES} bytes\n"),
+            ));
+        }
+        stdout.push_str(&line);
+        if entry.is_directory && !entry.is_symlink {
+            let next_indentation = if is_last {
+                format!("{indentation}    ")
+            } else {
+                format!("{indentation}│   ")
+            };
+            let child = append_child_path(path, &entry.name);
+            append_tree_entries(
+                context,
+                &child,
+                &next_indentation,
+                depth + 1,
+                options,
+                visited,
+                stdout,
+            )?;
+        }
     }
     Ok(())
 }

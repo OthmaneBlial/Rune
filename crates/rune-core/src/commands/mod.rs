@@ -383,6 +383,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: filesystem::touch,
     },
     CommandDefinition {
+        name: "tree",
+        summary: "render a bounded filesystem tree",
+        handler: filesystem::tree,
+    },
+    CommandDefinition {
         name: "tr",
         summary: "translate or delete input characters",
         handler: utilities::tr,

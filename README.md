@@ -35,7 +35,7 @@ working iOS application or a feature-parity claim.
 The first Rust vertical slice is implemented and locally verified. It executes
 the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum`, `curl`, `date`, `echo`, `expr`, `jsc`, `lua`, `python3`, `md5`, `mkdir`,
 `touch`, `mktemp`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
-`setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `file`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`, `unlink`, `tee`, `tr`, `xxd`,
+`setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `file`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`, `unlink`, `tee`, `tr`, `tree`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
 `true`, `false`, `ar`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`, `type`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
@@ -74,6 +74,9 @@ ordering with `-r`, and adjacent-result deduplication with `-u`.
 surface for directories, empty/text/binary data, ELF, WebAssembly, gzip, ZIP,
 and USTAR; `-b` omits the input label and `--mime-type` returns the bounded MIME
 classification. It is not a `libmagic` replacement.
+`tree` renders a bounded Unicode directory view through the VFS, with hidden
+entry selection via `-a`, directory-only output via `-d`, and depth control via
+`-L`; it never follows symlink entries.
 `awk` provides a Rust-owned bounded text-processing subset: `-F` field
 separators, `$0`/`$1...`, `NF`/`NR`/`FNR`, `print`, `FS`/`OFS` assignments,
 `BEGIN`/`END`, regular-expression `/.../` filters, simple equality, and
@@ -442,6 +445,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded numeric, reverse, and unique `sort` options
 - [x] Bounded `type` command discovery
 - [x] Bounded Rust-owned `file` identification utility
+- [x] Bounded VFS `tree` directory rendering
 
 ### Phase 3 — Developer environment
 
