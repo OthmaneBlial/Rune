@@ -11,12 +11,12 @@ pub(super) fn config(context: &mut CommandContext<'_>) -> CommandOutput {
         "set" if context.args.len() == 3 => set(context, &context.args[1], &context.args[2]),
         "set" => usage(
             "config",
-            "usage: config set history-limit|font-size|scrollback-limit|toolbar-visible|theme VALUE",
+            "usage: config set history-limit|font-size|scrollback-limit|toolbar-visible|theme|cursor-color VALUE",
         ),
         "reset" if context.args.len() == 1 => reset(context),
         "get" => usage(
             "config",
-            "usage: config get history-limit|font-size|scrollback-limit|toolbar-visible|theme",
+            "usage: config get history-limit|font-size|scrollback-limit|toolbar-visible|theme|cursor-color",
         ),
         _ => usage("config", "usage: config [get KEY|set KEY VALUE|reset]"),
     }
@@ -37,6 +37,11 @@ fn show(context: &CommandContext<'_>) -> CommandOutput {
         context.config.toolbar_visible()
     );
     let _ = writeln!(stdout, "theme={}", context.config.theme().as_str());
+    let _ = writeln!(
+        stdout,
+        "cursor-color={}",
+        context.config.cursor_color().as_str()
+    );
     CommandOutput::success(stdout)
 }
 
@@ -58,9 +63,13 @@ fn get(context: &CommandContext<'_>, key: &str) -> CommandOutput {
             context.config.toolbar_visible()
         )),
         "theme" => CommandOutput::success(format!("theme={}\n", context.config.theme().as_str())),
+        "cursor-color" => CommandOutput::success(format!(
+            "cursor-color={}\n",
+            context.config.cursor_color().as_str()
+        )),
         _ => usage(
             "config",
-            "unknown key; available keys: history-limit, font-size, scrollback-limit, toolbar-visible, theme",
+            "unknown key; available keys: history-limit, font-size, scrollback-limit, toolbar-visible, theme, cursor-color",
         ),
     }
 }

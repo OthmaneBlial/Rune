@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 67%**
+**Overall progress: 68%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -23,7 +23,7 @@ working iOS application or a feature-parity claim.
 | Command runtime | 89% |
 | Sandboxed filesystem | 64% |
 | Sessions/history | 62% |
-| Configuration | 40% |
+| Configuration | 48% |
 | WASM | 45% |
 | Native iOS UI | 56% |
 | Swift/Rust bridge | 48% |
@@ -98,10 +98,10 @@ The iOS app is represented by
 source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
 and runtime gates remain unverified. Bounded directory enumeration and
 current-directory/history persistence now exist in Rust; bounded
-`history-limit`, `font-size`, `scrollback-limit`, and `theme` configuration
+`history-limit`, `font-size`, `scrollback-limit`, `theme`, and `cursor-color` configuration
 is available, and the native source UI consumes the font size, bounded
-scrollback window, and three named palettes. Configurable redaction, cursor styling,
-and broader session recovery remain planned. Non-WASM language runtimes remain
+scrollback window, three named palettes, and the Rust-owned cursor color. Cursor shape,
+configurable redaction, and broader session recovery remain planned. Non-WASM language runtimes remain
 planned work.
 
 The Rust package boundary now validates a bounded, versioned JSON manifest and
@@ -206,7 +206,7 @@ This protects the UI from unbounded replay growth while Rust retains its own
 bounded per-command output and persisted history policies.
 
 The portable configuration boundary currently supports bounded `history-limit`,
-`font-size`, `scrollback-limit`, and `theme` settings through `config get`,
+`font-size`, `scrollback-limit`, `theme`, and `cursor-color` settings through `config get`,
 `config set`, and `config reset`. The scrollback setting accepts 128–8,192
 rendered entries and remains subject to the UI's 8 MiB byte cap. It persists in
 `~/.rune/config.state`. The FFI also exposes validated Rust-native set/reset
@@ -214,8 +214,8 @@ calls that do not create history entries; the source-only SwiftUI settings
 sheet uses those calls for font size, scrollback, theme, reset, and toolbar
 visibility. A separate source-only input toolbar provides bounded
 Tab/completion, Escape, Ctrl-C, display-clear, and paste controls; its
-visibility is persisted by the Rust configuration boundary. Cursor
-shape/styling remains unverified and not yet configurable.
+visibility and cursor color are persisted by the Rust configuration boundary. Cursor
+shape remains unverified and not yet configurable.
 
 The `history` built-in also supports `history N` for a bounded recent view,
 `history search QUERY ...` for a case-insensitive substring search that keeps
@@ -309,7 +309,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded WASI preview1 runtime boundary and resource limits
 - [x] Bounded package metadata, integrity, local WASM installation, and local update
 - [x] Portable runtime request/output contract
-- [x] Bounded Rust-owned history, font-size, scrollback, and theme configuration
+- [x] Bounded Rust-owned history, font-size, scrollback, theme, and cursor-color configuration
 - [x] Bounded stored ZIP creation/extraction with path validation
 - [ ] Network registry, remote search, and remote update policy
 - [ ] Python, JavaScript, and Lua runtime evaluation

@@ -38,6 +38,7 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var scrollbackLimit = Self.defaultScrollbackLimit
     @Published public private(set) var toolbarVisible = true
     @Published public private(set) var theme = "ink"
+    @Published public private(set) var cursorColor = "cyan"
     @Published public private(set) var initializationError: String?
     @Published public private(set) var isExecuting = false
 
@@ -324,6 +325,10 @@ public final class RuneTerminalModel: ObservableObject {
                 if ["ink", "light", "ember"].contains(pair[1]) {
                     theme = pair[1]
                 }
+            case "cursor-color":
+                if ["cyan", "ember", "foreground"].contains(pair[1]) {
+                    cursorColor = pair[1]
+                }
             default:
                 continue
             }
@@ -516,6 +521,7 @@ public struct RuneTerminalView: View {
                     TextField("Enter a Rune command", text: $model.command, axis: .vertical)
                         .font(.system(size: model.fontSize, design: .monospaced))
                         .foregroundStyle(palette.foreground)
+                        .tint(palette.cursorColor(named: model.cursorColor))
                         .textFieldStyle(.plain)
                         .lineLimit(1...4)
                         .focused($inputFocused)
@@ -602,6 +608,7 @@ private struct RuneSettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     private let themes = ["ink", "light", "ember"]
+    private let cursorColors = ["cyan", "ember", "foreground"]
 
     var body: some View {
         NavigationStack {
@@ -649,6 +656,18 @@ private struct RuneSettingsView: View {
                     ) {
                         ForEach(themes, id: \.self) { theme in
                             Text(theme.capitalized).tag(theme)
+                        }
+                    }
+
+                    Picker(
+                        "Cursor color",
+                        selection: Binding(
+                            get: { model.cursorColor },
+                            set: { model.setConfiguration(key: "cursor-color", value: $0) }
+                        )
+                    ) {
+                        ForEach(cursorColors, id: \.self) { color in
+                            Text(color.capitalized).tag(color)
                         }
                     }
 
@@ -795,6 +814,14 @@ private struct RunePalette {
     let cyan: Color
     let ember: Color
     let error: Color
+
+    func cursorColor(named name: String) -> Color {
+        switch name {
+        case "ember": return ember
+        case "foreground": return foreground
+        default: return cyan
+        }
+    }
 
     static func forName(_ name: String) -> RunePalette {
         switch name {

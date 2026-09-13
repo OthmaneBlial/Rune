@@ -14,6 +14,7 @@ const MIN_SCROLLBACK_LIMIT: usize = 128;
 const MAX_SCROLLBACK_LIMIT: usize = 8_192;
 const DEFAULT_TOOLBAR_VISIBLE: bool = true;
 const DEFAULT_THEME: TerminalTheme = TerminalTheme::Ink;
+const DEFAULT_CURSOR_COLOR: TerminalCursorColor = TerminalCursorColor::Cyan;
 
 /// Themes understood by the portable configuration contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +44,34 @@ impl TerminalTheme {
     }
 }
 
+/// Cursor tint values understood by the portable terminal configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalCursorColor {
+    Cyan,
+    Ember,
+    Foreground,
+}
+
+impl TerminalCursorColor {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Cyan => "cyan",
+            Self::Ember => "ember",
+            Self::Foreground => "foreground",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "cyan" => Some(Self::Cyan),
+            "ember" => Some(Self::Ember),
+            "foreground" => Some(Self::Foreground),
+            _ => None,
+        }
+    }
+}
+
 /// Portable session settings currently owned by the Rust core.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalConfig {
@@ -51,6 +80,7 @@ pub struct TerminalConfig {
     scrollback_limit: usize,
     toolbar_visible: bool,
     theme: TerminalTheme,
+    cursor_color: TerminalCursorColor,
 }
 
 impl Default for TerminalConfig {
@@ -61,6 +91,7 @@ impl Default for TerminalConfig {
             scrollback_limit: DEFAULT_SCROLLBACK_LIMIT,
             toolbar_visible: DEFAULT_TOOLBAR_VISIBLE,
             theme: DEFAULT_THEME,
+            cursor_color: DEFAULT_CURSOR_COLOR,
         }
     }
 }
@@ -99,6 +130,12 @@ impl TerminalConfig {
         self.theme
     }
 
+    /// Returns the configured native terminal cursor tint.
+    #[must_use]
+    pub const fn cursor_color(&self) -> TerminalCursorColor {
+        self.cursor_color
+    }
+
     pub(super) fn set_history_limit(&mut self, value: usize) {
         self.history_limit = value;
     }
@@ -119,6 +156,10 @@ impl TerminalConfig {
         self.theme = value;
     }
 
+    pub(super) fn set_cursor_color(&mut self, value: TerminalCursorColor) {
+        self.cursor_color = value;
+    }
+
     pub(super) fn load(filesystem: &dyn VirtualFileSystem) -> Self {
         let Ok(bytes) = filesystem.read(CONFIG_PATH) else {
             return Self::default();
@@ -135,12 +176,13 @@ impl TerminalConfig {
             Err(error) => return Err(error),
         }
         let content = format!(
-            "{CONFIG_HEADER}\nhistory_limit={}\nfont_size={}\nscrollback_limit={}\ntoolbar_visible={}\ntheme={}\n",
+            "{CONFIG_HEADER}\nhistory_limit={}\nfont_size={}\nscrollback_limit={}\ntoolbar_visible={}\ntheme={}\ncursor_color={}\n",
             self.history_limit,
             self.font_size,
             self.scrollback_limit,
             self.toolbar_visible,
-            self.theme.as_str()
+            self.theme.as_str(),
+            self.cursor_color.as_str()
         );
         filesystem.write(CONFIG_PATH, content.as_bytes(), false)
     }
@@ -247,6 +289,22 @@ pub(super) fn update_toolbar_visible(
     Ok(())
 }
 
+pub(super) fn update_cursor_color(
+    filesystem: &mut dyn VirtualFileSystem,
+    config: &mut TerminalConfig,
+    value: &str,
+) -> Result<(), String> {
+    let cursor_color = TerminalCursorColor::parse(value)
+        .ok_or_else(|| "cursor-color must be one of: cyan, ember, foreground".to_string())?;
+    let previous = config.clone();
+    config.set_cursor_color(cursor_color);
+    if let Err(error) = config.save(filesystem) {
+        *config = previous;
+        return Err(format!("could not persist configuration: {error}"));
+    }
+    Ok(())
+}
+
 pub(super) fn update(
     filesystem: &mut dyn VirtualFileSystem,
     config: &mut TerminalConfig,
@@ -259,8 +317,9 @@ pub(super) fn update(
         "scrollback-limit" => update_scrollback_limit(filesystem, config, value),
         "toolbar-visible" => update_toolbar_visible(filesystem, config, value),
         "theme" => update_theme(filesystem, config, value),
+        "cursor-color" => update_cursor_color(filesystem, config, value),
         _ => Err(
-            "unknown key; available keys: history-limit, font-size, scrollback-limit, toolbar-visible, theme"
+            "unknown key; available keys: history-limit, font-size, scrollback-limit, toolbar-visible, theme, cursor-color"
                 .to_string(),
         ),
     }
@@ -290,6 +349,7 @@ fn parse(content: &str) -> Option<TerminalConfig> {
     let mut seen_scrollback_limit = false;
     let mut seen_toolbar_visible = false;
     let mut seen_theme = false;
+    let mut seen_cursor_color = false;
     for line in lines {
         let (key, value) = line.split_once('=')?;
         match key {
@@ -329,6 +389,10 @@ fn parse(content: &str) -> Option<TerminalConfig> {
                 config.theme = TerminalTheme::parse(value)?;
                 seen_theme = true;
             }
+            "cursor_color" if !seen_cursor_color => {
+                config.cursor_color = TerminalCursorColor::parse(value)?;
+                seen_cursor_color = true;
+            }
             _ => return None,
         }
     }
@@ -338,8 +402,9 @@ fn parse(content: &str) -> Option<TerminalConfig> {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse, TerminalConfig, TerminalTheme, CONFIG_HEADER, DEFAULT_FONT_SIZE,
-        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_THEME, DEFAULT_TOOLBAR_VISIBLE,
+        parse, TerminalConfig, TerminalCursorColor, TerminalTheme, CONFIG_HEADER,
+        DEFAULT_CURSOR_COLOR, DEFAULT_FONT_SIZE, DEFAULT_SCROLLBACK_LIMIT, DEFAULT_THEME,
+        DEFAULT_TOOLBAR_VISIBLE,
     };
 
     #[test]
@@ -351,6 +416,7 @@ mod tests {
         assert_eq!(config.scrollback_limit(), DEFAULT_SCROLLBACK_LIMIT);
         assert_eq!(config.toolbar_visible(), DEFAULT_TOOLBAR_VISIBLE);
         assert_eq!(config.theme(), DEFAULT_THEME);
+        assert_eq!(config.cursor_color(), DEFAULT_CURSOR_COLOR);
     }
 
     #[test]
@@ -381,6 +447,14 @@ mod tests {
         assert!(parse("RUNE_CONFIG_V1\nscrollback_limit=8193\n").is_none());
         assert!(parse("RUNE_CONFIG_V1\ntoolbar_visible=maybe\n").is_none());
         assert!(parse("RUNE_CONFIG_V1\ntheme=unknown\n").is_none());
+        let cursor = format!("{content}cursor_color=ember\n");
+        assert_eq!(
+            parse(&cursor)
+                .expect("cursor color should parse")
+                .cursor_color(),
+            TerminalCursorColor::Ember
+        );
+        assert!(parse("RUNE_CONFIG_V1\ncursor_color=violet\n").is_none());
     }
 
     #[test]
@@ -403,6 +477,10 @@ mod tests {
             DEFAULT_TOOLBAR_VISIBLE
         );
         assert_eq!(TerminalConfig::default().theme(), DEFAULT_THEME);
+        assert_eq!(
+            TerminalConfig::default().cursor_color(),
+            DEFAULT_CURSOR_COLOR
+        );
         assert!(parse("not-rune-config\n").is_none());
     }
 }

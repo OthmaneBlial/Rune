@@ -8,7 +8,7 @@ mod commands;
 mod config;
 mod persistence;
 
-pub use config::{TerminalConfig, TerminalTheme};
+pub use config::{TerminalConfig, TerminalCursorColor, TerminalTheme};
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -1858,6 +1858,7 @@ mod tests {
         assert_eq!(session.configuration().history_limit(), 1_000);
         assert_eq!(session.configuration().scrollback_limit(), 4_096);
         assert!(session.configuration().toolbar_visible());
+        assert_eq!(session.configuration().cursor_color().as_str(), "cyan");
         assert_eq!(session.execute_line("config set history-limit 3").status, 0);
         assert_eq!(
             session.execute_line("config get history-limit").stdout,
@@ -1872,6 +1873,14 @@ mod tests {
         assert_eq!(
             session.execute_line("config get theme").stdout,
             "theme=ember\n"
+        );
+        assert_eq!(
+            session.execute_line("config set cursor-color ember").status,
+            0
+        );
+        assert_eq!(
+            session.execute_line("config get cursor-color").stdout,
+            "cursor-color=ember\n"
         );
         assert_eq!(
             session
@@ -1924,11 +1933,13 @@ mod tests {
         assert_eq!(restored.configuration().scrollback_limit(), 2_048);
         assert!(!restored.configuration().toolbar_visible());
         assert_eq!(restored.configuration().theme().as_str(), "ember");
+        assert_eq!(restored.configuration().cursor_color().as_str(), "ember");
         assert!(restored.history().len() <= 3);
         assert_eq!(restored.execute_line("config reset").status, 0);
         assert_eq!(restored.configuration().history_limit(), 1_000);
         assert_eq!(restored.configuration().scrollback_limit(), 4_096);
         assert!(restored.configuration().toolbar_visible());
+        assert_eq!(restored.configuration().cursor_color().as_str(), "cyan");
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
@@ -1945,12 +1956,31 @@ mod tests {
             0
         );
         assert!(!session.configuration().toolbar_visible());
+        assert_eq!(
+            session
+                .set_configuration("cursor-color", "foreground")
+                .status,
+            0
+        );
+        assert_eq!(
+            session.configuration().cursor_color().as_str(),
+            "foreground"
+        );
         assert_eq!(session.history(), ["echo keep"]);
 
         let invalid = session.set_configuration("theme", "paper");
         assert_eq!(invalid.status, 2);
         assert!(invalid.stderr.contains("theme must be one of"));
         assert_eq!(session.configuration().theme().as_str(), "ink");
+        let invalid_cursor = session.set_configuration("cursor-color", "violet");
+        assert_eq!(invalid_cursor.status, 2);
+        assert!(invalid_cursor
+            .stderr
+            .contains("cursor-color must be one of"));
+        assert_eq!(
+            session.configuration().cursor_color().as_str(),
+            "foreground"
+        );
 
         assert_eq!(session.set_configuration("history-limit", "1").status, 0);
         assert_eq!(session.history(), ["echo keep"]);
