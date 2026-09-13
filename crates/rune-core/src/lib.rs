@@ -762,11 +762,31 @@ mod tests {
         assert_eq!(session.execute_line("echo hello > note.txt").status, 0);
         assert_eq!(session.execute_line("cat note.txt").stdout, "hello\n");
         assert_eq!(session.execute_line("pwd").stdout, "~/work\n");
+        assert_eq!(session.execute_line("mkdir -p source/nested").status, 0);
+        assert_eq!(
+            session
+                .execute_line("echo copied > source/nested/value.txt")
+                .status,
+            0
+        );
+        assert_eq!(session.execute_line("cp -r source copy").status, 0);
+        assert_eq!(
+            session.execute_line("cat copy/nested/value.txt").stdout,
+            "copied\n"
+        );
+        assert_eq!(session.execute_line("mv copy moved").status, 0);
+        assert_eq!(
+            session.execute_line("cat moved/nested/value.txt").stdout,
+            "copied\n"
+        );
         session.persist().expect("state persisted");
         let restored = Session::restore(SandboxedFileSystem::new(&root).expect("root reopened"));
         assert_eq!(restored.current_directory(), "~/work");
         assert!(restored.history().contains(&"cat note.txt".to_string()));
-        assert_eq!(restored.history().last().map(String::as_str), Some("pwd"));
+        assert_eq!(
+            restored.history().last().map(String::as_str),
+            Some("cat moved/nested/value.txt")
+        );
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

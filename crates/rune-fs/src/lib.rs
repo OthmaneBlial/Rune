@@ -85,9 +85,11 @@ pub trait VirtualFileSystem {
     fn make_directory(&self, input: &str, parents: bool) -> Result<(), FsError>;
     fn touch(&self, input: &str) -> Result<(), FsError>;
     fn remove(&self, input: &str, recursive: bool, force: bool) -> Result<(), FsError>;
-    fn copy(&self, source: &str, destination: &str) -> Result<(), FsError>;
+    fn copy(&self, source: &str, destination: &str, recursive: bool) -> Result<(), FsError>;
     fn move_path(&self, source: &str, destination: &str) -> Result<(), FsError>;
 }
+
+const MAX_COPY_ENTRIES: usize = 10_000;
 
 /// A host-backed filesystem with a strict virtual root.
 #[derive(Debug, Clone)]
@@ -381,6 +383,63 @@ fn expand_glob_component(
     Ok(next)
 }
 
+impl SandboxedFileSystem {
+    fn copy_directory(
+        source: &Path,
+        destination: &Path,
+        source_label: &str,
+        destination_label: &str,
+        copied: &mut usize,
+    ) -> Result<(), FsError> {
+        fs::create_dir(destination)
+            .map_err(|error| Self::io_error("copy", Path::new(destination_label), &error))?;
+        for entry in fs::read_dir(source)
+            .map_err(|error| Self::io_error("copy", Path::new(source_label), &error))?
+        {
+            let entry =
+                entry.map_err(|error| Self::io_error("copy", Path::new(source_label), &error))?;
+            *copied += 1;
+            if *copied > MAX_COPY_ENTRIES {
+                return Err(FsError::Io {
+                    operation: "copy".to_string(),
+                    path: source_label.to_string(),
+                    message: format!("directory exceeds {MAX_COPY_ENTRIES} entries"),
+                });
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let source_child = entry.path();
+            let destination_child = destination.join(&name);
+            let source_child_label = format!("{source_label}/{name}");
+            let destination_child_label = format!("{destination_label}/{name}");
+            let metadata = fs::symlink_metadata(&source_child)
+                .map_err(|error| Self::io_error("copy", Path::new(&source_child_label), &error))?;
+            if metadata.file_type().is_symlink() {
+                return Err(FsError::InvalidPath(format!(
+                    "copy does not follow symlinks: {source_child_label}"
+                )));
+            }
+            if metadata.is_dir() {
+                Self::copy_directory(
+                    &source_child,
+                    &destination_child,
+                    &source_child_label,
+                    &destination_child_label,
+                    copied,
+                )?;
+            } else if metadata.is_file() {
+                fs::copy(&source_child, &destination_child).map_err(|error| {
+                    Self::io_error("copy", Path::new(&destination_child_label), &error)
+                })?;
+            } else {
+                return Err(FsError::InvalidPath(format!(
+                    "copy supports regular files and directories only: {source_child_label}"
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
 impl VirtualFileSystem for SandboxedFileSystem {
     fn current_dir_display(&self) -> String {
         self.display_path(&self.current_dir)
@@ -596,12 +655,38 @@ impl VirtualFileSystem for SandboxedFileSystem {
         .map_err(|error| Self::io_error("remove", Path::new(input), &error))
     }
 
-    fn copy(&self, source: &str, destination: &str) -> Result<(), FsError> {
+    fn copy(&self, source: &str, destination: &str, recursive: bool) -> Result<(), FsError> {
         let source_path = self.resolve_path(source)?;
         let destination_path = self.resolve_path(destination)?;
-        let source_metadata = fs::metadata(&source_path).map_err(|error| {
+        let source_metadata = fs::symlink_metadata(&source_path).map_err(|error| {
             Self::reframe(Self::map_metadata_error(&source_path, &error), source)
         })?;
+        if source_metadata.file_type().is_symlink() {
+            return Err(FsError::InvalidPath(format!(
+                "copy does not follow symlinks: {source}"
+            )));
+        }
+        if source_metadata.is_dir() {
+            if !recursive {
+                return Err(FsError::NotFile(source.to_string()));
+            }
+            if destination_path.exists() {
+                return Err(FsError::AlreadyExists(destination.to_string()));
+            }
+            Self::parent_is_directory(&destination_path, destination)?;
+            let mut copied = 0;
+            let result = Self::copy_directory(
+                &source_path,
+                &destination_path,
+                source,
+                destination,
+                &mut copied,
+            );
+            if result.is_err() {
+                let _ = fs::remove_dir_all(&destination_path);
+            }
+            return result;
+        }
         if !source_metadata.is_file() {
             return Err(FsError::NotFile(source.to_string()));
         }
@@ -614,10 +699,15 @@ impl VirtualFileSystem for SandboxedFileSystem {
     fn move_path(&self, source: &str, destination: &str) -> Result<(), FsError> {
         let source_path = self.resolve_path(source)?;
         let destination_path = self.resolve_path(destination)?;
-        let source_metadata = fs::metadata(&source_path).map_err(|error| {
+        let source_metadata = fs::symlink_metadata(&source_path).map_err(|error| {
             Self::reframe(Self::map_metadata_error(&source_path, &error), source)
         })?;
-        if !source_metadata.is_file() {
+        if source_metadata.file_type().is_symlink() {
+            return Err(FsError::InvalidPath(format!(
+                "move does not follow symlinks: {source}"
+            )));
+        }
+        if !source_metadata.is_file() && !source_metadata.is_dir() {
             return Err(FsError::NotFile(source.to_string()));
         }
         Self::parent_is_directory(&destination_path, destination)?;
@@ -692,6 +782,34 @@ mod tests {
         fs.make_directory("project/src", true)
             .expect("existing parent directory accepted");
         assert!(root.join("project/src").is_dir());
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn copies_bounded_directories_and_moves_them() {
+        let root = test_root();
+        let fs = SandboxedFileSystem::new(&root).expect("root created");
+        fs.make_directory("source/nested", true)
+            .expect("source tree created");
+        fs.touch("source/nested/note.txt")
+            .expect("source file created");
+        fs.write("source/nested/note.txt", b"hello", false)
+            .expect("source file written");
+        assert!(matches!(
+            fs.copy("source", "file", false),
+            Err(FsError::NotFile(_))
+        ));
+        fs.copy("source", "copy", true).expect("directory copied");
+        assert_eq!(
+            fs.read("copy/nested/note.txt").expect("copied file read"),
+            b"hello"
+        );
+        fs.move_path("copy", "moved").expect("directory moved");
+        assert_eq!(
+            fs.read("moved/nested/note.txt").expect("moved file read"),
+            b"hello"
+        );
+        assert!(matches!(fs.metadata("copy"), Err(FsError::NotFound(_))));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

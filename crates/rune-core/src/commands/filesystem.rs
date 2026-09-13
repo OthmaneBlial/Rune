@@ -333,16 +333,28 @@ pub(super) fn rm(context: &mut CommandContext<'_>) -> CommandOutput {
 }
 
 pub(super) fn cp(context: &mut CommandContext<'_>) -> CommandOutput {
-    if context.args.len() != 2 {
-        return usage("cp", "usage: cp source destination");
+    let mut recursive = false;
+    let mut paths = Vec::new();
+    for argument in context.args {
+        if let Some(flags) = argument.strip_prefix('-') {
+            if flags.is_empty() {
+                paths.push(argument.as_str());
+            } else if flags.chars().all(|flag| matches!(flag, 'r' | 'R')) {
+                recursive = true;
+            } else {
+                return usage("cp", "usage: cp [-r] source destination");
+            }
+        } else {
+            paths.push(argument.as_str());
+        }
     }
-    context
-        .fs
-        .copy(&context.args[0], &context.args[1])
-        .map_or_else(
-            |error| fs_failure("cp", &error),
-            |()| CommandOutput::success(""),
-        )
+    if paths.len() != 2 {
+        return usage("cp", "usage: cp [-r] source destination");
+    }
+    context.fs.copy(paths[0], paths[1], recursive).map_or_else(
+        |error| fs_failure("cp", &error),
+        |()| CommandOutput::success(""),
+    )
 }
 
 pub(super) fn mv(context: &mut CommandContext<'_>) -> CommandOutput {

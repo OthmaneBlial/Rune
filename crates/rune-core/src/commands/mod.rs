@@ -42,7 +42,7 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
     },
     CommandDefinition {
         name: "cp",
-        summary: "copy one file",
+        summary: "copy files or bounded directory trees",
         handler: filesystem::cp,
     },
     CommandDefinition {
@@ -122,7 +122,7 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
     },
     CommandDefinition {
         name: "mv",
-        summary: "move one file",
+        summary: "move one file or directory",
         handler: filesystem::mv,
     },
     CommandDefinition {

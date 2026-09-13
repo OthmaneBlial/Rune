@@ -112,7 +112,9 @@ The portable utility slice adds bounded `basename`, `dirname`, `rmdir`,
 environment removal. They operate on Rune's virtual filesystem or pipeline
 stdin only; they do not invoke host executables. `tr` supports literal Unicode
 character translation/deletion, while `xxd` supports plain and classic hex
-output with a 256 KiB input limit.
+output with a 256 KiB input limit. `cp -r` copies regular-file directory trees
+with a 10,000-entry limit and rejects symlinks; `mv` can move a directory
+without recursively traversing it.
 
 Session-local virtual bookmarks are stored as validated names mapped to Rune
 virtual directories. `bookmark`, `showmarks`, `jump`, `renamemark`, and
