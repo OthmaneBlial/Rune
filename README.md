@@ -192,13 +192,17 @@ eventual native target; URLSession, ATS, transport, and device behavior remain
 unverified without an Apple runtime.
 
 The Rust core also provides bounded zip -r ARCHIVE FILE ..., unzip ARCHIVE
-[DESTINATION], and tar -cf/-tf/-xf ARCHIVE commands. ZIP uses stored ZIP32
-entries through the VFS and verifies CRC32 before extraction. Tar uses UTF-8
-USTAR entries with long names split across the standard name/prefix fields.
-Both formats reject absolute or parent-traversal names, links, unsupported
-entry types, and archives above 64 MiB or 10,000 entries. Compression methods,
-ZIP64, PAX extensions, encrypted archives, and compatibility with every
-external producer remain unsupported until separately tested.
+[DESTINATION], tar -cf/-tf/-xf ARCHIVE, gzip FILE ..., and gunzip FILE.gz ...
+commands. ZIP uses stored ZIP32 entries through the VFS and verifies CRC32
+before extraction. Tar uses UTF-8 USTAR entries with long names split across
+the standard name/prefix fields. Gzip is a file-to-file Rust backend: it keeps
+the source, refuses binary stdin/stdout mode and refuses to overwrite
+destinations, and caps both
+input and decompressed output at 64 MiB. These commands reject absolute or
+parent-traversal archive names, links, unsupported entry types, and archives
+above 64 MiB or 10,000 entries. ZIP compression methods, ZIP64, PAX
+extensions, encrypted archives, and compatibility with every external
+producer remain unsupported until separately tested.
 
 The host-backed VFS also rejects regular-file reads, appends, and copies over
 64 MiB before allocating or copying their contents. This limit is independent

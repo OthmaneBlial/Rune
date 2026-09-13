@@ -95,6 +95,9 @@ The archive integration tests create nested files, list and extract a USTAR
 archive into a new confined destination, and reject compressed tar flags and
 escaping archive members. ZIP coverage remains stored-only and does not
 establish compatibility with compressed, ZIP64, PAX, or encrypted archives.
+The gzip integration test verifies bounded file-to-file compression and
+decompression, source preservation, refusal of binary `-c` mode, and suffix
+validation. It does not establish gzip command-line or multi-member parity.
 The filesystem resource test uses a sparse file to verify the 64 MiB read,
 append, and copy guards without allocating a large in-memory fixture.
 The directory resource test creates 10,001 small entries and verifies that

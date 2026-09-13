@@ -2,6 +2,7 @@ use crate::CommandDefinition;
 
 mod archive;
 mod bookmarks;
+mod compression;
 mod config;
 mod filesystem;
 mod javascript;
@@ -151,9 +152,19 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: text::grep,
     },
     CommandDefinition {
+        name: "gzip",
+        summary: "compress bounded VFS files with gzip",
+        handler: compression::gzip,
+    },
+    CommandDefinition {
         name: "head",
         summary: "write the first lines of input",
         handler: text::head,
+    },
+    CommandDefinition {
+        name: "gunzip",
+        summary: "decompress bounded gzip files in the VFS",
+        handler: compression::gunzip,
     },
     CommandDefinition {
         name: "help",

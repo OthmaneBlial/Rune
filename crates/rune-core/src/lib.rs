@@ -74,6 +74,8 @@ fn supports_path_completion(command: &str) -> bool {
             | "expr"
             | "find"
             | "grep"
+            | "gunzip"
+            | "gzip"
             | "head"
             | "jsc"
             | "ls"
@@ -2580,6 +2582,27 @@ mod tests {
             session.execute_line("unzip bundle.zip ../outside").status,
             1
         );
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn compresses_and_decompresses_bounded_gzip_files() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("echo gzip-data > note.txt").status, 0);
+        let compressed = session.execute_line("gzip note.txt");
+        assert_eq!(compressed.status, 0);
+        assert!(compressed.stdout.contains("note.txt -> note.txt.gz"));
+        assert!(root.join("note.txt.gz").exists());
+        assert!(root.join("note.txt").exists());
+
+        assert_eq!(session.execute_line("rm note.txt").status, 0);
+        let decompressed = session.execute_line("gunzip note.txt.gz");
+        assert_eq!(decompressed.status, 0);
+        assert_eq!(session.execute_line("cat note.txt").stdout, "gzip-data\n");
+
+        assert_eq!(session.execute_line("gzip -c note.txt").status, 2);
+        assert_eq!(session.execute_line("gunzip note.txt").status, 1);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
