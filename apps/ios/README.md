@@ -17,6 +17,8 @@ native Shortcuts registration remains unverified and is not included here.
 
 The Rust handle restores and persists only the virtual working directory and
 typed command history in `~/.rune/session.state` inside the configured sandbox.
+FFI command and script calls flush that state before returning, while handle
+destruction performs a final best-effort flush.
 Environment variables and aliases are not serialized. History persistence is
 intentionally visible in the local state boundary. Interactive `export`,
 `setenv`, and assignment command lines are currently replaced by a redaction

@@ -7,6 +7,7 @@
 #![allow(unsafe_code)]
 
 use std::ffi::{CStr, CString};
+use std::fmt::Write as _;
 use std::os::raw::c_char;
 
 use rune_core::{CommandOutput, Session};
@@ -49,6 +50,16 @@ fn into_output(output: &CommandOutput) -> RuneOutput {
     }
 }
 
+fn persist_after_execution(session: &mut RuneSession, mut output: CommandOutput) -> CommandOutput {
+    if let Err(error) = session.core.persist() {
+        let _ = writeln!(output.stderr, "rune: could not persist session: {error}");
+        if output.status == 0 {
+            output.status = 1;
+        }
+    }
+    output
+}
+
 /// Creates a session rooted at the supplied physical sandbox directory.
 ///
 /// A null return means the pointer was null/invalid or the root could not be
@@ -82,7 +93,9 @@ pub extern "C" fn rune_session_destroy(handle: *mut std::ffi::c_void) {
     };
 }
 
-/// Executes one Rune command line.
+/// Executes one Rune command line and persists the session state before
+/// returning. A persistence failure is reported on stderr and changes a
+/// successful command's status to 1.
 #[no_mangle]
 pub extern "C" fn rune_session_execute(
     handle: *mut std::ffi::c_void,
@@ -100,11 +113,13 @@ pub extern "C" fn rune_session_execute(
     // not call this after rune_session_destroy.
     let session = unsafe { &mut *handle.cast::<RuneSession>() };
     let output = session.core.execute_line(&input);
+    let output = persist_after_execution(session, output);
     into_output(&output)
 }
 
 /// Executes a newline-delimited automation script through the same Rust
-/// parser and command registry as interactive input.
+/// parser and command registry as interactive input, then persists the
+/// session state before returning.
 #[no_mangle]
 pub extern "C" fn rune_session_execute_script(
     handle: *mut std::ffi::c_void,
@@ -122,6 +137,7 @@ pub extern "C" fn rune_session_execute_script(
     // not call this after rune_session_destroy.
     let session = unsafe { &mut *handle.cast::<RuneSession>() };
     let output = session.core.execute_script(&script);
+    let output = persist_after_execution(session, output);
     into_output(&output)
 }
 
@@ -283,8 +299,9 @@ mod tests {
             rune_string_free(output.stdout);
             rune_string_free(output.stderr);
         }
-        rune_session_destroy(handle);
-
+        // The command path must be durable before the native owner is
+        // destroyed; iOS may suspend or terminate an app without giving the
+        // UI an opportunity to run deinit first.
         let reopened = rune_session_new(root_string.as_ptr());
         assert!(!reopened.is_null());
         let directory = rune_session_current_directory(reopened);
@@ -292,6 +309,7 @@ mod tests {
         // SAFETY: directory was returned by rune_session_current_directory.
         unsafe { rune_string_free(directory) };
         rune_session_destroy(reopened);
+        rune_session_destroy(handle);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

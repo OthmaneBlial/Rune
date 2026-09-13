@@ -11,7 +11,9 @@ typedef struct {
 
 void *rune_session_new(const char *root);
 void rune_session_destroy(void *handle);
+// Execute and persist the session before returning.
 RuneOutput rune_session_execute(void *handle, const char *input);
+// Execute a newline-delimited script and persist the session before returning.
 RuneOutput rune_session_execute_script(void *handle, const char *script);
 char *rune_session_current_directory(const void *handle);
 char *rune_session_history(const void *handle);
