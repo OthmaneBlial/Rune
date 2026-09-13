@@ -142,3 +142,47 @@ pub unsafe extern "C" fn rune_string_free(value: *mut c_char) {
     // SAFETY: value was allocated by CString::into_raw in this crate.
     unsafe { drop(CString::from_raw(value)) };
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{rune_session_destroy, rune_session_execute, rune_session_new, rune_string_free};
+    use std::ffi::{CStr, CString};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn c_abi_executes_and_releases_an_owned_result() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rune-ffi-test-{suffix}"));
+        let root_string = CString::new(root.to_string_lossy().as_bytes()).expect("valid root");
+        let handle = rune_session_new(root_string.as_ptr());
+        assert!(!handle.is_null());
+
+        let command = CString::new("echo from-ffi").expect("valid command");
+        let output = rune_session_execute(handle, command.as_ptr());
+        assert_eq!(output.status, 0);
+        assert_eq!(
+            c_string(output.stdout),
+            "from-ffi\n",
+            "stdout must cross the ABI intact"
+        );
+        assert!(c_string(output.stderr).is_empty());
+        // SAFETY: both pointers were returned by rune_session_execute and are
+        // released exactly once before destroying the owning session.
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+        rune_session_destroy(handle);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    fn c_string(pointer: *mut std::os::raw::c_char) -> String {
+        assert!(!pointer.is_null());
+        // SAFETY: the test only reads a NUL-terminated CString returned by the
+        // ABI before its matching free call.
+        unsafe { CStr::from_ptr(pointer).to_string_lossy().into_owned() }
+    }
+}
