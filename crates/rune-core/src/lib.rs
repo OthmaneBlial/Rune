@@ -35,6 +35,8 @@ const MAX_BOOKMARKS: usize = 256;
 const MAX_BOOKMARK_NAME_CHARS: usize = 64;
 const MAX_BOOKMARK_PATH_BYTES: usize = 64 * 1024;
 const MAX_BOOKMARK_BYTES: usize = 256 * 1024;
+/// Maximum payload accepted by the explicit native file-transfer boundary.
+pub const MAX_FILE_TRANSFER_BYTES: usize = 16 * 1024 * 1024;
 const OUTPUT_TRUNCATION_MARKER: &str = "\n[rune: output truncated at 1048576 bytes]\n";
 pub(crate) const PACKAGE_INSTALL_ROOT: &str = "~/.rune/packages";
 
@@ -343,6 +345,49 @@ impl Session {
     #[must_use]
     pub fn history(&self) -> &[String] {
         &self.history
+    }
+
+    /// Reads one bounded file through the session's confined filesystem.
+    ///
+    /// This is the data boundary used by native automation. Shell `cat` keeps
+    /// its own output-channel limit; direct file transfer has a separate byte
+    /// limit so an API caller cannot allocate an unbounded result.
+    ///
+    /// # Errors
+    ///
+    /// Returns the confined filesystem error, including a transfer-limit
+    /// error when the file is larger than [`MAX_FILE_TRANSFER_BYTES`].
+    pub fn read_file(&self, path: &str) -> Result<Vec<u8>, FsError> {
+        let bytes = self.filesystem.read(path)?;
+        if bytes.len() > MAX_FILE_TRANSFER_BYTES {
+            return Err(FsError::Io {
+                operation: "read".to_string(),
+                path: path.to_string(),
+                message: format!("file exceeds the {MAX_FILE_TRANSFER_BYTES}-byte transfer limit"),
+            });
+        }
+        Ok(bytes)
+    }
+
+    /// Writes one bounded file through the session's confined filesystem.
+    ///
+    /// The operation replaces the file and never creates parent directories.
+    /// Callers must explicitly create directories through the shell or another
+    /// bounded filesystem operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns the confined filesystem error or a transfer-limit error when
+    /// `content` is larger than [`MAX_FILE_TRANSFER_BYTES`].
+    pub fn write_file(&mut self, path: &str, content: &[u8]) -> Result<(), FsError> {
+        if content.len() > MAX_FILE_TRANSFER_BYTES {
+            return Err(FsError::Io {
+                operation: "write".to_string(),
+                path: path.to_string(),
+                message: format!("file exceeds the {MAX_FILE_TRANSFER_BYTES}-byte transfer limit"),
+            });
+        }
+        self.filesystem.write(path, content, false)
     }
 
     /// Returns the last command status.
@@ -1101,8 +1146,9 @@ fn package_runtime_failure(command: &str, error: &rune_package::PackageError) ->
 mod tests {
     use super::{
         persistence::MAX_HISTORY_BYTES, Session, CANCELLED_STATUS, MAX_BOOKMARKS,
-        MAX_BOOKMARK_NAME_CHARS, MAX_COMMAND_INPUT_BYTES, MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES,
-        MAX_SCRIPT_LINES, MAX_SOURCE_DEPTH, OUTPUT_TRUNCATION_MARKER,
+        MAX_BOOKMARK_NAME_CHARS, MAX_COMMAND_INPUT_BYTES, MAX_FILE_TRANSFER_BYTES,
+        MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES, MAX_SOURCE_DEPTH,
+        OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -1217,6 +1263,29 @@ mod tests {
             "../escape",
         )
         .is_err());
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn transfers_bounded_files_through_the_confined_session_filesystem() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("mkdir transfer").status, 0);
+        session
+            .write_file("transfer/note.txt", b"from automation\n")
+            .expect("file written through VFS");
+        assert_eq!(
+            session
+                .read_file("transfer/note.txt")
+                .expect("file read through VFS"),
+            b"from automation\n"
+        );
+        assert!(session.read_file("../outside").is_err());
+        let oversized = vec![b'x'; MAX_FILE_TRANSFER_BYTES + 1];
+        assert!(session
+            .write_file("transfer/too-large", &oversized)
+            .is_err());
+        assert!(!root.join("transfer/too-large").exists());
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

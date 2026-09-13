@@ -13,7 +13,9 @@ public enum RuneShortcutError: LocalizedError {
 }
 
 @MainActor
-private func executeInDefaultSession(_ operation: (RuneFFISession) -> RuneCommandResult) throws -> String {
+private func executeInDefaultSession(
+    _ operation: (RuneFFISession) throws -> RuneCommandResult
+) throws -> String {
     guard let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
         throw RuneShortcutError.noDocumentsDirectory
     }
@@ -73,6 +75,58 @@ public struct RuneExecuteScriptIntent: AppIntent {
     }
 }
 
+@MainActor
+public struct RunePutFileIntent: AppIntent {
+    public static let title: LocalizedStringResource = "Put Text File in Rune"
+    public static let description = IntentDescription(
+        "Write UTF-8 text to a bounded path in Rune's sandbox."
+    )
+
+    @Parameter(title: "Path")
+    public var path: String
+
+    @Parameter(title: "Contents")
+    public var contents: String
+
+    public init() {
+        path = ""
+        contents = ""
+    }
+
+    public func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        .result(value: try executeInDefaultSession { session in
+            try session.putFile(path: path, data: Data(contents.utf8))
+            return RuneCommandResult(stdout: "Stored \(path)\n", stderr: "", status: 0)
+        })
+    }
+}
+
+@MainActor
+public struct RuneGetFileIntent: AppIntent {
+    public static let title: LocalizedStringResource = "Get Text File from Rune"
+    public static let description = IntentDescription(
+        "Read a bounded UTF-8 text file from Rune's sandbox."
+    )
+
+    @Parameter(title: "Path")
+    public var path: String
+
+    public init() {
+        path = ""
+    }
+
+    public func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        .result(value: try executeInDefaultSession { session in
+            let data = try session.getFile(path: path)
+            return RuneCommandResult(
+                stdout: String(decoding: data, as: UTF8.self),
+                stderr: "",
+                status: 0
+            )
+        })
+    }
+}
+
 public struct RuneShortcuts: AppShortcutsProvider {
     public static var appShortcuts: [AppShortcut] {
         [
@@ -87,6 +141,18 @@ public struct RuneShortcuts: AppShortcutsProvider {
                 phrases: ["Execute a script in \(.applicationName)"],
                 shortTitle: "Execute Script",
                 systemImageName: "scroll"
+            ),
+            AppShortcut(
+                intent: RunePutFileIntent(),
+                phrases: ["Put a text file in \(.applicationName)"],
+                shortTitle: "Put Text File",
+                systemImageName: "arrow.down.doc"
+            ),
+            AppShortcut(
+                intent: RuneGetFileIntent(),
+                phrases: ["Get a text file from \(.applicationName)"],
+                shortTitle: "Get Text File",
+                systemImageName: "arrow.up.doc"
             ),
         ]
     }

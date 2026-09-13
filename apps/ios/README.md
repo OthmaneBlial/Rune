@@ -21,6 +21,12 @@ and script execution. They call the existing Rust FFI and return the real
 stdout/stderr/status result; App Intent registration, entitlements, and
 Shortcuts runtime behavior remain unverified without an Apple build.
 
+The same file declares UTF-8 text Put/Get actions. Put writes through the Rust
+VFS transfer API and Get reads through the binary-safe FFI before decoding as
+UTF-8 for the text automation result. The Rust API itself accepts bounded
+binary payloads up to 16 MiB; the source-only App Intent surface intentionally
+does not claim arbitrary binary file parameters.
+
 Individual command lines crossing the bridge are also rejected above the
 64-KiB Rust input limit before parsing or history recording.
 
@@ -73,7 +79,8 @@ multi-window support, and Apple runtime integration remain unverified.
 - `RuneCoreBridge.swift` owns and frees Rust session handles/strings.
 - `RuneExternalFolderAccess.swift` owns bounded security-scoped bookmark
   storage and keeps approved folder access alive for a Rust session.
-- `RuneShortcuts.swift` declares Rust-backed command and script App Intents.
+- `RuneShortcuts.swift` declares Rust-backed command, script, and UTF-8 file
+  App Intents.
 - `RuneWorkspaceView.swift` declares the source-only independent-session tab
   container.
 - `RuneTerminalView.swift` includes the `@main` SwiftUI application entry point

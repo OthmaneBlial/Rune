@@ -12,8 +12,8 @@ use std::os::raw::c_char;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use rune_core::{CommandOutput, Session};
-use rune_fs::SandboxedFileSystem;
+use rune_core::{CommandOutput, Session, MAX_FILE_TRANSFER_BYTES};
+use rune_fs::{FsError, SandboxedFileSystem};
 
 /// An owned result crossing the C ABI.
 #[repr(C)]
@@ -21,6 +21,15 @@ pub struct RuneOutput {
     pub stdout: *mut c_char,
     pub stderr: *mut c_char,
     pub status: i32,
+}
+
+/// A bounded binary file result crossing the C ABI.
+#[repr(C)]
+pub struct RuneFile {
+    pub data: *mut u8,
+    pub length: usize,
+    pub status: i32,
+    pub message: *mut c_char,
 }
 
 struct RuneSession {
@@ -42,6 +51,35 @@ fn into_owned_c_string(value: &str) -> *mut c_char {
     match CString::new(sanitized) {
         Ok(value) => value.into_raw(),
         Err(_) => std::ptr::null_mut(),
+    }
+}
+
+fn into_owned_bytes(value: Vec<u8>) -> (*mut u8, usize) {
+    if value.is_empty() {
+        return (std::ptr::null_mut(), 0);
+    }
+    let boxed = value.into_boxed_slice();
+    let length = boxed.len();
+    (Box::into_raw(boxed).cast(), length)
+}
+
+fn into_file_result(result: Result<Vec<u8>, FsError>) -> RuneFile {
+    match result {
+        Ok(data) => {
+            let (data, length) = into_owned_bytes(data);
+            RuneFile {
+                data,
+                length,
+                status: 0,
+                message: std::ptr::null_mut(),
+            }
+        }
+        Err(error) => RuneFile {
+            data: std::ptr::null_mut(),
+            length: 0,
+            status: 1,
+            message: into_owned_c_string(&error.to_string()),
+        },
     }
 }
 
@@ -183,6 +221,84 @@ pub extern "C" fn rune_session_execute_script(
     into_output(&output)
 }
 
+/// Writes a bounded binary file through the session's confined filesystem.
+/// The content is copied immediately and replaces any existing regular file.
+///
+/// # Safety
+///
+/// When `length` is non-zero, `data` must point to a readable buffer of at
+/// least `length` bytes for the duration of this call. The path must be a
+/// valid NUL-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn rune_session_put_file(
+    handle: *mut std::ffi::c_void,
+    path: *const c_char,
+    data: *const u8,
+    length: usize,
+) -> RuneOutput {
+    let Some(path) = read_string(path) else {
+        return into_output(&CommandOutput::failure(
+            2,
+            "rune: file path is not valid UTF-8\n",
+        ));
+    };
+    if handle.is_null() {
+        return into_output(&CommandOutput::failure(1, "rune: session is unavailable\n"));
+    }
+    if length > MAX_FILE_TRANSFER_BYTES || (length > 0 && data.is_null()) {
+        return into_output(&CommandOutput::failure(
+            2,
+            format!(
+                "rune: file payload exceeds the {MAX_FILE_TRANSFER_BYTES}-byte transfer limit\n"
+            ),
+        ));
+    }
+    // SAFETY: callers provide a valid byte buffer for the declared length and
+    // keep the session alive. The bytes are copied by `write_file` before the
+    // function returns.
+    let content = if length == 0 {
+        &[]
+    } else {
+        unsafe { std::slice::from_raw_parts(data, length) }
+    };
+    // SAFETY: Swift serializes access to the opaque session handle and does
+    // not call this after rune_session_destroy.
+    let session = unsafe { &mut *handle.cast::<RuneSession>() };
+    match session.core.write_file(&path, content) {
+        Ok(()) => into_output(&CommandOutput::success("")),
+        Err(error) => into_output(&CommandOutput::failure(1, format!("rune: {error}\n"))),
+    }
+}
+
+/// Reads a bounded binary file through the session's confined filesystem.
+/// The returned bytes are released with [`rune_file_bytes_free`] and the
+/// optional error message with [`rune_string_free`].
+#[no_mangle]
+pub extern "C" fn rune_session_get_file(
+    handle: *const std::ffi::c_void,
+    path: *const c_char,
+) -> RuneFile {
+    let Some(path) = read_string(path) else {
+        return RuneFile {
+            data: std::ptr::null_mut(),
+            length: 0,
+            status: 2,
+            message: into_owned_c_string("rune: file path is not valid UTF-8\n"),
+        };
+    };
+    if handle.is_null() {
+        return RuneFile {
+            data: std::ptr::null_mut(),
+            length: 0,
+            status: 1,
+            message: into_owned_c_string("rune: session is unavailable\n"),
+        };
+    }
+    // SAFETY: the pointer is read-only and owned by the Swift session.
+    let session = unsafe { &*handle.cast::<RuneSession>() };
+    into_file_result(session.core.read_file(&path))
+}
+
 /// Returns the current virtual directory as an owned C string.
 #[no_mangle]
 pub extern "C" fn rune_session_current_directory(handle: *const std::ffi::c_void) -> *mut c_char {
@@ -296,13 +412,33 @@ pub unsafe extern "C" fn rune_string_free(value: *mut c_char) {
     unsafe { drop(CString::from_raw(value)) };
 }
 
+/// Releases bytes returned by [`rune_session_get_file`].
+///
+/// # Safety
+///
+/// `data` must be null or the exact pointer/length pair returned by Rune, and
+/// it must be released at most once.
+#[no_mangle]
+pub unsafe extern "C" fn rune_file_bytes_free(data: *mut u8, length: usize) {
+    if data.is_null() {
+        return;
+    }
+    // SAFETY: the caller supplies the allocation and length returned by Rune.
+    unsafe {
+        drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(
+            data, length,
+        )));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        rune_session_cancel, rune_session_commands, rune_session_complete,
+        rune_file_bytes_free, rune_session_cancel, rune_session_commands, rune_session_complete,
         rune_session_configuration, rune_session_current_directory, rune_session_destroy,
-        rune_session_execute, rune_session_execute_script, rune_session_new,
-        rune_session_new_named, rune_session_startup_output, rune_string_free,
+        rune_session_execute, rune_session_execute_script, rune_session_get_file, rune_session_new,
+        rune_session_new_named, rune_session_put_file, rune_session_startup_output,
+        rune_string_free,
     };
     use std::ffi::{CStr, CString};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -427,6 +563,57 @@ mod tests {
         unsafe {
             rune_string_free(output.stdout);
             rune_string_free(output.stderr);
+        }
+        rune_session_destroy(handle);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn c_abi_transfers_bounded_binary_files_without_treating_nuls_as_strings() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rune-ffi-file-test-{suffix}"));
+        std::fs::create_dir_all(&root).expect("test root created");
+        let root_string = CString::new(root.to_string_lossy().as_bytes()).expect("valid root");
+        let handle = rune_session_new(root_string.as_ptr());
+        assert!(!handle.is_null());
+        let path = CString::new("payload.bin").expect("valid path");
+        let payload = [0_u8, 1, 2, 0, 255];
+        let output = unsafe {
+            rune_session_put_file(handle, path.as_ptr(), payload.as_ptr(), payload.len())
+        };
+        assert_eq!(output.status, 0);
+        assert!(c_string(output.stdout).is_empty());
+        assert!(c_string(output.stderr).is_empty());
+        // SAFETY: both pointers were returned by rune_session_put_file.
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+
+        let file = rune_session_get_file(handle, path.as_ptr());
+        assert_eq!(file.status, 0);
+        assert_eq!(file.length, payload.len());
+        // SAFETY: the pointer/length pair was returned by Rune and is released
+        // exactly once after the bytes are checked.
+        unsafe {
+            assert_eq!(std::slice::from_raw_parts(file.data, file.length), payload);
+            rune_file_bytes_free(file.data, file.length);
+            rune_string_free(file.message);
+        }
+
+        let outside = CString::new("../outside.bin").expect("valid path");
+        let rejected = unsafe {
+            rune_session_put_file(handle, outside.as_ptr(), payload.as_ptr(), payload.len())
+        };
+        assert_eq!(rejected.status, 1);
+        assert!(c_string(rejected.stderr).contains("sandbox"));
+        // SAFETY: both pointers were returned by rune_session_put_file.
+        unsafe {
+            rune_string_free(rejected.stdout);
+            rune_string_free(rejected.stderr);
         }
         rune_session_destroy(handle);
         std::fs::remove_dir_all(root).expect("test root removed");

@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 44%**
+**Overall progress: 46%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -137,6 +137,13 @@ scripts larger than 256 KiB or 1,024 lines and caps accumulated output per
 channel. App Intent registration, entitlements, and runtime behavior remain
 unverified without an Apple build/runtime.
 
+The same boundary exposes bounded binary file transfer through the confined VFS:
+`put` replaces one file and `get` returns an explicitly freed byte buffer, with
+a 16 MiB payload limit and no implicit parent-directory creation. The
+source-only Shortcuts layer provides UTF-8 text Put/Get actions on top of that
+real API; arbitrary binary automation remains an FFI capability until an
+Apple-native file parameter contract is validated.
+
 The portable configuration boundary currently supports bounded `history-limit`,
 `font-size`, and `theme` settings through `config get`, `config set`, and
 `config reset`. It persists in `~/.rune/config.state`, and SwiftUI consumes
@@ -244,8 +251,8 @@ git check-ignore -v base/a-shell
 - [x] Source-only external folders and bounded security-scoped bookmarks
 - [x] Rust-namespaced sessions and source-only terminal tabs
 - [ ] iPad multi-window behavior
-- [x] Source-only command/script App Intent declarations
-- [ ] Apple Shortcuts actions
+- [x] Source-only command/script/file App Intent declarations
+- [ ] Apple Shortcuts registration and runtime validation
 - [ ] Accessibility and VoiceOver validation
 
 ## Non-goals for the current milestone

@@ -6,6 +6,13 @@ private struct RuneFFIOutput {
     let status: Int32
 }
 
+private struct RuneFFIFile {
+    let data: UnsafeMutablePointer<UInt8>?
+    let length: Int
+    let status: Int32
+    let message: UnsafeMutablePointer<CChar>?
+}
+
 @_silgen_name("rune_session_new")
 private func rune_session_new(_ root: UnsafePointer<CChar>) -> OpaquePointer?
 
@@ -33,6 +40,20 @@ private func rune_session_execute_script(
     _ script: UnsafePointer<CChar>
 ) -> RuneFFIOutput
 
+@_silgen_name("rune_session_put_file")
+private func rune_session_put_file(
+    _ handle: OpaquePointer?,
+    _ path: UnsafePointer<CChar>,
+    _ data: UnsafePointer<UInt8>?,
+    _ length: Int
+) -> RuneFFIOutput
+
+@_silgen_name("rune_session_get_file")
+private func rune_session_get_file(
+    _ handle: OpaquePointer?,
+    _ path: UnsafePointer<CChar>
+) -> RuneFFIFile
+
 @_silgen_name("rune_session_current_directory")
 private func rune_session_current_directory(_ handle: OpaquePointer?) -> UnsafeMutablePointer<CChar>?
 
@@ -57,6 +78,9 @@ private func rune_session_startup_output(_ handle: OpaquePointer?) -> RuneFFIOut
 @_silgen_name("rune_string_free")
 private func rune_string_free(_ value: UnsafeMutablePointer<CChar>?)
 
+@_silgen_name("rune_file_bytes_free")
+private func rune_file_bytes_free(_ data: UnsafeMutablePointer<UInt8>?, _ length: Int)
+
 public struct RuneCommandResult: Equatable, Sendable {
     public let stdout: String
     public let stderr: String
@@ -71,11 +95,14 @@ public struct RuneCommandResult: Equatable, Sendable {
 
 public enum RuneBridgeError: LocalizedError {
     case sessionInitializationFailed(URL)
+    case fileOperationFailed(String)
 
     public var errorDescription: String? {
         switch self {
         case .sessionInitializationFailed(let root):
             return "Rune could not open its sandbox root at \(root.path)."
+        case .fileOperationFailed(let message):
+            return message
         }
     }
 }
@@ -126,6 +153,44 @@ public final class RuneFFISession {
     public func executeScript(_ script: String) -> RuneCommandResult {
         let raw = script.withCString { rune_session_execute_script(handle, $0) }
         return consume(raw)
+    }
+
+    /// Stores bounded bytes in the session's confined virtual filesystem.
+    public func putFile(path: String, data: Data) throws {
+        let raw = path.withCString { pathPointer in
+            data.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) in
+                rune_session_put_file(
+                    handle,
+                    pathPointer,
+                    buffer.bindMemory(to: UInt8.self).baseAddress,
+                    buffer.count
+                )
+            }
+        }
+        let result = consume(raw)
+        guard result.status == 0 else {
+            throw RuneBridgeError.fileOperationFailed(
+                result.stderr.isEmpty ? "Rune could not write the file." : result.stderr
+            )
+        }
+    }
+
+    /// Reads bounded bytes from the session's confined virtual filesystem.
+    public func getFile(path: String) throws -> Data {
+        let raw = path.withCString { rune_session_get_file(handle, $0) }
+        defer {
+            rune_file_bytes_free(raw.data, raw.length)
+            rune_string_free(raw.message)
+        }
+        guard raw.status == 0 else {
+            let message = raw.message.map { String(cString: $0) }
+                ?? "Rune could not read the file."
+            throw RuneBridgeError.fileOperationFailed(message)
+        }
+        guard let data = raw.data else {
+            return Data()
+        }
+        return Data(bytes: data, count: raw.length)
     }
 
     public func takeStartupOutput() -> RuneCommandResult {

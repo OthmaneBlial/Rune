@@ -19,6 +19,8 @@ Completion tests also use only the confined VFS and do not require an Apple
 runtime.
 Named-session tests use separate temporary VFS state namespaces and verify that
 working directories and history do not leak between Rust or FFI handles.
+File-transfer tests verify confined paths, the 16 MiB boundary, and binary
+payloads containing NUL bytes across the Rust/FFI boundary.
 The source-only Apple check also parses the external-folder bookmark layer;
 that syntax check does not prove security-scoped access, entitlements, or Files
 picker behavior on a device.

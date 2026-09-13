@@ -132,6 +132,14 @@ Rust result without reimplementing command behavior in Swift. This is a real
 automation boundary, but App Intent registration, entitlements, and Shortcuts
 runtime execution remain unverified until an Apple target can be built.
 
+Native file automation uses `Session::read_file` and `Session::write_file`, not
+shell-string interpolation. Both operations stay inside the session VFS and
+enforce a separate 16 MiB transfer limit; writes replace one file and do not
+create parent directories. The FFI returns binary reads with an explicit
+pointer/length release function, so NUL bytes are preserved. Source-only
+Shortcuts currently expose the safer UTF-8 text Put/Get surface, while the
+binary-safe FFI remains available for a future validated native file type.
+
 The source-only workspace tab layer creates the default session for the first
 tab and named Rust sessions for additional tabs. Swift owns tab selection and
 presentation; Rust owns each tab's shell state and persistence. This does not
