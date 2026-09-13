@@ -2,6 +2,7 @@ use crate::CommandDefinition;
 
 mod filesystem;
 mod shell;
+mod text;
 
 pub(super) const DEFINITIONS: &[CommandDefinition] = &[
     CommandDefinition {
@@ -45,6 +46,16 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::false_command,
     },
     CommandDefinition {
+        name: "grep",
+        summary: "filter text lines by a pattern",
+        handler: text::grep,
+    },
+    CommandDefinition {
+        name: "head",
+        summary: "write the first lines of input",
+        handler: text::head,
+    },
+    CommandDefinition {
         name: "help",
         summary: "list commands and their summaries",
         handler: shell::help,
@@ -80,6 +91,16 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: filesystem::rm,
     },
     CommandDefinition {
+        name: "sort",
+        summary: "sort input lines",
+        handler: text::sort,
+    },
+    CommandDefinition {
+        name: "tail",
+        summary: "write the last lines of input",
+        handler: text::tail,
+    },
+    CommandDefinition {
         name: "touch",
         summary: "create a file if it does not exist",
         handler: filesystem::touch,
@@ -103,5 +124,15 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "unset",
         summary: "remove session environment variables",
         handler: shell::unset,
+    },
+    CommandDefinition {
+        name: "uniq",
+        summary: "collapse adjacent duplicate lines",
+        handler: text::uniq,
+    },
+    CommandDefinition {
+        name: "wc",
+        summary: "count lines, words, and bytes",
+        handler: text::wc,
     },
 ];

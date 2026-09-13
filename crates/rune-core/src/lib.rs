@@ -481,4 +481,31 @@ mod tests {
         assert_eq!(session.execute_line("ls").stdout, "profile-dir/\n");
         std::fs::remove_dir_all(root).expect("test root removed");
     }
+
+    #[test]
+    fn composes_text_pipeline_builtins_from_stdin_and_files() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("echo beta > lines.txt").status, 0);
+        assert_eq!(session.execute_line("echo alpha >> lines.txt").status, 0);
+        assert_eq!(session.execute_line("echo beta >> lines.txt").status, 0);
+        assert_eq!(
+            session.execute_line("head -n 2 lines.txt").stdout,
+            "beta\nalpha\n"
+        );
+        assert_eq!(
+            session.execute_line("tail -1 lines.txt | sort").stdout,
+            "beta\n"
+        );
+        assert_eq!(
+            session.execute_line("grep -i ALPHA lines.txt").stdout,
+            "alpha\n"
+        );
+        assert_eq!(
+            session.execute_line("uniq -c lines.txt").stdout,
+            "      1 beta\n      1 alpha\n      1 beta\n"
+        );
+        assert_eq!(session.execute_line("wc -l lines.txt").stdout, "3\n");
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
 }

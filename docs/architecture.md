@@ -55,6 +55,12 @@ and traversal outside the root is rejected. An Apple adapter will map that
 root to the app's Documents directory and add user-approved external roots
 through security-scoped bookmarks.
 
+The current registry includes bounded text filters (`head`, `tail`, `grep`,
+`sort`, `uniq`, and `wc`). They consume the same in-memory pipeline stdin as
+file commands and never delegate to a host shell. Their option surfaces are
+deliberately smaller than POSIX utilities until compatibility tests justify
+expanding them.
+
 Apple source integration will be added without installing a new Xcode or
 simulator footprint. Until an existing Apple toolchain is explicitly used,
 Swift compilation and runtime behavior remain unverified gates rather than
