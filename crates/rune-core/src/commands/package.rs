@@ -12,7 +12,7 @@ pub(super) fn pkg(context: &mut CommandContext<'_>) -> CommandOutput {
     let Some(operation) = context.args.first().map(String::as_str) else {
         return usage(
             "pkg",
-            "usage: pkg info|verify|install MANIFEST; pkg list|search QUERY; pkg remove NAME [VERSION]",
+            "usage: pkg info MANIFEST|NAME [VERSION]; pkg verify|install MANIFEST; pkg list|search QUERY; pkg remove NAME [VERSION]",
         );
     };
     match operation {
@@ -29,19 +29,19 @@ pub(super) fn pkg(context: &mut CommandContext<'_>) -> CommandOutput {
             search(context, &context.args[1])
         }
         "remove" => remove(context),
-        "info" | "verify" | "install" => {
+        "info" => info_command(context),
+        "verify" | "install" => {
             let Some(manifest_path) = context.args.get(1) else {
-                return usage("pkg", "usage: pkg info|verify|install MANIFEST");
+                return usage("pkg", "usage: pkg verify|install MANIFEST");
             };
             if context.args.len() != 2 {
-                return usage("pkg", "usage: pkg info|verify|install MANIFEST");
+                return usage("pkg", "usage: pkg verify|install MANIFEST");
             }
             let (manifest_bytes, manifest) = match read_manifest(context, manifest_path) {
                 Ok(manifest) => manifest,
                 Err(output) => return output,
             };
             match operation {
-                "info" => info(&manifest),
                 "verify" => verify(context, manifest_path, &manifest),
                 "install" => install(context, manifest_path, &manifest_bytes, &manifest),
                 _ => unreachable!("package operation was checked above"),
@@ -53,6 +53,83 @@ pub(super) fn pkg(context: &mut CommandContext<'_>) -> CommandOutput {
                 "pkg: unsupported operation: {operation}; available operations are info, verify, install, list, and remove\n"
             ),
         ),
+    }
+}
+
+fn info_command(context: &mut CommandContext<'_>) -> CommandOutput {
+    if !(context.args.len() == 2 || context.args.len() == 3) {
+        return usage("pkg", "usage: pkg info MANIFEST|NAME [VERSION]");
+    }
+    let manifest_path = if context.args.len() == 3 {
+        let name = &context.args[1];
+        let version = &context.args[2];
+        if !is_safe_component(name) {
+            return usage("pkg", "package name must be one safe path component");
+        }
+        if !is_safe_component(version) {
+            return usage("pkg", "package version must be one safe path component");
+        }
+        format!("{PACKAGE_INSTALL_ROOT}/{name}/{version}/manifest.json")
+    } else {
+        let candidate = &context.args[1];
+        let looks_like_path = candidate.contains('/')
+            || std::path::Path::new(candidate)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("json"));
+        if looks_like_path || context.fs.metadata(candidate).is_ok() {
+            candidate.clone()
+        } else {
+            match installed_manifest_for_name(context, candidate) {
+                Ok(path) => path,
+                Err(output) => return output,
+            }
+        }
+    };
+    let (_, manifest) = match read_manifest(context, &manifest_path) {
+        Ok(manifest) => manifest,
+        Err(output) => return output,
+    };
+    info(&manifest)
+}
+
+fn installed_manifest_for_name(
+    context: &mut CommandContext<'_>,
+    name: &str,
+) -> Result<String, CommandOutput> {
+    if !is_safe_component(name) {
+        return Err(usage(
+            "pkg",
+            "package name must be one safe path component or a manifest path",
+        ));
+    }
+    let package_path = format!("{PACKAGE_INSTALL_ROOT}/{name}");
+    let entries = match context.fs.list(Some(&package_path)) {
+        Ok(entries) => entries,
+        Err(FsError::NotFound(_)) => {
+            return Err(CommandOutput::failure(
+                1,
+                format!("pkg: {name}: package is not installed\n"),
+            ))
+        }
+        Err(error) => return Err(fs_failure("pkg info", &error)),
+    };
+    let versions = entries
+        .into_iter()
+        .filter(|entry| entry.is_directory)
+        .map(|entry| entry.name)
+        .collect::<Vec<_>>();
+    match versions.as_slice() {
+        [] => Err(CommandOutput::failure(
+            1,
+            format!("pkg: {name}: package is not installed\n"),
+        )),
+        [version] => Ok(format!(
+            "{PACKAGE_INSTALL_ROOT}/{name}/{version}/manifest.json"
+        )),
+        _ => Err(CommandOutput::failure(
+            2,
+            format!("pkg: {name}: multiple versions are installed; specify VERSION\n"),
+        )),
     }
 }
 

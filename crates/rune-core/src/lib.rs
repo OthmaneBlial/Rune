@@ -1466,7 +1466,7 @@ mod tests {
                 "commands": [{{"name": "local-hello", "entry": "bin/hello.wasm"}}]
             }}"#
         );
-        std::fs::write(root.join("bundle/manifest.json"), manifest).expect("manifest written");
+        std::fs::write(root.join("bundle/manifest.json"), &manifest).expect("manifest written");
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
 
         let installed = session.execute_line("pkg install bundle/manifest.json");
@@ -1480,6 +1480,25 @@ mod tests {
         assert_eq!(
             session.execute_line("pkg search wasm").stdout,
             "local-wasm@0.1.0\tA local WASM package\n"
+        );
+        let installed_info = session.execute_line("pkg info local-wasm");
+        assert_eq!(installed_info.status, 0);
+        assert!(installed_info.stdout.contains("local-wasm 0.1.0"));
+        let versioned_info = session.execute_line("pkg info local-wasm 0.1.0");
+        assert_eq!(versioned_info.status, 0);
+        assert!(versioned_info
+            .stdout
+            .contains("command: local-hello -> bin/hello.wasm"));
+        let second_version = root.join(".rune/packages/local-wasm/0.2.0");
+        std::fs::create_dir_all(&second_version).expect("second package version directory created");
+        std::fs::write(second_version.join("manifest.json"), &manifest)
+            .expect("second package manifest written");
+        let ambiguous_info = session.execute_line("pkg info local-wasm");
+        assert_eq!(ambiguous_info.status, 2);
+        assert!(ambiguous_info.stderr.contains("multiple versions"));
+        assert_eq!(
+            session.execute_line("pkg remove local-wasm 0.2.0").status,
+            0
         );
         assert_eq!(
             session.execute_line("pkg search LOCAL-HELLO").stdout,

@@ -186,7 +186,9 @@ before the local installer accepts them.
 This is integrity evidence, not a signature or publisher-trust system; signed
 repositories and installation policy remain future work.
 The `pkg info` and `pkg verify` built-ins expose only local manifest inspection
-and verification through the VFS. `pkg install` copies a verified manifest and
+and verification through the VFS. `pkg info NAME [VERSION]` can also resolve
+an installed manifest, but refuses an unversioned lookup when multiple
+versions are present. `pkg install` copies a verified manifest and
 its declared files into the bounded `~/.rune/packages` tree; `pkg list` reads
 those installed manifests and `pkg remove` deletes an explicitly named package
 or version. Only declared `.wasm` command entries are executable today, and

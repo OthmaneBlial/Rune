@@ -91,9 +91,11 @@ preopen a host directory. Module bytes, interpreter fuel, linear memory,
 tables, and captured output are bounded. This is an initial WASM execution
 slice, not a language runtime or package manager.
 
-The local package flow supports `pkg info MANIFEST`, `pkg verify MANIFEST`,
-`pkg install MANIFEST`, `pkg list`, `pkg search QUERY`, and `pkg remove NAME
-[VERSION]`. Install
+The local package flow supports `pkg info MANIFEST|NAME [VERSION]`, `pkg verify
+MANIFEST`, `pkg install MANIFEST`, `pkg list`, `pkg search QUERY`, and `pkg
+remove NAME [VERSION]`. Once installed, `pkg info NAME` resolves the sole
+installed version; an explicit version is required when multiple versions are
+present. Install
 copies only SHA-256-verified files into `~/.rune/packages`; declared `.wasm`
 commands can then run through the bounded WASI runtime, and `which` discovers
 their installed command names from the local package manifests. Network
