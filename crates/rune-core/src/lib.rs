@@ -1156,59 +1156,17 @@ impl Session {
             };
         expansion_stderr.push_str(&redirection_stderr);
 
-        let source_command = matches!(program.as_str(), "source" | ".");
-        let shell_command = matches!(program.as_str(), "sh" | "dash");
-        let xargs_command = program == "xargs";
-        let installed_command = if source_command
-            || shell_command
-            || xargs_command
-            || command.program.parts().is_empty()
-            || self.registry.find(&program).is_some()
-        {
-            None
-        } else {
-            match self.find_installed_command(&program) {
-                Ok(command) => command,
-                Err(error) => return fs_failure(&program, &error),
-            }
-        };
         let mut output = if command.program.parts().is_empty() && !command.assignments.is_empty() {
             CommandOutput::success("")
-        } else if source_command {
-            self.execute_source(
-                &program,
-                &arguments,
-                record_history,
-                source_depth,
-                &redirections.stdin,
-                sink,
-            )
-        } else if shell_command {
-            self.execute_shell_command(
-                &program,
-                &arguments,
-                record_history,
-                source_depth,
-                &redirections.stdin,
-                sink,
-            )
-        } else if xargs_command {
-            self.execute_xargs(&arguments, &redirections.stdin, source_depth, sink)
-        } else if let Some(handler) = self.registry.find(&program) {
-            self.execute_builtin(&arguments, &redirections.stdin, handler)
-        } else if let Some(installed_command) = installed_command {
-            let mut invocation = InstalledInvocation {
-                program: &program,
-                arguments: &arguments,
-                stdin: &redirections.stdin,
-                record_history,
-                source_depth,
-                sink,
-                command: &installed_command,
-            };
-            self.execute_installed(&mut invocation)
         } else {
-            CommandOutput::failure(127, format!("{program}: command not found\n"))
+            self.execute_expanded_command(
+                &program,
+                &arguments,
+                &redirections.stdin,
+                record_history,
+                source_depth,
+                sink,
+            )
         };
         if !expansion_stderr.is_empty() {
             expansion_stderr.push_str(&output.stderr);
@@ -1219,6 +1177,149 @@ impl Session {
         self.apply_output_redirections(&program, &mut output, redirections);
         self.last_status = output.status;
         output
+    }
+
+    fn execute_expanded_command(
+        &mut self,
+        program: &str,
+        arguments: &[String],
+        external_stdin: &str,
+        record_history: bool,
+        source_depth: usize,
+        sink: &mut dyn EventSink,
+    ) -> CommandOutput {
+        match program {
+            "source" | "." => self.execute_source(
+                program,
+                arguments,
+                record_history,
+                source_depth,
+                external_stdin,
+                sink,
+            ),
+            "sh" | "dash" => self.execute_shell_command(
+                program,
+                arguments,
+                record_history,
+                source_depth,
+                external_stdin,
+                sink,
+            ),
+            "xargs" => self.execute_xargs(arguments, external_stdin, source_depth, sink),
+            "command" if !matches!(arguments.first().map(String::as_str), Some("-v" | "-V")) => {
+                self.execute_command_builtin(
+                    arguments,
+                    external_stdin,
+                    record_history,
+                    source_depth,
+                    sink,
+                )
+            }
+            _ => self.execute_registered_or_installed(
+                program,
+                arguments,
+                external_stdin,
+                record_history,
+                source_depth,
+                sink,
+            ),
+        }
+    }
+
+    fn execute_registered_or_installed(
+        &mut self,
+        program: &str,
+        arguments: &[String],
+        external_stdin: &str,
+        record_history: bool,
+        source_depth: usize,
+        sink: &mut dyn EventSink,
+    ) -> CommandOutput {
+        if let Some(handler) = self.registry.find(program) {
+            return self.execute_builtin(arguments, external_stdin, handler);
+        }
+        let installed_command = match self.find_installed_command(program) {
+            Ok(command) => command,
+            Err(error) => return fs_failure(program, &error),
+        };
+        let Some(installed_command) = installed_command else {
+            return CommandOutput::failure(127, format!("{program}: command not found\n"));
+        };
+        let mut invocation = InstalledInvocation {
+            program,
+            arguments,
+            stdin: external_stdin,
+            record_history,
+            source_depth,
+            sink,
+            command: &installed_command,
+        };
+        self.execute_installed(&mut invocation)
+    }
+
+    fn execute_command_builtin(
+        &mut self,
+        arguments: &[String],
+        external_stdin: &str,
+        record_history: bool,
+        source_depth: usize,
+        sink: &mut dyn EventSink,
+    ) -> CommandOutput {
+        let arguments = if arguments.first().map(String::as_str) == Some("--") {
+            &arguments[1..]
+        } else {
+            arguments
+        };
+        let Some(program) = arguments.first() else {
+            return usage("command", "usage: command COMMAND [ARG ...]");
+        };
+        let command_arguments = &arguments[1..];
+        let source_command = matches!(program.as_str(), "source" | ".");
+        let shell_command = matches!(program.as_str(), "sh" | "dash");
+        let xargs_command = program == "xargs";
+        if source_command {
+            return self.execute_source(
+                program,
+                command_arguments,
+                record_history,
+                source_depth,
+                external_stdin,
+                sink,
+            );
+        }
+        if shell_command {
+            return self.execute_shell_command(
+                program,
+                command_arguments,
+                record_history,
+                source_depth,
+                external_stdin,
+                sink,
+            );
+        }
+        if xargs_command {
+            return self.execute_xargs(command_arguments, external_stdin, source_depth, sink);
+        }
+        if let Some(handler) = self.registry.find(program) {
+            return self.execute_builtin(command_arguments, external_stdin, handler);
+        }
+        let installed_command = match self.find_installed_command(program) {
+            Ok(command) => command,
+            Err(error) => return fs_failure(program, &error),
+        };
+        let Some(installed_command) = installed_command else {
+            return CommandOutput::failure(127, format!("{program}: command not found\n"));
+        };
+        let mut invocation = InstalledInvocation {
+            program,
+            arguments: command_arguments,
+            stdin: external_stdin,
+            record_history,
+            source_depth,
+            sink,
+            command: &installed_command,
+        };
+        self.execute_installed(&mut invocation)
     }
 
     fn execute_shell_command(
@@ -2025,7 +2126,8 @@ fn plan_contains_network_request(plan: &ExecutionPlan, depth: usize) -> bool {
             if matches!(
                 command.program.literal_value().as_deref(),
                 Some("curl" | "nslookup" | "whois")
-            ) {
+            ) || command_builtin_contains_network_request(command)
+            {
                 return true;
             }
             (command.program.literal_value().as_deref() == Some("pkg")
@@ -2038,6 +2140,34 @@ fn plan_contains_network_request(plan: &ExecutionPlan, depth: usize) -> bool {
                 || command_words_contain(command, plan_contains_network_request, depth)
         })
     })
+}
+
+fn command_builtin_contains_network_request(command: &rune_shell::CommandPlan) -> bool {
+    if command.program.literal_value().as_deref() != Some("command") {
+        return false;
+    }
+    let mut arguments = command.arguments.iter();
+    let Some(first) = arguments.next().and_then(Word::literal_value) else {
+        return false;
+    };
+    if matches!(first.as_str(), "-v" | "-V") {
+        return false;
+    }
+    let target = if first == "--" {
+        arguments.next().and_then(Word::literal_value)
+    } else {
+        Some(first)
+    };
+    match target.as_deref() {
+        Some("curl" | "nslookup" | "whois") => true,
+        Some("pkg") => arguments.any(|argument| {
+            matches!(
+                argument.literal_value().as_deref(),
+                Some("--registry" | "--remote")
+            )
+        }),
+        _ => false,
+    }
 }
 
 fn command_words_contain(
@@ -2456,6 +2586,14 @@ mod tests {
             [("X-Test".to_string(), "yes".to_string())]
         );
         drop(recorded);
+
+        let bypassed = session.execute_line("command curl https://example.test/bypass");
+        assert_eq!(bypassed.status, 0);
+        assert_eq!(bypassed.stdout, "response body\n");
+        assert_eq!(
+            session.history().last().map(String::as_str),
+            Some("[redacted network command]")
+        );
 
         let disabled = Session::new(SandboxedFileSystem::new(&root).expect("root reopened"))
             .execute_line("curl https://example.test");
@@ -5241,7 +5379,15 @@ mod tests {
             verbose.stdout,
             "ll is an alias for ls\necho is a Rune builtin\n"
         );
-        assert_eq!(session.execute_line("command echo").status, 2);
+        let executed = session.execute_line("command echo from-command");
+        assert_eq!(executed.status, 0);
+        assert_eq!(executed.stdout, "from-command\n");
+        assert_eq!(session.execute_line("alias echo=false").status, 0);
+        assert_eq!(session.execute_line("echo").status, 1);
+        let bypassed = session.execute_line("command echo allowed");
+        assert_eq!(bypassed.status, 0);
+        assert_eq!(bypassed.stdout, "allowed\n");
+        assert_eq!(session.execute_line("command").status, 2);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

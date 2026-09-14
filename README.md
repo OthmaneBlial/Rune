@@ -131,8 +131,9 @@ arguments; they never start a host shell.
 `type` complements `which` by describing aliases, Rust built-ins, installed
 package commands, and missing names without exposing host executables.
 `command -v` and `command -V` provide the same bounded discovery for scripts;
-they report aliases, Rust built-ins, and installed package commands without
-probing or launching host executables.
+the execution form (`command PROGRAM [ARG ...]`) bypasses aliases and dispatches
+through Rune's Rust registry or verified package manifests, without probing
+host executables.
 The Rust-owned `test` and `[` built-ins evaluate bounded file predicates
 (`-e`, `-f`, `-d`, `-L`, `-h`, `-s`), string predicates, integer comparisons,
 negation, and `-a`/`-o` composition so scripts can branch without a host shell.

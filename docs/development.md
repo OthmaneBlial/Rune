@@ -59,8 +59,8 @@ The `diff` tests cover equal and different confined files, unified output,
 missing files, invalid UTF-8, and rejected options with distinct statuses.
 The shell discovery test also verifies `type` and `command -v`/`-V` for aliases,
 Rust built-ins, and missing names, keeping host executable discovery out of the
-portable boundary. `command` remains an introspection-only subset and does not
-execute a following command.
+portable boundary. It also verifies `command PROGRAM [ARG ...]` bypasses an
+alias while executing the selected Rust builtin, and rejects a missing target.
 Base64 tests cover stdin encode/decode, padded input, malformed characters,
 non-UTF-8 decoded output, usage errors, and the 768 KiB input bound.
 Checksum tests cover the POSIX CRC vector and invalid operand counts. The
