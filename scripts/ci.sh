@@ -10,7 +10,7 @@ python3 scripts/compatibility_runner.py --validate-only
 python3 scripts/test_compatibility_runner.py
 
 echo "==> shell script syntax"
-bash -n scripts/ci.sh scripts/demo.sh scripts/bench.sh
+bash -n scripts/ci.sh scripts/demo.sh scripts/bench.sh scripts/package-cli.sh
 
 echo "==> cargo fmt --check"
 cargo fmt --all -- --check
