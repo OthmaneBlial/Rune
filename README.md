@@ -161,6 +161,13 @@ For a clean repeatable example and a persistence round trip:
 ./scripts/demo.sh
 ~~~
 
+The CLI also exposes its release identity without creating a session:
+
+~~~bash
+target/debug/rune-cli --version
+# rune-cli 0.1.0
+~~~
+
 ### Check the source-only iOS boundary
 
 The repository deliberately does not install Apple tooling. If the existing

@@ -84,6 +84,10 @@ fn arguments() -> Result<(PathBuf, Option<String>), String> {
                 println!("usage: rune [--root PATH] [-c COMMAND]");
                 std::process::exit(0);
             }
+            "-V" | "--version" => {
+                println!("rune-cli {}", env!("CARGO_PKG_VERSION"));
+                std::process::exit(0);
+            }
             unknown => return Err(format!("unknown argument: {unknown}")),
         }
     }

@@ -24,6 +24,11 @@ cargo test --workspace
 echo "==> cargo build"
 cargo build --workspace
 
+echo "==> CLI metadata"
+rune_cli_version="$(target/debug/rune-cli --version)"
+test "$rune_cli_version" = "rune-cli 0.1.0"
+target/debug/rune-cli --help | grep -F -- "usage: rune [--root PATH] [-c COMMAND]" >/dev/null
+
 if command -v swiftc >/dev/null 2>&1; then
   echo "==> swift package dump-package (source-only manifest check)"
   rune_swiftpm_scratch="$(mktemp -d /tmp/rune-swiftpm.XXXXXX)"
