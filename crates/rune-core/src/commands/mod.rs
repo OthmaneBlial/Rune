@@ -481,7 +481,7 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
     },
     CommandDefinition {
         name: "unzip",
-        summary: "extract bounded ZIP archives",
+        summary: "list or extract bounded ZIP archives",
         handler: archive::unzip,
     },
     CommandDefinition {
