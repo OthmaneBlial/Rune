@@ -192,6 +192,8 @@ RuneOutput rune_session_set_configuration(
 RuneOutput rune_session_reset_configuration(void *handle);
 // Clear and persist the Rust-owned terminal screen without history entry.
 RuneOutput rune_session_clear_terminal(void *handle);
+// Resize the bounded Rust-owned terminal grid for the native viewport.
+int32_t rune_session_resize_terminal(void *handle, size_t columns, size_t rows);
 RuneOutput rune_session_put_file(
     void *handle,
     const char *path,

@@ -173,6 +173,16 @@ public final class RuneFFISession: @unchecked Sendable {
         }
     }
 
+    /// Resizes the bounded Rust-owned terminal grid for the native viewport.
+    /// Rust clamps the requested dimensions to its supported bounds.
+    @discardableResult
+    public func resizeTerminal(columns: Int, rows: Int) -> Bool {
+        guard columns > 0, rows > 0 else { return false }
+        return withLock {
+            rune_session_resize_terminal(handle, numericCast(columns), numericCast(rows)) == 0
+        }
+    }
+
     public var currentDirectory: String {
         withLock {
             guard let pointer = rune_session_current_directory(handle.map(UnsafeRawPointer.init)) else {

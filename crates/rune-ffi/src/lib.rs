@@ -1051,6 +1051,24 @@ pub extern "C" fn rune_session_clear_terminal(handle: *mut c_void) -> RuneOutput
     into_output(&output)
 }
 
+/// Resizes the bounded Rust-owned terminal grid for the native viewport.
+/// Dimensions are clamped by Rust; zero is accepted and becomes one.
+#[no_mangle]
+pub extern "C" fn rune_session_resize_terminal(
+    handle: *mut c_void,
+    columns: usize,
+    rows: usize,
+) -> i32 {
+    if handle.is_null() {
+        return 1;
+    }
+    // SAFETY: Swift serializes access to the opaque session handle and does
+    // not call this after rune_session_destroy.
+    let core = unsafe { &mut (*handle.cast::<RuneSession>()).core };
+    core.resize_terminal(columns, rows);
+    0
+}
+
 /// Executes one Rune command line and persists the session state before
 /// returning. A persistence failure is reported on stderr and changes a
 /// successful command's status to 1.
@@ -1473,14 +1491,14 @@ mod tests {
         rune_session_execute_with_events, rune_session_get_file, rune_session_history,
         rune_session_history_search, rune_session_new, rune_session_new_named,
         rune_session_new_with_layout, rune_session_put_file, rune_session_reset_configuration,
-        rune_session_set_clipboard_callbacks, rune_session_set_configuration,
-        rune_session_set_network_callback, rune_session_set_open_callback,
-        rune_session_set_toolchain_callback, rune_session_startup_output,
-        rune_session_terminal_cursor, rune_session_terminal_snapshot, rune_string_free,
-        RuneClipboardResponse, RuneEvent, RuneNetworkResponse, RuneTerminalCursor,
-        RuneToolchainArtifactBuffer, RuneToolchainEnvironmentEntry, RuneToolchainResponse,
-        RuneToolchainSlice, RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS, RUNE_OPEN_FILE, RUNE_OPEN_URL,
-        RUNE_TOOLCHAIN_C,
+        rune_session_resize_terminal, rune_session_set_clipboard_callbacks,
+        rune_session_set_configuration, rune_session_set_network_callback,
+        rune_session_set_open_callback, rune_session_set_toolchain_callback,
+        rune_session_startup_output, rune_session_terminal_cursor, rune_session_terminal_snapshot,
+        rune_string_free, RuneClipboardResponse, RuneEvent, RuneNetworkResponse,
+        RuneTerminalCursor, RuneToolchainArtifactBuffer, RuneToolchainEnvironmentEntry,
+        RuneToolchainResponse, RuneToolchainSlice, RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS,
+        RUNE_OPEN_FILE, RUNE_OPEN_URL, RUNE_TOOLCHAIN_C,
     };
     use rune_core::MAX_EVENT_CHUNK_BYTES;
     use std::ffi::{c_void, CStr, CString};
@@ -2548,11 +2566,20 @@ mod tests {
             rune_session_terminal_cursor(handle),
             RuneTerminalCursor { row: 0, column: 5 }
         );
+        assert_eq!(rune_session_resize_terminal(handle, 4, 2), 0);
+        let resized_snapshot = rune_session_terminal_snapshot(handle);
+        assert_eq!(c_string(resized_snapshot), "read");
+        unsafe { rune_string_free(resized_snapshot) };
+        assert_eq!(
+            rune_session_terminal_cursor(handle),
+            RuneTerminalCursor { row: 0, column: 4 }
+        );
         assert!(rune_session_terminal_snapshot(std::ptr::null()).is_null());
         assert_eq!(
             rune_session_terminal_cursor(std::ptr::null()),
             RuneTerminalCursor::default()
         );
+        assert_eq!(rune_session_resize_terminal(std::ptr::null_mut(), 4, 2), 1);
 
         rune_session_destroy(handle);
         std::fs::remove_dir_all(root).expect("test root removed");

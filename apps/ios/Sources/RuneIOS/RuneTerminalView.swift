@@ -75,6 +75,8 @@ public final class RuneTerminalModel: ObservableObject {
     private var preservingCompletionCycle = false
     private var executionTask: Task<Void, Never>?
     private var transcriptBytes = 0
+    private var terminalColumns = 0
+    private var terminalRows = 0
 
     public init(rootURL: URL? = nil, sessionID: String? = nil) {
         self.sessionID = sessionID
@@ -210,6 +212,8 @@ public final class RuneTerminalModel: ObservableObject {
             historyCursor = nil
             historyMatches = []
             command = ""
+            terminalColumns = 0
+            terminalRows = 0
             clearTranscript()
             initializationError = nil
             append(nextSession.takeStartupOutput())
@@ -534,6 +538,24 @@ public final class RuneTerminalModel: ObservableObject {
         terminalCursorPosition = session.terminalCursorPosition
     }
 
+    /// Adapts the Rust-owned terminal grid to the source-only native viewport.
+    /// Dimensions are ephemeral layout state and are not persisted with the
+    /// session. Resizing is skipped while a synchronous Rust operation holds
+    /// the bridge lock, so a layout pass cannot stall command rendering.
+    public func resizeTerminal(for size: CGSize) {
+        guard !isExecuting, size.width.isFinite, size.height.isFinite,
+              size.width > 0, size.height > 0, let session else { return }
+        let characterWidth = max(fontSize * 0.602, 1)
+        let lineHeight = max(fontSize * 1.25, 1)
+        let columns = max(Int(size.width / characterWidth), 1)
+        let rows = max(Int(size.height / lineHeight), 1)
+        guard columns != terminalColumns || rows != terminalRows else { return }
+        guard session.resizeTerminal(columns: columns, rows: rows) else { return }
+        terminalColumns = columns
+        terminalRows = rows
+        refreshTerminalState(from: session)
+    }
+
     public func previousHistory() {
         guard !history.isEmpty else { return }
         let current = historyCursor ?? history.count
@@ -751,7 +773,8 @@ public struct RuneTerminalView: View {
                         fontSize: model.fontSize,
                         foreground: palette.foreground,
                         cursorColor: palette.cursorColor(named: model.cursorColor),
-                        cursorShape: model.cursorShape
+                        cursorShape: model.cursorShape,
+                        onResize: { size in model.resizeTerminal(for: size) }
                     )
                     .padding(18)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1018,6 +1041,7 @@ private struct RuneRustTerminalScreen: View {
     let foreground: Color
     let cursorColor: Color
     let cursorShape: String
+    let onResize: (CGSize) -> Void
 
     private var characterWidth: CGFloat {
         max(fontSize * 0.602, 1)
@@ -1054,33 +1078,38 @@ private struct RuneRustTerminalScreen: View {
     }
 
     var body: some View {
-        ScrollView([.vertical, .horizontal]) {
-            ZStack(alignment: .topLeading) {
-                Text(verbatim: snapshot.isEmpty ? " " : snapshot)
-                    .font(.system(size: fontSize, design: .monospaced))
-                    .foregroundStyle(foreground)
-                    .fixedSize(horizontal: true, vertical: true)
-                    .textSelection(.enabled)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Rust terminal screen")
-                    .accessibilityValue(Text(verbatim: snapshot.isEmpty ? "Empty" : snapshot))
+        GeometryReader { geometry in
+            ScrollView([.vertical, .horizontal]) {
+                ZStack(alignment: .topLeading) {
+                    Text(verbatim: snapshot.isEmpty ? " " : snapshot)
+                        .font(.system(size: fontSize, design: .monospaced))
+                        .foregroundStyle(foreground)
+                        .fixedSize(horizontal: true, vertical: true)
+                        .textSelection(.enabled)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Rust terminal screen")
+                        .accessibilityValue(Text(verbatim: snapshot.isEmpty ? "Empty" : snapshot))
 
-                Rectangle()
-                    .fill(cursorColor.opacity(caretOpacity))
-                    .frame(width: caretWidth, height: caretHeight)
-                    .offset(
-                        x: CGFloat(cursorPosition.column) * characterWidth,
-                        y: CGFloat(cursorPosition.row) * lineHeight
-                            + (cursorShape == "underline" ? lineHeight - 2 : 0)
-                    )
-                    .allowsHitTesting(false)
+                    Rectangle()
+                        .fill(cursorColor.opacity(caretOpacity))
+                        .frame(width: caretWidth, height: caretHeight)
+                        .offset(
+                            x: CGFloat(cursorPosition.column) * characterWidth,
+                            y: CGFloat(cursorPosition.row) * lineHeight
+                                + (cursorShape == "underline" ? lineHeight - 2 : 0)
+                        )
+                        .allowsHitTesting(false)
+                }
+                .frame(
+                    minWidth: max(CGFloat(longestLineLength + cursorPosition.column + 1) * characterWidth, 1),
+                    minHeight: CGFloat(lineCount) * lineHeight,
+                    alignment: .topLeading
+                )
+                .padding(2)
             }
-            .frame(
-                minWidth: max(CGFloat(longestLineLength + cursorPosition.column + 1) * characterWidth, 1),
-                minHeight: CGFloat(lineCount) * lineHeight,
-                alignment: .topLeading
-            )
-            .padding(2)
+            .onAppear { onResize(geometry.size) }
+            .onChange(of: geometry.size) { _, size in onResize(size) }
+            .onChange(of: fontSize) { _, _ in onResize(geometry.size) }
         }
         .accessibilityIdentifier("rune.rustTerminalScreen")
         .accessibilityLabel("Rust terminal screen")

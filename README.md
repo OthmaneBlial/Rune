@@ -209,7 +209,9 @@ insertion/deletion, and `J`/`K` erasure;
 the native bridge exposes its visible snapshot and zero-based cursor position.
 Swift defaults to its
 line-oriented styled transcript and also offers a source-only Rust screen view
-with a caret; full xterm/terminal emulation remains intentionally deferred.
+with a caret. The source-only Rust screen adapts its bounded grid to the
+available viewport while retaining the most relevant rows across a resize;
+full xterm/terminal emulation remains intentionally deferred.
 Interactive `export`, `setenv`, and assignment lines are replaced by a
 redaction marker in history before persistence when the Rust-owned
 `history-redaction` setting is enabled. It is enabled by default and remains a
@@ -621,6 +623,7 @@ result.
 
 - [x] Source-level lazy terminal transcript with cached ANSI spans
 - [x] Source-only Rust terminal screen view with Rust-owned caret position
+- [x] Source-only terminal viewport sizing through Rust
 - [x] Source-only external folders and bounded security-scoped bookmarks
 - [x] Explicit host URL/file opening capability with bounded open/openurl
 - [x] Rust-namespaced sessions and source-only terminal tabs

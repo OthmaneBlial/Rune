@@ -84,7 +84,9 @@ character erasure. `RuneFFISession.terminalSnapshot` and
 position through the C ABI. The terminal view can switch to a source-only
 Rust screen surface that draws this bounded text and caret; the styled,
 line-oriented transcript remains the default, and Apple runtime rendering
-still needs validation.
+still needs validation. The screen surface reports bounded row and column
+dimensions through the C ABI and retains the most relevant rows when the
+available iPhone/iPad space changes.
 
 `RuneFFISession.cancel()` forwards a cooperative cancellation request to Rust;
 the next command boundary returns status 130. It is a cancellation signal, not

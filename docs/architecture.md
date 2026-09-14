@@ -270,6 +270,9 @@ CSI/OSC parsing, cursor addressing, bounded scroll regions, and
 character/line erasure;
 `rune_session_terminal_snapshot` and `rune_session_terminal_cursor` expose
 its visible text and zero-based caret position through the C ABI.
+The source-only native surface measures its viewport and calls
+`rune_session_resize_terminal`; Rust clamps dimensions and retains the most
+relevant rows without persisting ephemeral layout size.
 The Swift terminal view can switch to a source-only screen surface that draws
 that state; the styled line-oriented transcript remains the default until the
 native surface is validated on Apple.

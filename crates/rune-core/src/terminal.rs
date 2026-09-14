@@ -124,6 +124,51 @@ impl TerminalScreen {
         (self.cursor_row, self.cursor_column.min(self.columns))
     }
 
+    /// Resizes the bounded grid while retaining the most recent rows and
+    /// clamping the cursor to the new dimensions. The parser state survives a
+    /// resize so a control sequence split across host layout updates is not
+    /// turned into visible text.
+    pub(crate) fn resize(&mut self, columns: usize, rows: usize) {
+        let columns = columns.clamp(1, MAX_COLUMNS);
+        let rows = rows.clamp(1, MAX_ROWS);
+        if columns == self.columns && rows == self.rows {
+            return;
+        }
+
+        let old_columns = self.columns;
+        let old_rows = self.rows;
+        let old_cursor_row = self.cursor_row;
+        let old_saved_cursor = self.saved_cursor;
+        let active_end = self
+            .cells
+            .iter()
+            .rposition(|row| row.iter().any(|character| *character != ' '))
+            .map_or(self.cursor_row + 1, |row| {
+                (row + 1).max(self.cursor_row + 1)
+            });
+        let source_start = active_end.saturating_sub(rows).min(old_rows);
+        let old_cells = std::mem::replace(&mut self.cells, vec![vec![' '; columns]; rows]);
+        let copied_rows = rows.min(old_rows.saturating_sub(source_start));
+        let copied_columns = old_columns.min(columns);
+        for index in 0..copied_rows {
+            let source_row = source_start + index;
+            self.cells[index][..copied_columns]
+                .copy_from_slice(&old_cells[source_row][..copied_columns]);
+        }
+
+        self.columns = columns;
+        self.rows = rows;
+        self.cursor_row = old_cursor_row.saturating_sub(source_start).min(rows - 1);
+        self.cursor_column = self.cursor_column.min(columns);
+        self.saved_cursor.0 = old_saved_cursor
+            .0
+            .saturating_sub(source_start)
+            .min(rows - 1);
+        self.saved_cursor.1 = old_saved_cursor.1.min(columns);
+        self.scroll_top = 0;
+        self.scroll_bottom = rows - 1;
+    }
+
     /// Returns a bounded visible-text window and enough position metadata to
     /// restore it after relaunch. Styles, scroll margins, and an incomplete
     /// control sequence are deliberately not part of persisted state.
@@ -492,5 +537,21 @@ mod tests {
         screen.feed("\x1b]0;Rune title\x07ok");
         assert_eq!(screen.snapshot(), "ok");
         assert_eq!(screen.cursor_position(), (0, 2));
+    }
+
+    #[test]
+    fn resizes_by_retaining_the_most_recent_rows_and_clamping_positions() {
+        let mut screen = TerminalScreen::new(8, 4);
+        screen.feed("a\nb\nc\nd");
+        screen.feed("\x1b7");
+        screen.resize(8, 2);
+        assert_eq!(screen.snapshot(), "c\nd");
+        assert_eq!(screen.cursor_position(), (1, 1));
+        screen.feed("\x1b8X");
+        assert_eq!(screen.snapshot(), "c\ndX");
+
+        screen.resize(4, 3);
+        assert_eq!(screen.snapshot(), "c\ndX");
+        assert_eq!(screen.cursor_position(), (1, 2));
     }
 }

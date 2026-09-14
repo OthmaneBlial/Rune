@@ -156,6 +156,8 @@ state across chunk boundaries and bounded `CSI r` scroll regions without
 replaying the aggregate response. Session persistence separately writes a
 bounded visible-text window and zero-based cursor position to `terminal.state`;
 styles, scroll margins, and incomplete control sequences are not serialized.
+The source-only terminal viewport sends bounded geometry updates back through
+the FFI; Rust retains the most relevant rows and does not persist layout size.
 The exposed snapshot is visible text only;
 Swift still owns event-local ANSI style
 rendering and has not yet replaced its line-oriented transcript with a full

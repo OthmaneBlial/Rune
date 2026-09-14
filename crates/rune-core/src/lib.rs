@@ -863,6 +863,13 @@ impl Session {
         self.terminal_screen.cursor_position()
     }
 
+    /// Resizes the Rust-owned terminal grid for a native viewport. The
+    /// bounded screen keeps the most relevant rows and clamps dimensions;
+    /// layout changes are intentionally not persisted as session state.
+    pub fn resize_terminal(&mut self, columns: usize, rows: usize) {
+        self.terminal_screen.resize(columns, rows);
+    }
+
     /// Returns the current registry metadata for UI completion/help.
     #[must_use]
     pub fn commands(&self) -> &[CommandDefinition] {
