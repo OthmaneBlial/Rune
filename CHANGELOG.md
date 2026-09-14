@@ -4,6 +4,13 @@ All notable public changes to Rune are documented here. The project is
 pre-1.0; entries describe verified repository behavior and do not imply an
 iOS runtime release.
 
+## [Unreleased]
+
+### Fixed
+
+- The CLI release packager now rejects malformed or path-bearing version
+  arguments before creating any artifact paths.
+
 ## [0.1.0-alpha.8] - 2026-09-14
 
 ### Added
