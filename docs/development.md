@@ -113,8 +113,10 @@ value lists, multiline `if`/`elif`/`else` branches, nested conditions, and
 missing closing markers. Multiline `while`/`until` tests cover state changes,
 body status, and the 1,024-iteration limit; control-flow depth is bounded,
 and case tests cover exact patterns, wildcards, alternatives, and unmatched
-selectors. Functions and one-line control-flow bodies remain outside the
-bounded grammar. Loop-control tests cover `break`, `continue`, rejection
+selectors. Function tests cover multiline definitions, positional arguments,
+shared state, redefinition, nested definitions, recursion and argument limits,
+and isolation across `sh -c`. One-line function and control-flow bodies remain
+outside the bounded grammar. Loop-control tests cover `break`, `continue`, rejection
 outside loops, and isolation across `sh -c`; argument-bearing loop controls
 remain unsupported.
 Shell parser tests cover quoted and nested `$(...)` forms and unclosed

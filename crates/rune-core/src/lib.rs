@@ -64,6 +64,10 @@ const MAX_COMMAND_SUBSTITUTION_DEPTH: usize = 16;
 const MAX_FOR_VALUES: usize = 256;
 const MAX_WHILE_ITERATIONS: usize = 1_024;
 const MAX_CASE_PATTERNS: usize = 64;
+const MAX_FUNCTIONS: usize = 256;
+const MAX_FUNCTION_NAME_BYTES: usize = 64;
+const MAX_FUNCTION_ARGUMENTS: usize = 64;
+const MAX_FUNCTION_DEPTH: usize = 16;
 pub(crate) const CANCELLED_STATUS: i32 = 130;
 const MAX_BOOKMARKS: usize = 256;
 const MAX_BOOKMARK_NAME_CHARS: usize = 64;
@@ -314,6 +318,11 @@ struct ScriptExecutionContext<'a> {
     sink: &'a mut dyn EventSink,
 }
 
+#[derive(Debug, Clone)]
+struct FunctionDefinition {
+    body: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LoopControl {
     Break,
@@ -431,6 +440,8 @@ pub struct Session {
     command_substitution_depth: usize,
     loop_depth: usize,
     loop_control: Option<LoopControl>,
+    functions: BTreeMap<String, FunctionDefinition>,
+    function_depth: usize,
     state_session_id: Option<String>,
     script_parameters: Vec<String>,
 }
@@ -469,6 +480,8 @@ impl Session {
             command_substitution_depth: 0,
             loop_depth: 0,
             loop_control: None,
+            functions: BTreeMap::new(),
+            function_depth: 0,
             state_session_id: None,
             script_parameters: Vec::new(),
         };
@@ -1027,6 +1040,27 @@ impl Session {
         context: &mut ScriptExecutionContext<'_>,
     ) -> Result<Option<(usize, CommandOutput)>, String> {
         let line = lines[line_index];
+        if is_function_header_line(line) {
+            let name = parse_function_header(line)?
+                .ok_or_else(|| "invalid function header".to_string())?;
+            let (body_start, body_end) = function_body_range(lines, line_index)?;
+            if !self.functions.contains_key(&name) && self.functions.len() >= MAX_FUNCTIONS {
+                return Err(format!(
+                    "function definition limit exceeds {MAX_FUNCTIONS} functions"
+                ));
+            }
+            if context.record_history {
+                self.record_history_line(line.trim());
+            }
+            self.functions.insert(
+                name,
+                FunctionDefinition {
+                    body: lines[body_start..body_end].join("\n"),
+                },
+            );
+            self.last_status = 0;
+            return Ok(Some((body_end + 1, CommandOutput::success(""))));
+        }
         if is_if_header_line(line) {
             let header =
                 parse_if_header(line, "if")?.ok_or_else(|| "invalid `if` header".to_string())?;
@@ -1158,6 +1192,55 @@ impl Session {
         }
         self.loop_depth -= 1;
         self.last_status = output.status;
+        output
+    }
+
+    fn execute_function(
+        &mut self,
+        name: &str,
+        arguments: &[String],
+        record_history: bool,
+        source_depth: usize,
+        external_stdin: &str,
+        sink: &mut dyn EventSink,
+    ) -> CommandOutput {
+        if arguments.len() > MAX_FUNCTION_ARGUMENTS {
+            return usage(
+                name,
+                &format!("usage: {name} [ARG ...] (up to {MAX_FUNCTION_ARGUMENTS} arguments)"),
+            );
+        }
+        if self.function_depth >= MAX_FUNCTION_DEPTH {
+            return CommandOutput::failure(
+                2,
+                format!(
+                    "{name}: function recursion exceeds the {MAX_FUNCTION_DEPTH}-level limit\n"
+                ),
+            );
+        }
+        let Some(definition) = self.functions.get(name).cloned() else {
+            return CommandOutput::failure(127, format!("{name}: command not found\n"));
+        };
+        let previous_parameters = self.script_parameters.clone();
+        let mut parameters = Vec::with_capacity(arguments.len() + 1);
+        parameters.push(
+            previous_parameters
+                .first()
+                .cloned()
+                .unwrap_or_else(|| name.to_string()),
+        );
+        parameters.extend(arguments.iter().cloned());
+        self.script_parameters = parameters;
+        self.function_depth += 1;
+        let output = self.execute_script_internal(
+            &definition.body,
+            record_history,
+            source_depth,
+            external_stdin,
+            sink,
+        );
+        self.function_depth -= 1;
+        self.script_parameters = previous_parameters;
         output
     }
 
@@ -1667,6 +1750,14 @@ impl Session {
                     sink,
                 )
             }
+            _ if self.functions.contains_key(program) => self.execute_function(
+                program,
+                arguments,
+                record_history,
+                source_depth,
+                external_stdin,
+                sink,
+            ),
             _ => self.execute_registered_or_installed(
                 program,
                 arguments,
@@ -1770,6 +1861,16 @@ impl Session {
         if matches!(program.as_str(), "break" | "continue") {
             return self.execute_loop_control(program, command_arguments);
         }
+        if self.functions.contains_key(program) {
+            return self.execute_function(
+                program,
+                command_arguments,
+                record_history,
+                source_depth,
+                external_stdin,
+                sink,
+            );
+        }
         if let Some(handler) = self.registry.find(program) {
             return self.execute_builtin(command_arguments, external_stdin, handler);
         }
@@ -1827,7 +1928,10 @@ impl Session {
         let previous_parameters = std::mem::replace(&mut self.script_parameters, parameters);
         let previous_loop_depth = self.loop_depth;
         let previous_loop_control = self.loop_control.take();
+        let previous_functions = std::mem::take(&mut self.functions);
+        let previous_function_depth = self.function_depth;
         self.loop_depth = 0;
+        self.function_depth = 0;
         let output = self.execute_script_internal(
             script,
             record_history,
@@ -1838,6 +1942,8 @@ impl Session {
         self.script_parameters = previous_parameters;
         self.loop_depth = previous_loop_depth;
         self.loop_control = previous_loop_control;
+        self.functions = previous_functions;
+        self.function_depth = previous_function_depth;
         output
     }
 
@@ -1969,14 +2075,19 @@ impl Session {
         let previous_depth = self.command_substitution_depth;
         let previous_loop_depth = self.loop_depth;
         let previous_loop_control = self.loop_control.take();
+        let previous_functions = std::mem::take(&mut self.functions);
+        let previous_function_depth = self.function_depth;
 
         self.command_substitution_depth += 1;
         self.loop_depth = 0;
+        self.function_depth = 0;
         let mut sink = NoopEventSink;
         let mut output = self.execute_plan(&plan, false, source_depth, "", &mut sink);
         self.command_substitution_depth = previous_depth;
         self.loop_depth = previous_loop_depth;
         self.loop_control = previous_loop_control;
+        self.functions = previous_functions;
+        self.function_depth = previous_function_depth;
         let _ = self.filesystem.change_dir(&previous_directory);
         self.environment = previous_environment;
         self.aliases = previous_aliases;
@@ -2632,6 +2743,7 @@ enum ControlBlock {
     Loop,
     If,
     Case,
+    Function,
 }
 
 fn is_for_header_line(line: &str) -> bool {
@@ -2649,6 +2761,27 @@ fn is_loop_header_line(line: &str) -> bool {
 
 fn is_case_header_line(line: &str) -> bool {
     line.trim_start().starts_with("case ")
+}
+
+fn is_function_header_line(line: &str) -> bool {
+    line.trim().ends_with("() {")
+}
+
+fn parse_function_header(line: &str) -> Result<Option<String>, String> {
+    let trimmed = line.trim();
+    let Some(name) = trimmed.strip_suffix("() {") else {
+        return Ok(None);
+    };
+    let name = name.trim();
+    if !is_valid_script_variable(name) {
+        return Err(format!("invalid function name: {name}"));
+    }
+    if name.len() > MAX_FUNCTION_NAME_BYTES {
+        return Err(format!(
+            "function name exceeds the {MAX_FUNCTION_NAME_BYTES}-byte limit"
+        ));
+    }
+    Ok(Some(name.to_string()))
 }
 
 fn is_case_clause_header(line: &str) -> bool {
@@ -2797,6 +2930,44 @@ fn is_valid_script_variable(name: &str) -> bool {
     ) && characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
 }
 
+fn function_body_range(lines: &[&str], header_index: usize) -> Result<(usize, usize), String> {
+    let body_start = header_index + 1;
+    let mut blocks = vec![ControlBlock::Function];
+    for (index, line) in lines.iter().enumerate().skip(body_start) {
+        if is_function_header_line(line) {
+            blocks.push(ControlBlock::Function);
+        } else if is_for_header_line(line) || is_loop_header_line(line) {
+            blocks.push(ControlBlock::Loop);
+        } else if is_if_header_line(line) {
+            blocks.push(ControlBlock::If);
+        } else if is_case_header_line(line) {
+            blocks.push(ControlBlock::Case);
+        } else {
+            match line.trim() {
+                "done" => match blocks.pop() {
+                    Some(ControlBlock::Loop) => {}
+                    _ => return Err("function has mismatched control markers".to_string()),
+                },
+                "fi" if blocks.pop() != Some(ControlBlock::If) => {
+                    return Err("function has mismatched control markers".to_string());
+                }
+                "esac" if blocks.pop() != Some(ControlBlock::Case) => {
+                    return Err("function has mismatched control markers".to_string());
+                }
+                "}" => match blocks.pop() {
+                    Some(ControlBlock::Function) if blocks.is_empty() => {
+                        return Ok((body_start, index));
+                    }
+                    Some(ControlBlock::Function) => {}
+                    _ => return Err("function has mismatched control markers".to_string()),
+                },
+                _ => {}
+            }
+        }
+    }
+    Err("function is missing `}`".to_string())
+}
+
 fn loop_body_range(
     lines: &[&str],
     header_index: usize,
@@ -2811,7 +2982,9 @@ fn loop_body_range(
     }
     let mut blocks = vec![ControlBlock::Loop];
     for (index, line) in lines.iter().enumerate().skip(body_start) {
-        if is_for_header_line(line) || is_loop_header_line(line) {
+        if is_function_header_line(line) {
+            blocks.push(ControlBlock::Function);
+        } else if is_for_header_line(line) || is_loop_header_line(line) {
             blocks.push(ControlBlock::Loop);
         } else if is_if_header_line(line) {
             blocks.push(ControlBlock::If);
@@ -2831,6 +3004,9 @@ fn loop_body_range(
                 }
                 "esac" if blocks.pop() != Some(ControlBlock::Case) => {
                     return Err("for loop has mismatched `esac`".to_string());
+                }
+                "}" if blocks.pop() != Some(ControlBlock::Function) => {
+                    return Err("for loop has mismatched `}`".to_string());
                 }
                 _ => {}
             }
@@ -2876,6 +3052,11 @@ fn parse_case_block(
                 .ok_or_else(|| "invalid nested `case` header".to_string())?;
             let nested_block = parse_case_block(lines, index, &nested)?;
             index = nested_block.end + 1;
+            continue;
+        }
+        if is_function_header_line(line) {
+            let (_, body_end) = function_body_range(lines, index)?;
+            index = body_end + 1;
             continue;
         }
         if is_case_clause_header(line) {
@@ -3147,6 +3328,8 @@ fn parse_if_block(
             blocks.push(ControlBlock::If);
         } else if is_case_header_line(line) {
             blocks.push(ControlBlock::Case);
+        } else if is_function_header_line(line) {
+            blocks.push(ControlBlock::Function);
         } else {
             match line.trim() {
                 "done" => match blocks.pop() {
@@ -3158,6 +3341,9 @@ fn parse_if_block(
                 }
                 "esac" if blocks.pop() != Some(ControlBlock::Case) => {
                     return Err("if statement has mismatched `esac`".to_string());
+                }
+                "}" if blocks.pop() != Some(ControlBlock::Function) => {
+                    return Err("if statement has mismatched `}`".to_string());
                 }
                 _ => {}
             }
@@ -3341,11 +3527,13 @@ mod tests {
         OpenProvider, OpenRequest, OpenTargetKind, Session, TerminalConfig, ToolchainArtifact,
         ToolchainError, ToolchainKind, ToolchainOutput, ToolchainProvider, ToolchainRequest,
         CANCELLED_STATUS, MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS, MAX_CLIPBOARD_BYTES,
-        MAX_COMMAND_INPUT_BYTES, MAX_FILE_TRANSFER_BYTES, MAX_FOR_VALUES, MAX_OUTPUT_BYTES,
+        MAX_COMMAND_INPUT_BYTES, MAX_FILE_TRANSFER_BYTES, MAX_FOR_VALUES, MAX_FUNCTIONS,
+        MAX_FUNCTION_ARGUMENTS, MAX_FUNCTION_DEPTH, MAX_FUNCTION_NAME_BYTES, MAX_OUTPUT_BYTES,
         MAX_SCRIPT_BYTES, MAX_SCRIPT_CONTROL_DEPTH, MAX_SCRIPT_LINES, MAX_SOURCE_DEPTH,
         MAX_WHILE_ITERATIONS, OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
+    use std::fmt::Write as _;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -5423,6 +5611,96 @@ mod tests {
         let missing_esac = session.execute_script("case value in\n*)\necho incomplete\n;;");
         assert_eq!(missing_esac.status, 2);
         assert!(missing_esac.stderr.contains("missing `esac`"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn executes_bounded_script_functions_through_the_rust_planner() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let greeting =
+            session.execute_script("greet() {\necho \"hello $1/$#/$@\"\n}\ngreet rune one\n");
+        assert_eq!(greeting.status, 0, "{greeting:?}");
+        assert_eq!(greeting.stdout, "hello rune/2/rune one\n");
+
+        let nested = session.execute_script(
+            "outer() {\ninner() {\necho inner\n}\nif true; then\ninner\nfi\n}\nouter",
+        );
+        assert_eq!(nested.status, 0, "{nested:?}");
+        assert_eq!(nested.stdout, "inner\n");
+
+        let conditional = session
+            .execute_script("if true; then\nconditional() {\necho conditional\n}\nfi\nconditional");
+        assert_eq!(conditional.status, 0, "{conditional:?}");
+        assert_eq!(conditional.stdout, "conditional\n");
+
+        let loop_defined = session.execute_script(
+            "for value in one; do\nloop_defined() {\necho loop\n}\ndone\nloop_defined",
+        );
+        assert_eq!(loop_defined.status, 0, "{loop_defined:?}");
+        assert_eq!(loop_defined.stdout, "loop\n");
+
+        let case_defined = session.execute_script(
+            "case yes in\nyes)\ncase_defined() {\necho case\n}\n;;\nesac\ncase_defined",
+        );
+        assert_eq!(case_defined.status, 0, "{case_defined:?}");
+        assert_eq!(case_defined.stdout, "case\n");
+
+        let stateful = session.execute_script(
+            "set_name() {\nexport FUNCTION_NAME=$1\n}\nset_name rune\necho \"$FUNCTION_NAME\"",
+        );
+        assert_eq!(stateful.status, 0, "{stateful:?}");
+        assert_eq!(stateful.stdout, "rune\n");
+
+        let redefined = session.execute_script("greet() {\necho replacement\n}\ngreet");
+        assert_eq!(redefined.status, 0, "{redefined:?}");
+        assert_eq!(redefined.stdout, "replacement\n");
+
+        let isolated_shell = session.execute_script("sh -c 'greet'");
+        assert_eq!(isolated_shell.status, 127, "{isolated_shell:?}");
+        assert!(isolated_shell.stderr.contains("greet: command not found"));
+        let isolated_substitution = session.execute_script("echo \"$(greet)\"");
+        assert_eq!(isolated_substitution.status, 0, "{isolated_substitution:?}");
+        assert_eq!(isolated_substitution.stdout, "\n");
+        assert!(isolated_substitution
+            .stderr
+            .contains("greet: command not found"));
+
+        let too_many_arguments = (0..=MAX_FUNCTION_ARGUMENTS)
+            .map(|index| format!("arg{index}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let rejected_arguments = session.execute_script(&format!("greet {too_many_arguments}"));
+        assert_eq!(rejected_arguments.status, 2);
+        assert!(rejected_arguments.stderr.contains("up to 64 arguments"));
+
+        let recursive = session.execute_script("recurse() {\nrecurse\n}\nrecurse");
+        assert_eq!(recursive.status, 2, "{recursive:?}");
+        assert!(recursive.stderr.contains(&format!(
+            "function recursion exceeds the {MAX_FUNCTION_DEPTH}-level limit"
+        )));
+
+        let too_long_name = format!("{}() {{\ntrue\n}}", "a".repeat(MAX_FUNCTION_NAME_BYTES + 1));
+        let rejected_name = session.execute_script(&too_long_name);
+        assert_eq!(rejected_name.status, 2);
+        assert!(rejected_name.stderr.contains("function name exceeds"));
+
+        let missing_brace = session.execute_script("broken() {\necho incomplete");
+        assert_eq!(missing_brace.status, 2);
+        assert!(missing_brace.stderr.contains("function is missing `}`"));
+
+        let mut too_many_functions = String::new();
+        for index in 0..=MAX_FUNCTIONS {
+            let _ = writeln!(
+                too_many_functions,
+                "function_{index}() {{
+true
+}}",
+            );
+        }
+        let rejected_functions = session.execute_script(&too_many_functions);
+        assert_eq!(rejected_functions.status, 2);
+        assert!(rejected_functions.stderr.contains("definition limit"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

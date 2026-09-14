@@ -18,7 +18,8 @@ folder as its root and does not inherit the app's sibling directories.
 The bridge also exposes a bounded newline-delimited Rust automation script entry
 point for a future Shortcuts adapter. Rust rejects inputs above 256 KiB or 1,024
 lines, then runs ordinary lines and the bounded multiline `for`, `if`, `while`,
-`until`, and `case` constructs through the same planner and registry while
+`until`, `case`, and `NAME() { ... }` function constructs through the same
+planner and registry while
 preserving combined stdout, stderr, and the last status. Argument-free
 `break`/`continue` are consumed by the innermost Rust-planned loop. Native
 Shortcuts registration remains unverified and is not included here.

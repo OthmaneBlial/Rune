@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 87%**
+**Overall progress: 88%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; there is not yet a
@@ -19,7 +19,7 @@ working iOS application or a feature-parity claim.
 | Area | Progress |
 |---|---:|
 | Rust workspace | 80% |
-| Shell tokenizer/parser | 75% |
+| Shell tokenizer/parser | 78% |
 | Command runtime | 99% |
 | Sandboxed filesystem | 70% |
 | Archives | 83% |
@@ -134,9 +134,12 @@ loops, including nested loops; each loop accepts at most 256 expanded values
 and keeps the loop variable in the Rust session. They also support multiline
 `if/elif/else/fi` branches whose conditions run through the same Rust planner;
 control-flow nesting is capped at 16 levels. Multiline `case WORD in` branches
-support exact patterns, `*`/`?`, and simple `|` alternatives; POSIX character
-classes, functions, and one-line control-flow bodies remain outside this
-subset. `while` and `until` stop after at most 1,024 body iterations and
+support exact patterns, `*`/`?`, and simple `|` alternatives. Multiline
+`NAME() { ... }` function definitions support bounded positional arguments and
+shared session state; at most 256 functions, 64 arguments per call, and 16
+recursive calls are allowed. POSIX character classes and one-line function or
+control-flow bodies remain outside this subset. `while` and `until` stop after
+at most 1,024 body iterations and
 return a bounded status-2 error if the limit is reached. Loop bodies can use
 argument-free `break` and `continue`; they are rejected outside a Rust-planned
 loop and do not leak through `sh -c` command substitutions.
@@ -516,6 +519,7 @@ result.
 - [x] Bounded multiline `if`/`elif`/`else` branches in Rust-planned scripts
 - [x] Bounded multiline `while`/`until` loops in Rust-planned scripts
 - [x] Bounded multiline `case` branches in Rust-planned scripts
+- [x] Bounded multiline shell function definitions and calls in Rust-planned scripts
 - [x] Bounded `break`/`continue` loop controls in Rust-planned scripts
 - [x] Cooperative command cancellation boundary, including cancellable `sleep`
 - [x] `&&` and `||` conditional chaining
