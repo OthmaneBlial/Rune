@@ -340,7 +340,7 @@ fn read_cut_inputs(
 }
 
 pub(super) fn head(context: &mut CommandContext<'_>) -> CommandOutput {
-    let (count, paths) = match parse_count("head", context.args) {
+    let (selection, paths) = match parse_count("head", context.args) {
         Ok(parsed) => parsed,
         Err(output) => return output,
     };
@@ -348,15 +348,11 @@ pub(super) fn head(context: &mut CommandContext<'_>) -> CommandOutput {
         Ok(text) => text,
         Err(output) => return output,
     };
-    let stdout = lines_with_endings(&text)
-        .into_iter()
-        .take(count)
-        .collect::<String>();
-    CommandOutput::success(stdout)
+    CommandOutput::success(select_lines(&text, selection))
 }
 
 pub(super) fn tail(context: &mut CommandContext<'_>) -> CommandOutput {
-    let (count, paths) = match parse_count("tail", context.args) {
+    let (selection, paths) = match parse_count("tail", context.args) {
         Ok(parsed) => parsed,
         Err(output) => return output,
     };
@@ -364,9 +360,7 @@ pub(super) fn tail(context: &mut CommandContext<'_>) -> CommandOutput {
         Ok(text) => text,
         Err(output) => return output,
     };
-    let lines = lines_with_endings(&text);
-    let start = lines.len().saturating_sub(count);
-    CommandOutput::success(lines[start..].concat())
+    CommandOutput::success(select_lines(&text, selection))
 }
 
 pub(super) fn grep(context: &mut CommandContext<'_>) -> CommandOutput {
@@ -998,39 +992,104 @@ fn line_content(line: &str) -> &str {
     line.trim_end_matches(['\r', '\n'])
 }
 
-fn parse_count(command: &str, args: &[String]) -> Result<(usize, Vec<String>), CommandOutput> {
-    let mut count = 10;
+#[derive(Clone, Copy)]
+enum LineSelection {
+    First(usize),
+    Last(usize),
+    From(usize),
+    WithoutLast(usize),
+}
+
+fn parse_count(
+    command: &str,
+    args: &[String],
+) -> Result<(LineSelection, Vec<String>), CommandOutput> {
+    let default_selection = if command == "head" {
+        LineSelection::First(10)
+    } else {
+        LineSelection::Last(10)
+    };
+    let mut selection = default_selection;
     let mut paths = Vec::new();
     let mut index = 0;
+    let usage_message = format!("usage: {command} [-n [+|-]NUMBER] [--] [file ...]");
     while index < args.len() {
         let argument = &args[index];
-        if argument == "-n" {
+        if argument == "--" {
+            paths.extend(args[index + 1..].iter().cloned());
+            break;
+        } else if matches!(argument.as_str(), "-n" | "--lines") {
             index += 1;
             let Some(value) = args.get(index) else {
-                return Err(usage(command, "-n requires a non-negative number"));
+                return Err(usage(command, &usage_message));
             };
-            count = parse_nonnegative_count(command, value)?;
+            selection = parse_line_selection(command, value, default_selection)?;
+        } else if let Some(value) = argument.strip_prefix("--lines=") {
+            selection = parse_line_selection(command, value, default_selection)?;
         } else if let Some(value) = argument.strip_prefix("-n") {
-            count = parse_nonnegative_count(command, value)?;
+            selection = parse_line_selection(command, value, default_selection)?;
         } else if argument.len() > 1
             && argument.starts_with('-')
             && argument[1..]
                 .chars()
                 .all(|character| character.is_ascii_digit())
         {
-            count = parse_nonnegative_count(command, &argument[1..])?;
+            selection = parse_line_selection(command, &argument[1..], default_selection)?;
+        } else if argument.starts_with('-') {
+            return Err(usage(command, &usage_message));
         } else {
             paths.push(argument.clone());
         }
         index += 1;
     }
-    Ok((count, paths))
+    Ok((selection, paths))
 }
 
-fn parse_nonnegative_count(command: &str, value: &str) -> Result<usize, CommandOutput> {
-    value
+fn parse_line_selection(
+    command: &str,
+    value: &str,
+    default_selection: LineSelection,
+) -> Result<LineSelection, CommandOutput> {
+    let (sign, digits) = match value.strip_prefix(['+', '-']) {
+        Some(digits) => (value.as_bytes().first().copied(), digits),
+        None => (None, value),
+    };
+    if digits.is_empty() || !digits.chars().all(|character| character.is_ascii_digit()) {
+        return Err(usage(
+            command,
+            "-n requires a signed non-negative decimal number",
+        ));
+    }
+    let count = digits
         .parse::<usize>()
-        .map_err(|_| usage(command, "-n requires a non-negative number"))
+        .map_err(|_| usage(command, "-n requires a signed non-negative decimal number"))?;
+    Ok(match sign {
+        Some(b'+') => LineSelection::From(count.max(1)),
+        Some(b'-') if matches!(default_selection, LineSelection::First(_)) => {
+            LineSelection::WithoutLast(count)
+        }
+        Some(b'-') => LineSelection::Last(count),
+        None => match default_selection {
+            LineSelection::First(_) => LineSelection::First(count),
+            LineSelection::Last(_) => LineSelection::Last(count),
+            LineSelection::From(_) | LineSelection::WithoutLast(_) => unreachable!(),
+        },
+        Some(_) => unreachable!(),
+    })
+}
+
+fn select_lines(text: &str, selection: LineSelection) -> String {
+    let lines = lines_with_endings(text);
+    let selected = match selection {
+        LineSelection::First(count) => &lines[..lines.len().min(count)],
+        LineSelection::Last(count) => &lines[lines.len().saturating_sub(count)..],
+        LineSelection::From(start) => {
+            let start = start.saturating_sub(1).min(lines.len());
+            &lines[start..]
+        }
+        LineSelection::WithoutLast(count) => &lines[..lines.len().saturating_sub(count)],
+    };
+    selected.concat()
 }
 
 fn parse_grep_args(

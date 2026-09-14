@@ -256,6 +256,9 @@ than POSIX utilities until compatibility tests justify expanding them.
 above 16 KiB return status 2 before input traversal. Match status remains 0/1
 and usage or compilation failures use status 2. This is a bounded regular-
 expression surface, not a claim of complete BSD/POSIX option compatibility.
+`head` and `tail` share a bounded line-selection parser: `-n`/`--lines` and
+short numeric forms select a prefix or suffix, `+N` starts at one-based line N,
+and signed `head -n -N` omits the final N lines. `--` ends option parsing.
 `sort` supports lexical ordering plus integer-prefix ordering with `-n`,
 reverse ordering with `-r`, and adjacent duplicate removal with `-u`; malformed
 numeric prefixes are ordered after valid numeric lines.

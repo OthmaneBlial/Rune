@@ -60,6 +60,9 @@ references. Addresses and full BSD/POSIX compatibility are not implemented yet.
 The text pipeline also includes bounded `cut` field/character selection
 (`-f`, `-c`, `-d`, and `-s`) over stdin or sandbox files. Its text filters
 accept `-` as an explicit stdin path when file operands are present.
+`head` and `tail` support bounded line selection with `-n`/`--lines`, the
+short numeric form, `+N` from a one-based starting line, and the signed
+`head -n -N` form that omits the final N lines; `--` terminates options.
 `grep` supports bounded Rust regular expressions with `-i`, `-v`, `-n`, `-c`,
 `-E`, and `-e`; `-F` and the `fgrep` alias select literal matching, while
 `egrep` selects the regular-expression mode. Invalid patterns and patterns

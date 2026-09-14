@@ -136,6 +136,10 @@ The text pipeline tests also verify bounded regular-expression grep, `-e`,
 fixed-string `fgrep`, invalid-pattern rejection, `sort -n`, combined `-nru`
 flags, and deduplicated numeric output; field keys, locale collation, and full
 POSIX sort/grep compatibility remain outside the bounded profile.
+The `head`/`tail` tests cover default and short counts, `-n`/`--lines`,
+one-based `+N` selection, signed `head -n -N` trimming, option termination,
+and invalid count rejection; full platform-specific line-mode compatibility
+remains outside the bounded profile.
 The text pipeline tests also cover regular-expression `sed` substitutions,
 capture replacement, ordered multiple `-e` scripts, `p` printing with `-n`,
 and invalid-pattern rejection; addresses and full POSIX script compatibility

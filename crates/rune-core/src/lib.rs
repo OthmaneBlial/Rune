@@ -5215,6 +5215,41 @@ mod tests {
     }
 
     #[test]
+    fn selects_bounded_head_and_tail_line_ranges() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(
+            session
+                .execute_line("printf 'one\ntwo\nthree\n' > lines.txt")
+                .status,
+            0
+        );
+        assert_eq!(
+            session.execute_line("head -n +2 lines.txt").stdout,
+            "two\nthree\n"
+        );
+        assert_eq!(
+            session.execute_line("head -n -1 lines.txt").stdout,
+            "one\ntwo\n"
+        );
+        assert_eq!(
+            session.execute_line("tail --lines=+2 lines.txt").stdout,
+            "two\nthree\n"
+        );
+        assert_eq!(
+            session.execute_line("tail -n -2 lines.txt").stdout,
+            "two\nthree\n"
+        );
+        assert_eq!(
+            session.execute_line("head -- lines.txt").stdout,
+            "one\ntwo\nthree\n"
+        );
+        assert_eq!(session.execute_line("head -n invalid lines.txt").status, 2);
+        assert_eq!(session.execute_line("tail -z lines.txt").status, 2);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn executes_bounded_regular_expression_text_modes() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
