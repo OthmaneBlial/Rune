@@ -71,6 +71,32 @@ int main(void) {
     rune_string_free(output.stdout_data);
     rune_string_free(output.stderr_data);
 
+    RuneTerminalCursor cursor = rune_session_terminal_cursor(session);
+    if (!cursor.visible) {
+        rune_session_destroy(session);
+        return fail("terminal cursor was unexpectedly hidden at session start");
+    }
+
+    RuneOutput hide_cursor = rune_session_execute(session, "printf '\033[?25l'");
+    if (hide_cursor.status != 0 || rune_session_terminal_cursor(session).visible) {
+        rune_string_free(hide_cursor.stdout_data);
+        rune_string_free(hide_cursor.stderr_data);
+        rune_session_destroy(session);
+        return fail("CSI cursor-hide state did not cross the public ABI");
+    }
+    rune_string_free(hide_cursor.stdout_data);
+    rune_string_free(hide_cursor.stderr_data);
+
+    RuneOutput show_cursor = rune_session_execute(session, "printf '\033[?25h'");
+    if (show_cursor.status != 0 || !rune_session_terminal_cursor(session).visible) {
+        rune_string_free(show_cursor.stdout_data);
+        rune_string_free(show_cursor.stderr_data);
+        rune_session_destroy(session);
+        return fail("CSI cursor-show state did not cross the public ABI");
+    }
+    rune_string_free(show_cursor.stdout_data);
+    rune_string_free(show_cursor.stderr_data);
+
     EventObservation observation = {"ffi-event", 0, 0, 0};
     RuneOutput streamed = rune_session_execute_with_events(
         session,
