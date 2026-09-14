@@ -43,6 +43,59 @@ pub(super) fn printf(context: &mut CommandContext<'_>) -> CommandOutput {
     }
 }
 
+/// Searches the Rust-owned command registry without probing host manuals or
+/// executables. Terms are `ORed` so a short query remains useful in a bounded
+/// terminal, while the output stays stable for scripts and native clients.
+pub(super) fn apropos(context: &mut CommandContext<'_>) -> CommandOutput {
+    const MAX_TERMS: usize = 16;
+    const MAX_TERM_CHARS: usize = 64;
+
+    if context.args.is_empty() {
+        return usage("apropos", "usage: apropos KEYWORD ...");
+    }
+    if context.args.len() > MAX_TERMS
+        || context
+            .args
+            .iter()
+            .any(|term| term.is_empty() || term.chars().count() > MAX_TERM_CHARS)
+    {
+        return CommandOutput::failure(
+            2,
+            format!("apropos: each query must contain 1-{MAX_TERM_CHARS} characters; at most {MAX_TERMS} queries are allowed\n"),
+        );
+    }
+
+    let terms = context
+        .args
+        .iter()
+        .map(|term| term.to_lowercase())
+        .collect::<Vec<_>>();
+    let mut output = CommandOutput::success("");
+    for definition in context.command_definitions {
+        let name = definition.name.to_lowercase();
+        let summary = definition.summary.to_lowercase();
+        if terms
+            .iter()
+            .any(|term| name.contains(term) || summary.contains(term))
+        {
+            let _ = writeln!(
+                output.stdout,
+                "{} - {}",
+                definition.name, definition.summary
+            );
+        }
+    }
+    if output.stdout.is_empty() {
+        output.status = 1;
+        let _ = writeln!(
+            output.stderr,
+            "apropos: nothing appropriate for {}",
+            context.args.join(" ")
+        );
+    }
+    output
+}
+
 pub(super) fn pwd(context: &mut CommandContext<'_>) -> CommandOutput {
     if !context.args.is_empty() {
         return usage("pwd", "usage: pwd");

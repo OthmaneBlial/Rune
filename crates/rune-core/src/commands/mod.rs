@@ -45,6 +45,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::alias,
     },
     CommandDefinition {
+        name: "apropos",
+        summary: "search bounded Rune command descriptions",
+        handler: shell::apropos,
+    },
+    CommandDefinition {
         name: "ar",
         summary: "create, list, or extract bounded ar archives",
         handler: ar::ar,

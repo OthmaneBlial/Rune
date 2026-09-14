@@ -7588,6 +7588,22 @@ true
         assert_eq!(bypassed.status, 0);
         assert_eq!(bypassed.stdout, "allowed\n");
         assert_eq!(session.execute_line("command").status, 2);
+
+        let apropos = session.execute_line("apropos archive");
+        assert_eq!(apropos.status, 0);
+        assert!(apropos
+            .stdout
+            .contains("ar - create, list, or extract bounded ar archives\n"));
+        assert!(apropos
+            .stdout
+            .contains("tar - create, list, or extract bounded USTAR archives\n"));
+        let no_match = session.execute_line("apropos nonexistent-keyword");
+        assert_eq!(no_match.status, 1);
+        assert_eq!(no_match.stdout, "");
+        assert!(no_match
+            .stderr
+            .contains("apropos: nothing appropriate for nonexistent-keyword"));
+        assert_eq!(session.execute_line("apropos").status, 2);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

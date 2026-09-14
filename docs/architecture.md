@@ -413,6 +413,12 @@ Simple separated `<`/`>` redirection targets use the same confined path list;
 quoted, escaped, option, and other compound-shell fragments are intentionally
 deferred until the completion grammar has structured replacement ranges.
 
+The `apropos` builtin searches only the Rust registry's command names and
+summaries, using bounded case-insensitive substring terms. It does not inspect
+host manuals, PATH entries, or external processes; a no-match query returns a
+visible status 1 so scripts and native clients can distinguish it from usage
+failure.
+
 The Rust shell includes a bounded `printf` formatter for `%s`, `%c`, `%d`,
 `%i`, `%%`, and the `\\n`, `\\r`, `\\t`, and `\\\\` escapes. It deliberately
 rejects unsupported conversions and malformed integer arguments instead of

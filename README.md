@@ -41,7 +41,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
 `true`, `false`, `ar`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`, `type`, `command`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
-`help`, `history`, `sleep`, `uname`, `which`, `whoami`, `xargs`, `pbcopy`, `pbpaste`,
+`apropos`, `help`, `history`, `sleep`, `uname`, `which`, `whoami`, `xargs`, `pbcopy`, `pbpaste`,
 `test`, `[`, `source`, `.`, `sh`, `dash`, `return`, `local`, `shift`, and `set` against a
 bounded filesystem,
 including basic `*`/`?` pathname
@@ -159,6 +159,9 @@ package commands, and missing names without exposing host executables.
 the execution form (`command PROGRAM [ARG ...]`) bypasses aliases and dispatches
 through Rune's Rust registry or verified package manifests, without probing
 host executables.
+`apropos KEYWORD ...` searches Rust-owned command names and summaries with
+bounded case-insensitive substring matching; it returns status 1 when no
+description matches and never consults host manuals.
 The Rust-owned `test` and `[` built-ins evaluate bounded file predicates
 (`-e`, `-f`, `-d`, `-L`, `-h`, `-s`), string predicates, integer comparisons,
 negation, and `-a`/`-o` composition so scripts can branch without a host shell.
@@ -569,6 +572,7 @@ result.
 - [x] Bounded numeric, reverse, and unique `sort` options
 - [x] Bounded `type` command discovery
 - [x] Bounded `command -v`/`-V` discovery for scripts
+- [x] Bounded `apropos` command-description search
 - [x] Bounded Rust-owned `file` identification utility
 - [x] Bounded VFS `tree` directory rendering
 - [x] Bounded `test` and `[` predicates for script conditionals
