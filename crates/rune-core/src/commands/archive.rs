@@ -90,6 +90,9 @@ pub(super) fn unzip(context: &mut CommandContext<'_>) -> CommandOutput {
         Ok(selected) => selected,
         Err(error) => return archive_failure(&error),
     };
+    if parsed.list {
+        return entry_names_at(&entries, &selected);
+    }
     let destination = parsed.destination.as_str();
     if let Err(error) = context.fs.make_directory(destination, true) {
         return fs_failure("unzip", &error);
@@ -129,17 +132,16 @@ struct UnzipArguments<'a> {
     archive: &'a str,
     destination: String,
     filters: Vec<&'a str>,
+    list: bool,
 }
 
 fn parse_unzip_arguments(arguments: &[String]) -> Result<UnzipArguments<'_>, String> {
-    let archive = arguments
-        .first()
-        .map(String::as_str)
-        .ok_or("usage: unzip ARCHIVE [DESTINATION]")?;
     let mut positionals = Vec::new();
+    let mut archive = None;
     let mut destination = None;
+    let mut list = false;
     let mut parse_options = true;
-    let mut index = 1;
+    let mut index = 0;
     while index < arguments.len() {
         let argument = arguments[index].as_str();
         if parse_options && argument == "--" {
@@ -156,28 +158,41 @@ fn parse_unzip_arguments(arguments: &[String]) -> Result<UnzipArguments<'_>, Str
             if destination.replace(value.to_string()).is_some() {
                 return Err("unzip accepts exactly one destination".to_string());
             }
+        } else if parse_options && matches!(argument, "-l" | "--list") {
+            list = true;
         } else if parse_options && argument.starts_with('-') {
             return Err(format!("unsupported unzip option: {argument}"));
+        } else if archive.is_none() {
+            archive = Some(argument);
         } else {
             positionals.push(argument);
         }
         index += 1;
     }
-    let (destination, filters) = match destination {
-        Some(destination) => (destination, positionals),
-        None => match positionals.as_slice() {
-            [] => (".".to_string(), Vec::new()),
-            [destination] => ((*destination).to_string(), Vec::new()),
-            _ => return Err(
-                "usage: unzip ARCHIVE [DESTINATION] or unzip ARCHIVE -d DESTINATION [MEMBER ...]"
-                    .to_string(),
-            ),
-        },
+    let archive = archive.ok_or("usage: unzip ARCHIVE [DESTINATION]")?;
+    let (destination, filters) = if list {
+        if destination.is_some() {
+            return Err("unzip cannot combine -l with -d".to_string());
+        }
+        (".".to_string(), positionals)
+    } else {
+        match destination {
+            Some(destination) => (destination, positionals),
+            None => match positionals.as_slice() {
+                [] => (".".to_string(), Vec::new()),
+                [destination] => ((*destination).to_string(), Vec::new()),
+                _ => return Err(
+                    "usage: unzip ARCHIVE [DESTINATION] or unzip ARCHIVE -d DESTINATION [MEMBER ...]"
+                        .to_string(),
+                ),
+            },
+        }
     };
     Ok(UnzipArguments {
         archive,
         destination,
         filters,
+        list,
     })
 }
 

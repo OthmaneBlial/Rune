@@ -3293,6 +3293,11 @@ mod tests {
         assert!(created.stdout.contains("4 entries"));
         assert!(root.join("bundle.zip").exists());
 
+        let listing = session.execute_line("unzip -l bundle.zip source/nested");
+        assert_eq!(listing.status, 0, "{listing:?}");
+        assert!(listing.stdout.contains("source/nested/note.txt\n"));
+        assert!(!listing.stdout.contains("source/empty.txt\n"));
+
         assert_eq!(session.execute_line("rm -r source").status, 0);
         let extracted = session.execute_line("unzip bundle.zip restored");
         assert_eq!(extracted.status, 0);
