@@ -915,6 +915,67 @@ impl Session {
         candidates
     }
 
+    fn completion_entries(
+        &self,
+        command: &str,
+        directory: &str,
+        path_prefix: &str,
+        name_prefix: &str,
+    ) -> Vec<String> {
+        let Ok(entries) = self.filesystem.list(Some(directory)) else {
+            return Vec::new();
+        };
+        let directories_only = directories_only_for_completion(command);
+        let mut candidates = entries
+            .into_iter()
+            .filter(|entry| {
+                (!directories_only || entry.is_directory)
+                    && entry.name.starts_with(name_prefix)
+                    && entry.name != name_prefix
+                    && entry.name.chars().all(|character| {
+                        !character.is_whitespace() && !"|;&<>\\\"'#$*?".contains(character)
+                    })
+            })
+            .map(|entry| {
+                let suffix = if entry.is_directory { "/" } else { "" };
+                format!("{path_prefix}{}{suffix}", entry.name)
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_unstable();
+        candidates.dedup();
+        candidates.truncate(MAX_COMPLETION_CANDIDATES);
+        candidates
+    }
+
+    fn bookmark_completion_candidates(&self, command: &str, token: &str) -> Option<Vec<String>> {
+        let rest = token.strip_prefix('~')?;
+        if rest.starts_with('/') {
+            return None;
+        }
+        let Some(slash) = rest.find('/') else {
+            let mut candidates = self
+                .bookmarks
+                .keys()
+                .filter(|name| name.starts_with(rest))
+                .map(|name| format!("~{name}/"))
+                .collect::<Vec<_>>();
+            candidates.sort_unstable();
+            candidates.truncate(MAX_COMPLETION_CANDIDATES);
+            return Some(candidates);
+        };
+        if slash == 0 {
+            return None;
+        }
+        let name = &rest[..slash];
+        let bookmark_path = self.bookmarks.get(name)?;
+        let final_slash = token.rfind('/')?;
+        let directory_suffix = &token[(name.len() + 1)..final_slash];
+        let directory = format!("{bookmark_path}{directory_suffix}");
+        let path_prefix = &token[..=final_slash];
+        let name_prefix = &token[final_slash + 1..];
+        Some(self.completion_entries(command, &directory, path_prefix, name_prefix))
+    }
+
     fn path_completion_candidates(&self, input: &str) -> Vec<String> {
         let active_start = input.rfind('|').map_or(0, |index| index + 1);
         let active = &input[active_start..];
@@ -939,6 +1000,10 @@ impl Session {
             return Vec::new();
         }
 
+        if let Some(candidates) = self.bookmark_completion_candidates(command, token) {
+            return candidates;
+        }
+
         let (directory, path_prefix, name_prefix) = match token.rfind('/') {
             Some(slash) => {
                 let directory = if slash == 0 { "/" } else { &token[..slash] };
@@ -946,34 +1011,33 @@ impl Session {
             }
             None => (".", "", token),
         };
-        let entries = self.filesystem.list(if path_prefix.is_empty() {
-            None
+        if path_prefix.is_empty() {
+            let Ok(entries) = self.filesystem.list(None) else {
+                return Vec::new();
+            };
+            let directories_only = directories_only_for_completion(command);
+            let mut candidates = entries
+                .into_iter()
+                .filter(|entry| {
+                    (!directories_only || entry.is_directory)
+                        && entry.name.starts_with(name_prefix)
+                        && entry.name != name_prefix
+                        && entry.name.chars().all(|character| {
+                            !character.is_whitespace() && !"|;&<>\\\"'#$*?".contains(character)
+                        })
+                })
+                .map(|entry| {
+                    let suffix = if entry.is_directory { "/" } else { "" };
+                    format!("{path_prefix}{}{suffix}", entry.name)
+                })
+                .collect::<Vec<_>>();
+            candidates.sort_unstable();
+            candidates.dedup();
+            candidates.truncate(MAX_COMPLETION_CANDIDATES);
+            candidates
         } else {
-            Some(directory)
-        });
-        let Ok(entries) = entries else {
-            return Vec::new();
-        };
-        let directories_only = directories_only_for_completion(command);
-        let mut candidates = entries
-            .into_iter()
-            .filter(|entry| {
-                (!directories_only || entry.is_directory)
-                    && entry.name.starts_with(name_prefix)
-                    && entry.name != name_prefix
-                    && entry.name.chars().all(|character| {
-                        !character.is_whitespace() && !"|;&<>\\\"'#$*?".contains(character)
-                    })
-            })
-            .map(|entry| {
-                let suffix = if entry.is_directory { "/" } else { "" };
-                format!("{path_prefix}{}{suffix}", entry.name)
-            })
-            .collect::<Vec<_>>();
-        candidates.sort_unstable();
-        candidates.dedup();
-        candidates.truncate(MAX_COMPLETION_CANDIDATES);
-        candidates
+            self.completion_entries(command, directory, path_prefix, name_prefix)
+        }
     }
 
     /// Executes one parsed command line and returns separate output channels.
@@ -5241,6 +5305,22 @@ mod tests {
         assert_eq!(
             session.apply_completion("cat ~/do", "~/docs/"),
             Some("cat ~/docs/".to_string())
+        );
+        assert_eq!(session.execute_line("cd docs").status, 0);
+        assert_eq!(session.execute_line("bookmark project").status, 0);
+        assert_eq!(session.execute_line("cd ~").status, 0);
+        assert_eq!(session.completion_candidates("cd ~pro"), vec!["~project/"]);
+        assert_eq!(
+            session.apply_completion("cd ~pro", "~project/"),
+            Some("cd ~project/".to_string())
+        );
+        assert_eq!(
+            session.completion_candidates("cat ~project/no"),
+            vec!["~project/notes.md"]
+        );
+        assert_eq!(
+            session.apply_completion("cat ~project/no", "~project/notes.md"),
+            Some("cat ~project/notes.md ".to_string())
         );
         assert_eq!(
             session.completion_candidates("echo | cat do"),

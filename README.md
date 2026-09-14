@@ -190,8 +190,10 @@ the registry, session aliases, recent command names, and filesystem lookup
 remain Rust-owned; the bridge exposes replacement tokens and delegates their
 application back to Rust. Simple
 separated `<`/`>` redirection targets use the same confined path completion,
-and simple command/path completion after one `|` is supported; quoted, escaped,
-option, and other compound-shell fragments remain deferred. Repeated Tab presses cycle through the candidates while preserving the
+and simple command/path completion after one `|` is supported. Session-local
+bookmark prefixes (`~name/`) resolve through the same confined VFS lookup;
+quoted, escaped, option, and other compound-shell fragments remain deferred.
+Repeated Tab presses cycle through the candidates while preserving the
 original replacement token, and Escape dismisses the completion state without
 injecting a control byte into the command line.
 It also has a focused command bar, keyboard-aware history controls (including

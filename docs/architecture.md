@@ -421,7 +421,9 @@ commands it lists only entries in the bounded VFS, preserves virtual prefixes
 such as `~/` and `../`, marks directories with `/`, and caps results at eight.
 Simple separated `<`/`>` redirection targets use the same confined path list;
 simple command/path completion after one `|` uses the same Rust registry and
-VFS lookup. Rust also validates the selected candidate and returns the complete
+VFS lookup. Session-local bookmark prefixes such as `~project/` are resolved
+through the stored virtual path before directory enumeration. Rust also
+validates the selected candidate and returns the complete
 replacement command through the C ABI. Quoted, escaped, option, and other
 compound-shell fragments are intentionally deferred until the completion grammar
 has structured replacement ranges. The Swift model keeps the original
