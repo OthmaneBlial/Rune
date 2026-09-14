@@ -124,8 +124,9 @@ implicit, invalid, and loop-nested returns. Function-local tests cover scoped
 assignment, restoration, nested dynamic visibility, and the declaration limit.
 Positional-parameter tests cover `set --`, `shift`, `$0` preservation, and
 invalid, excessive, or out-of-range counts.
-Bounded one-line `for`/`while`/`until` bodies are normalized into the same
-planner path as multiline scripts, with quote-aware `; do`/`; done` detection.
+Bounded one-line `for`/`while`/`until` bodies and simple `if` branches are
+normalized into the same planner path as multiline scripts, with quote-aware
+control-marker detection.
 Loop-control tests cover `break`, `continue`, rejection
 outside loops, and isolation across `sh -c`; argument-bearing loop controls
 remain unsupported.

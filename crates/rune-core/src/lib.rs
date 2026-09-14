@@ -3453,6 +3453,10 @@ fn normalized_script_lines(script: &str) -> Vec<String> {
             lines.push(header);
             lines.push(body);
             lines.push("done".to_string());
+        } else if let Some((header, body)) = split_inline_if_line(line) {
+            lines.push(header);
+            lines.push(body);
+            lines.push("fi".to_string());
         } else {
             lines.push(line.to_string());
         }
@@ -3477,6 +3481,25 @@ fn split_inline_loop_line(line: &str) -> Option<(String, String)> {
         return None;
     }
     Some((format!("{header}; do"), body.to_string()))
+}
+
+fn split_inline_if_line(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim();
+    let then_marker = find_unquoted_marker(trimmed, "; then", 0)?;
+    let body_start = then_marker + "; then".len();
+    let fi_marker = find_unquoted_marker(trimmed, "; fi", body_start)?;
+    if !trimmed[fi_marker + "; fi".len()..].trim().is_empty() {
+        return None;
+    }
+    let header = trimmed[..then_marker].trim();
+    if !is_if_header_line(header) {
+        return None;
+    }
+    let body = trimmed[body_start..fi_marker].trim();
+    if body.is_empty() || find_unquoted_marker(body, "; else", 0).is_some() {
+        return None;
+    }
+    Some((format!("{header}; then"), body.to_string()))
 }
 
 fn find_unquoted_marker(input: &str, marker: &str, start: usize) -> Option<usize> {
@@ -6638,6 +6661,13 @@ mod tests {
         let no_branch = session.execute_script("if false; then\necho wrong\nfi");
         assert_eq!(no_branch.status, 0, "{no_branch:?}");
         assert!(no_branch.stdout.is_empty());
+
+        let inline = session.execute_script("if true; then echo inline; fi");
+        assert_eq!(inline.status, 0, "{inline:?}");
+        assert_eq!(inline.stdout, "inline\n");
+        let quoted = session.execute_script("if true; then echo 'semi; fi'; fi");
+        assert_eq!(quoted.status, 0, "{quoted:?}");
+        assert_eq!(quoted.stdout, "semi; fi\n");
 
         let missing_fi = session.execute_script("if true; then\necho incomplete");
         assert_eq!(missing_fi.status, 2);
