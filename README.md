@@ -170,6 +170,17 @@ surface. Verify it with the published
 [SHA256SUMS file](dist/SHA256SUMS-v0.1.0-alpha.7.txt). It is not an iOS
 application, simulator build, or signed Apple package.
 
+To download and verify it directly:
+
+~~~bash
+curl -L -o rune-cli-v0.1.0-alpha.7-macos-arm64.tar.gz \
+  https://github.com/OthmaneBlial/Rune/releases/download/v0.1.0-alpha.7/rune-cli-v0.1.0-alpha.7-macos-arm64.tar.gz
+curl -L -o SHA256SUMS.txt \
+  https://github.com/OthmaneBlial/Rune/releases/download/v0.1.0-alpha.7/SHA256SUMS-v0.1.0-alpha.7.txt
+shasum -a 256 -c SHA256SUMS.txt --ignore-missing
+tar -xzf rune-cli-v0.1.0-alpha.7-macos-arm64.tar.gz
+~~~
+
 The CLI also exposes its release identity without creating a session:
 
 ~~~bash
