@@ -70,11 +70,11 @@ pub(super) fn zip(context: &mut CommandContext<'_>) -> CommandOutput {
 }
 
 pub(super) fn unzip(context: &mut CommandContext<'_>) -> CommandOutput {
-    if !(1..=2).contains(&context.args.len()) {
-        return usage("unzip", "usage: unzip ARCHIVE [DESTINATION]");
-    }
-    let archive_path = &context.args[0];
-    let destination = context.args.get(1).map_or(".", String::as_str);
+    let parsed = match parse_unzip_arguments(context.args) {
+        Ok(parsed) => parsed,
+        Err(error) => return usage("unzip", &error),
+    };
+    let archive_path = parsed.archive;
     let archive = match context.fs.read(archive_path) {
         Ok(bytes) => bytes,
         Err(error) => return fs_failure("unzip", &error),
@@ -86,11 +86,16 @@ pub(super) fn unzip(context: &mut CommandContext<'_>) -> CommandOutput {
         Ok(entries) => entries,
         Err(error) => return archive_failure(&error),
     };
+    let selected = match select_zip_entries(&entries, &parsed.filters) {
+        Ok(selected) => selected,
+        Err(error) => return archive_failure(&error),
+    };
+    let destination = parsed.destination.as_str();
     if let Err(error) = context.fs.make_directory(destination, true) {
         return fs_failure("unzip", &error);
     }
-    let entry_count = entries.len();
-    for entry in entries {
+    for index in &selected {
+        let entry = &entries[*index];
         if let Some(output) = context.take_cancellation() {
             return output;
         }
@@ -114,8 +119,66 @@ pub(super) fn unzip(context: &mut CommandContext<'_>) -> CommandOutput {
         }
     }
     CommandOutput::success(format!(
-        "extracted {entry_count} entries into {destination}\n"
+        "extracted {} entries into {destination}\n",
+        selected.len()
     ))
+}
+
+#[derive(Debug)]
+struct UnzipArguments<'a> {
+    archive: &'a str,
+    destination: String,
+    filters: Vec<&'a str>,
+}
+
+fn parse_unzip_arguments(arguments: &[String]) -> Result<UnzipArguments<'_>, String> {
+    let archive = arguments
+        .first()
+        .map(String::as_str)
+        .ok_or("usage: unzip ARCHIVE [DESTINATION]")?;
+    let mut positionals = Vec::new();
+    let mut destination = None;
+    let mut parse_options = true;
+    let mut index = 1;
+    while index < arguments.len() {
+        let argument = arguments[index].as_str();
+        if parse_options && argument == "--" {
+            parse_options = false;
+        } else if parse_options && matches!(argument, "-d" | "--directory") {
+            index += 1;
+            let value = arguments
+                .get(index)
+                .ok_or("-d requires a destination")?
+                .as_str();
+            if value.is_empty() {
+                return Err("-d requires a non-empty destination".to_string());
+            }
+            if destination.replace(value.to_string()).is_some() {
+                return Err("unzip accepts exactly one destination".to_string());
+            }
+        } else if parse_options && argument.starts_with('-') {
+            return Err(format!("unsupported unzip option: {argument}"));
+        } else {
+            positionals.push(argument);
+        }
+        index += 1;
+    }
+    let (destination, filters) = match destination {
+        Some(destination) => (destination, positionals),
+        None => match positionals.as_slice() {
+            [] => (".".to_string(), Vec::new()),
+            [destination] => ((*destination).to_string(), Vec::new()),
+            _ => return Err(
+                "usage: unzip ARCHIVE [DESTINATION] or unzip ARCHIVE -d DESTINATION [MEMBER ...]"
+                    .to_string(),
+            ),
+        },
+    };
+    Ok(UnzipArguments {
+        archive,
+        destination,
+        filters,
+    })
 }
 
 /// Creates, lists, or extracts a bounded USTAR archive, optionally gzip-compressed.
@@ -287,6 +350,40 @@ fn select_tar_entries(entries: &[ArchiveEntry], filters: &[&str]) -> Result<Vec<
             .any(|entry| entry.name == *normalized_filter || entry.name.starts_with(&prefix))
         {
             return Err(format!("tar member not found: {filter}"));
+        }
+    }
+    Ok(entries
+        .iter()
+        .enumerate()
+        .filter_map(|(index, entry)| {
+            normalized
+                .iter()
+                .any(|filter| {
+                    entry.name == *filter || entry.name.starts_with(&format!("{filter}/"))
+                })
+                .then_some(index)
+        })
+        .collect())
+}
+
+fn select_zip_entries(entries: &[ArchiveEntry], filters: &[&str]) -> Result<Vec<usize>, String> {
+    if filters.is_empty() {
+        return Ok((0..entries.len()).collect());
+    }
+    let normalized = filters
+        .iter()
+        .map(|filter| {
+            validate_archive_name(filter)?;
+            Ok(filter.trim_end_matches('/'))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    for (filter, normalized_filter) in filters.iter().zip(&normalized) {
+        let prefix = format!("{normalized_filter}/");
+        if !entries
+            .iter()
+            .any(|entry| entry.name == *normalized_filter || entry.name.starts_with(&prefix))
+        {
+            return Err(format!("unzip member not found: {filter}"));
         }
     }
     Ok(entries

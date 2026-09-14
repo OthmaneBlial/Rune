@@ -3308,6 +3308,24 @@ mod tests {
                 .status,
             0
         );
+        let filtered = session.execute_line("unzip bundle.zip -d filtered source/nested");
+        assert_eq!(filtered.status, 0, "{filtered:?}");
+        assert!(filtered.stdout.contains("2 entries"));
+        assert_eq!(
+            session
+                .execute_line("cat filtered/source/nested/note.txt")
+                .stdout,
+            "archive-data\n"
+        );
+        assert_eq!(
+            session
+                .execute_line("test -e filtered/source/empty.txt")
+                .status,
+            1
+        );
+        let missing = session.execute_line("unzip bundle.zip -d missing does-not-exist");
+        assert_eq!(missing.status, 1, "{missing:?}");
+        assert!(!root.join("missing").exists());
         assert_eq!(
             session.execute_line("unzip bundle.zip ../outside").status,
             1
