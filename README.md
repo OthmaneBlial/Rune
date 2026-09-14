@@ -43,7 +43,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
 `apropos`, `help`, `history`, `sleep`, `uname`, `which`, `whoami`, `xargs`, `pbcopy`, `pbpaste`,
 `test`, `[`, `source`, `.`, `sh`, `dash`, `return`, `local`, `shift`, `set`, `exit`,
-`newWindow`, and `new-window` against a
+`newWindow`, `new-window`, and `pickFolder` against a
 bounded filesystem,
 including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
@@ -381,12 +381,14 @@ tab from a bounded route-specific key. SwiftUI rendering, scene restoration,
 iPad runtime behavior, and Apple runtime behavior remain unverified without an
 Apple build toolchain.
 
-The Rust shell also exposes `exit` and `newWindow` as one-shot host-session
-actions. The FFI transfers those actions separately from stdout/stderr/status;
-the source-only Swift workspace closes the current tab/window for `exit` and
-opens an independent window route for `newWindow`. The CLI consumes `exit` to
-leave its REPL and has no window host for `newWindow`. Action routing is
-source-level evidence until an Apple runtime is available.
+The Rust shell also exposes `exit`, `newWindow`, and `pickFolder` as one-shot
+host-session actions. The FFI transfers those actions separately from
+stdout/stderr/status; the source-only Swift workspace closes the current
+tab/window for `exit`, opens an independent window route for `newWindow`, and
+opens its existing confined folder importer for `pickFolder`. The CLI consumes
+`exit` to leave its REPL and has no window or folder-picker host for the other
+actions. Action routing is source-level evidence until an Apple runtime is
+available.
 
 Directory changes update the Rust-owned `PWD` and `OLDPWD` values. `cd -`
 returns to the previous directory and prints the resulting virtual path, while
@@ -644,6 +646,7 @@ result.
 - [x] Rust-namespaced sessions and source-only terminal tabs
 - [x] Source-only typed iPad window routing
 - [x] Source-only Rust `exit`/`newWindow` host-action routing
+- [x] Source-only Rust `pickFolder` host-action routing
 - [x] Source-only native keyboard shortcuts
 - [ ] iPad multi-window behavior
 - [x] Source-only command/script/file and named-session App Intent declarations

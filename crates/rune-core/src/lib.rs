@@ -312,6 +312,7 @@ pub struct CommandOutput {
 pub enum SessionAction {
     Exit,
     NewWindow,
+    PickFolder,
 }
 
 impl CommandOutput {
@@ -2146,6 +2147,9 @@ impl Session {
             "exit" => self.execute_session_action(program, arguments, SessionAction::Exit),
             "newWindow" | "new-window" => {
                 self.execute_session_action(program, arguments, SessionAction::NewWindow)
+            }
+            "pickFolder" => {
+                self.execute_session_action(program, arguments, SessionAction::PickFolder)
             }
             "return" => self.execute_function_return(arguments),
             "local" => self.execute_local(arguments),
@@ -8036,6 +8040,11 @@ true
             session.execute_line("which newWindow").stdout,
             "newWindow: builtin\n"
         );
+
+        let pick_folder = session.execute_line("pickFolder");
+        assert_eq!(pick_folder, CommandOutput::success(""));
+        assert_eq!(session.take_action(), Some(SessionAction::PickFolder));
+        assert_eq!(session.take_action(), None);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

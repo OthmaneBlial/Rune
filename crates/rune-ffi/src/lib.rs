@@ -71,6 +71,7 @@ pub const RUNE_EVENT_STATUS: i32 = 2;
 pub const RUNE_SESSION_ACTION_NONE: i32 = 0;
 pub const RUNE_SESSION_ACTION_EXIT: i32 = 1;
 pub const RUNE_SESSION_ACTION_NEW_WINDOW: i32 = 2;
+pub const RUNE_SESSION_ACTION_PICK_FOLDER: i32 = 3;
 
 /// Bounded response storage exchanged with a native network callback.
 #[repr(C)]
@@ -1086,6 +1087,7 @@ pub extern "C" fn rune_session_take_action(handle: *mut c_void) -> i32 {
     match session.core.take_action() {
         Some(SessionAction::Exit) => RUNE_SESSION_ACTION_EXIT,
         Some(SessionAction::NewWindow) => RUNE_SESSION_ACTION_NEW_WINDOW,
+        Some(SessionAction::PickFolder) => RUNE_SESSION_ACTION_PICK_FOLDER,
         None => RUNE_SESSION_ACTION_NONE,
     }
 }
@@ -1549,7 +1551,7 @@ mod tests {
         RuneToolchainEnvironmentEntry, RuneToolchainResponse, RuneToolchainSlice,
         RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS, RUNE_OPEN_FILE, RUNE_OPEN_URL,
         RUNE_SESSION_ACTION_EXIT, RUNE_SESSION_ACTION_NEW_WINDOW, RUNE_SESSION_ACTION_NONE,
-        RUNE_TOOLCHAIN_C,
+        RUNE_SESSION_ACTION_PICK_FOLDER, RUNE_TOOLCHAIN_C,
     };
     use rune_core::MAX_EVENT_CHUNK_BYTES;
     use std::ffi::{c_void, CStr, CString};
@@ -2704,6 +2706,17 @@ mod tests {
         assert_eq!(
             rune_session_take_action(handle),
             RUNE_SESSION_ACTION_NEW_WINDOW
+        );
+        let pick_folder = CString::new("pickFolder").expect("valid command");
+        let output = rune_session_execute(handle, pick_folder.as_ptr());
+        assert_eq!(output.status, 0);
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+        assert_eq!(
+            rune_session_take_action(handle),
+            RUNE_SESSION_ACTION_PICK_FOLDER
         );
         assert_eq!(
             rune_session_take_action(std::ptr::null_mut()),

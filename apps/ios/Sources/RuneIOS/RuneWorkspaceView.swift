@@ -187,6 +187,9 @@ public struct RuneWorkspaceView: View {
             }
         case .newWindow:
             openWindow(value: RuneWindowRoute(sessionID: UUID().uuidString.lowercased()))
+        case .pickFolder:
+            // RuneTerminalView owns the file importer for this action.
+            break
         }
     }
 

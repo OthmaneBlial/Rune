@@ -395,6 +395,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::pbpaste,
     },
     CommandDefinition {
+        name: "pickFolder",
+        summary: "ask the host to choose a confined external folder",
+        handler: shell::pick_folder,
+    },
+    CommandDefinition {
         name: "rm",
         summary: "remove files or directories",
         handler: filesystem::rm,

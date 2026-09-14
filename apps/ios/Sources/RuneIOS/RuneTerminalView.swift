@@ -1027,7 +1027,11 @@ public struct RuneTerminalView: View {
         .onChange(of: model.requestedAction) { _, action in
             guard action != .none else { return }
             model.acknowledgeRequestedAction()
-            onSessionAction?(action)
+            if action == .pickFolder {
+                isImportingFolder = true
+            } else {
+                onSessionAction?(action)
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             model.scenePhaseChanged(phase)

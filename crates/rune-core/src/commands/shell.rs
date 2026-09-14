@@ -26,6 +26,11 @@ pub(super) fn new_window(_context: &mut CommandContext<'_>) -> CommandOutput {
     usage("newWindow", "usage: newWindow")
 }
 
+/// Handled by the session so the native host can present its folder picker.
+pub(super) fn pick_folder(_context: &mut CommandContext<'_>) -> CommandOutput {
+    usage("pickFolder", "usage: pickFolder")
+}
+
 /// `source` and `.` are dispatched by the session because they need access to
 /// the recursive script executor. The registry handler keeps their metadata
 /// available to `help`, completion, and `which`.

@@ -6,10 +6,11 @@ public enum RuneExecutionEventKind: Int32, Sendable {
     case status = 2
 }
 
-public enum RuneSessionAction: Int32, Sendable {
+public enum RuneSessionAction: Int32, Equatable, Sendable {
     case none = 0
     case exit = 1
     case newWindow = 2
+    case pickFolder = 3
 }
 
 public struct RuneExecutionEvent: Sendable {

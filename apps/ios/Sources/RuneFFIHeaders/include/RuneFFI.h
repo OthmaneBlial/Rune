@@ -40,6 +40,7 @@ typedef void (*RuneEventCallback)(const RuneEvent *event, void *user_data);
 #define RUNE_SESSION_ACTION_NONE 0
 #define RUNE_SESSION_ACTION_EXIT 1
 #define RUNE_SESSION_ACTION_NEW_WINDOW 2
+#define RUNE_SESSION_ACTION_PICK_FOLDER 3
 
 typedef struct {
     int32_t status_code;
