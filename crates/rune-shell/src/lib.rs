@@ -263,7 +263,7 @@ fn parse_variable(input: &[char], index: &mut usize) -> Result<Option<String>, P
         }
         Some('@' | '#') => {
             *index += 1;
-            Ok(Some(next.expect("matched special variable").to_string()))
+            Ok(next.map(|character| character.to_string()))
         }
         Some(character) if character.is_ascii_digit() => {
             let name_start = *index + 1;

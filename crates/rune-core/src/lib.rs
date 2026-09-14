@@ -3367,10 +3367,10 @@ fn parse_while_header(line: &str) -> Result<Option<WhileHeader>, String> {
     } else {
         return Ok(None);
     };
-    let rest = trimmed
-        .strip_prefix(&format!("{keyword} "))
-        .expect("loop keyword was checked")
-        .trim_end();
+    let Some(rest) = trimmed.strip_prefix(&format!("{keyword} ")) else {
+        return Err(format!("invalid {keyword} header"));
+    };
+    let rest = rest.trim_end();
     let (condition, inline_do) = rest
         .strip_suffix("; do")
         .map_or((rest, false), |condition| (condition.trim_end(), true));
@@ -3576,11 +3576,10 @@ fn parse_case_block(
             if current_patterns.is_some() {
                 return Err("case clause is missing `;;`".to_string());
             }
-            let raw = line
-                .trim()
-                .strip_suffix(')')
-                .expect("case clause header was checked")
-                .trim();
+            let Some(raw) = line.trim().strip_suffix(')') else {
+                return Err("case clause header is malformed".to_string());
+            };
+            let raw = raw.trim();
             let patterns = parse_case_patterns(raw)?;
             if patterns.len() > MAX_CASE_PATTERNS {
                 return Err(format!(

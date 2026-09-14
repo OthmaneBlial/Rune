@@ -1477,8 +1477,10 @@ pub(super) fn tr(context: &mut CommandContext<'_>) -> CommandOutput {
         if delete {
             continue;
         }
-        let target = target.as_ref().expect("translation has a target");
-        stdout.push(target[index.min(target.len() - 1)]);
+        let Some(target) = target.as_ref() else {
+            return usage("tr", "SET2 is required unless -d is used");
+        };
+        stdout.push(target[index.min(target.len().saturating_sub(1))]);
     }
     CommandOutput::success(stdout)
 }
