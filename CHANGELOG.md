@@ -12,8 +12,8 @@ iOS runtime release.
   arguments before creating any artifact paths.
 - Rust-planned scripts now support bounded one-line `for`, `while`, and `until`
   bodies with quote-aware control-marker detection.
-- One-line `if ...; then ...; else ...; fi` branches now use the same bounded
-  Rust planner, with quoted control markers preserved as text.
+- One-line `if ...; then ...; elif ...; else ...; fi` branches now use the same
+  bounded Rust planner, with quoted control markers preserved as text.
 
 ## [0.1.0-alpha.8] - 2026-09-14
 

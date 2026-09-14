@@ -3498,17 +3498,50 @@ fn split_inline_if_line(line: &str) -> Option<Vec<String>> {
         return None;
     }
     let mut lines = vec![format!("{header}; then")];
-    if let Some(else_marker) = find_unquoted_marker(body, "; else", 0) {
-        let then_body = body[..else_marker].trim();
-        let else_body = body[else_marker + "; else".len()..].trim();
-        if then_body.is_empty() || else_body.is_empty() {
+    let mut remaining = body;
+    loop {
+        let elif_marker = find_unquoted_marker(remaining, "; elif ", 0);
+        let else_marker = find_unquoted_marker(remaining, "; else", 0);
+        let next_marker = match (elif_marker, else_marker) {
+            (Some(elif), Some(else_marker)) if elif < else_marker => Some((elif, true)),
+            (Some(_) | None, Some(else_marker)) => Some((else_marker, false)),
+            (Some(elif), None) => Some((elif, true)),
+            (None, None) => None,
+        };
+        let Some((marker, is_elif)) = next_marker else {
+            if remaining.trim().is_empty() {
+                return None;
+            }
+            lines.push(remaining.trim().to_string());
+            break;
+        };
+        let clause_body = remaining[..marker].trim();
+        if clause_body.is_empty() {
             return None;
         }
-        lines.push(then_body.to_string());
-        lines.push("else".to_string());
-        lines.push(else_body.to_string());
-    } else {
-        lines.push(body.to_string());
+        lines.push(clause_body.to_string());
+        let marker_length = if is_elif {
+            "; elif ".len()
+        } else {
+            "; else".len()
+        };
+        remaining = remaining[marker + marker_length..].trim();
+        if is_elif {
+            let then_marker = find_unquoted_marker(remaining, "; then", 0)?;
+            let condition = remaining[..then_marker].trim();
+            if condition.is_empty() {
+                return None;
+            }
+            lines.push(format!("elif {condition}; then"));
+            remaining = remaining[then_marker + "; then".len()..].trim();
+        } else {
+            if remaining.is_empty() {
+                return None;
+            }
+            lines.push("else".to_string());
+            lines.push(remaining.to_string());
+            break;
+        }
     }
     lines.push("fi".to_string());
     Some(lines)
@@ -6688,6 +6721,11 @@ mod tests {
             session.execute_script("if true; then echo 'semi; else'; else echo wrong; fi");
         assert_eq!(inline_else_quote.status, 0, "{inline_else_quote:?}");
         assert_eq!(inline_else_quote.stdout, "semi; else\n");
+        let inline_elif = session.execute_script(
+            "if false; then echo wrong; elif true; then echo selected; else echo fallback; fi",
+        );
+        assert_eq!(inline_elif.status, 0, "{inline_elif:?}");
+        assert_eq!(inline_elif.stdout, "selected\n");
 
         let missing_fi = session.execute_script("if true; then\necho incomplete");
         assert_eq!(missing_fi.status, 2);
