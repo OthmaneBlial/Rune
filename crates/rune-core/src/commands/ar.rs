@@ -305,12 +305,6 @@ fn parse_archive(bytes: &[u8]) -> Result<Vec<ArMember>, String> {
         if &header[58..60] != b"`\n" {
             return Err("archive member has an invalid header marker".to_string());
         }
-        let raw_name = trim_ascii(&header[0..16]);
-        if raw_name == "/" || raw_name == "//" || raw_name.starts_with('/') {
-            return Err("symbol tables and long-name tables are unsupported".to_string());
-        }
-        let name = raw_name.strip_suffix('/').unwrap_or(raw_name);
-        let name = validate_member_name(name)?;
         let size = parse_decimal_field(&header[48..58])?;
         let data_start = offset + AR_HEADER_BYTES;
         let data_end = data_start
@@ -319,18 +313,46 @@ fn parse_archive(bytes: &[u8]) -> Result<Vec<ArMember>, String> {
         if data_end > bytes.len() {
             return Err("archive contains a truncated member payload".to_string());
         }
+        if size % 2 != 0 && bytes.get(data_end) != Some(&b'\n') {
+            return Err("archive member has invalid padding".to_string());
+        }
+        let raw_name = trim_ascii(&header[0..16]);
+        let (name, payload_start) = if let Some(length) = raw_name.strip_prefix("#1/") {
+            let name_length = length
+                .parse::<usize>()
+                .map_err(|_| "archive extended member name length is not decimal".to_string())?;
+            let name_end = data_start
+                .checked_add(name_length)
+                .ok_or_else(|| "archive extended member name overflows".to_string())?;
+            if name_end > data_end {
+                return Err("archive extended member name is truncated".to_string());
+            }
+            let extended_name = &bytes[data_start..name_end];
+            std::str::from_utf8(extended_name)
+                .map_err(|_| "archive extended member name is not UTF-8".to_string())?;
+            let name = trim_ascii(extended_name);
+            (name, name_end)
+        } else {
+            let name = raw_name.strip_suffix('/').unwrap_or(raw_name);
+            (name, data_start)
+        };
+        if is_ar_metadata_member(raw_name) || is_ar_metadata_member(name) {
+            offset = data_end + (size % 2);
+            if offset > bytes.len() {
+                return Err("archive is missing member padding".to_string());
+            }
+            continue;
+        }
+        let name = validate_member_name(name).map_err(|error| format!("{error}: {name}"))?;
         if members.iter().any(|member: &ArMember| member.name == name) {
             return Err(format!("archive contains duplicate member: {name}"));
         }
         members.push(ArMember {
             name,
-            bytes: bytes[data_start..data_end].to_vec(),
+            bytes: bytes[payload_start..data_end].to_vec(),
         });
         if members.len() > MAX_AR_MEMBERS {
             return Err("archive contains more than 10,000 members".to_string());
-        }
-        if size % 2 != 0 && bytes.get(data_end) != Some(&b'\n') {
-            return Err("archive member has invalid padding".to_string());
         }
         offset = data_end + (size % 2);
         if offset > bytes.len() {
@@ -343,10 +365,17 @@ fn parse_archive(bytes: &[u8]) -> Result<Vec<ArMember>, String> {
 fn trim_ascii(field: &[u8]) -> &str {
     let end = field
         .iter()
-        .rposition(|byte| *byte != b' ')
+        .rposition(|byte| !matches!(*byte, b' ' | 0))
         .map_or(0, |index| index + 1);
     let field = &field[..end];
     std::str::from_utf8(field).unwrap_or_default()
+}
+
+fn is_ar_metadata_member(name: &str) -> bool {
+    matches!(
+        name,
+        "/" | "//" | "__.SYMDEF" | "__.SYMDEF SORTED" | "__.SYMDEF_64" | "__.SYMDEF_64 SORTED"
+    )
 }
 
 fn parse_decimal_field(field: &[u8]) -> Result<usize, String> {
@@ -365,7 +394,25 @@ fn ar_failure(path: &str, message: &str) -> CommandOutput {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_archive, parse_archive, ArMember};
+    use super::{build_archive, parse_archive, write_ar_field, ArMember, AR_MAGIC};
+
+    fn append_member(archive: &mut Vec<u8>, name: &str, bytes: &[u8]) {
+        let mut header = [b' '; super::AR_HEADER_BYTES];
+        write_ar_field(&mut header[0..16], name, false).expect("test member name fits");
+        header[name.len()..16].fill(0);
+        write_ar_field(&mut header[16..28], "0", true).expect("test timestamp fits");
+        write_ar_field(&mut header[28..34], "0", true).expect("test owner fits");
+        write_ar_field(&mut header[34..40], "0", true).expect("test group fits");
+        write_ar_field(&mut header[40..48], "100644", true).expect("test mode fits");
+        write_ar_field(&mut header[48..58], &bytes.len().to_string(), true)
+            .expect("test size fits");
+        header[58..60].copy_from_slice(b"`\n");
+        archive.extend_from_slice(&header);
+        archive.extend_from_slice(bytes);
+        if bytes.len() % 2 != 0 {
+            archive.push(b'\n');
+        }
+    }
 
     #[test]
     fn round_trips_bounded_ar_members() {
@@ -381,5 +428,21 @@ mod tests {
         ];
         let archive = build_archive(&members).expect("archive built");
         assert_eq!(parse_archive(&archive).expect("archive parsed"), members);
+    }
+
+    #[test]
+    fn reads_symbol_indexes_and_bsd_extended_member_names() {
+        let mut archive = AR_MAGIC.to_vec();
+        append_member(&mut archive, "/", b"symbol-index");
+        append_member(&mut archive, "#1/20", b"__.SYMDEF SORTED\0\0\0\0");
+        append_member(&mut archive, "#1/8", b"note.o\0\0data");
+
+        assert_eq!(
+            parse_archive(&archive).expect("external ar profile parsed"),
+            vec![ArMember {
+                name: "note.o".to_string(),
+                bytes: b"data".to_vec(),
+            }]
+        );
     }
 }

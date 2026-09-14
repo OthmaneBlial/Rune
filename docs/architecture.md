@@ -463,9 +463,10 @@ and broad external compatibility are not claimed.
 The `ar` command layer implements a bounded short-name archive profile for
 regular files. `ar -rcs` rebuilds or replaces members, `ar t` lists all or named
 members, and `ar x` extracts them through the VFS after preflighting destinations.
-Member payloads remain binary-safe, but
-symbol tables, long-name tables, directories, and linker semantics are outside
-the profile.
+Member payloads remain binary-safe. Rune reads common external symbol-index and
+BSD extended-name records but does not generate or preserve symbol indexes;
+GNU long-name tables, directories, and linker semantics remain outside the
+profile.
 
 The `xargs` layer is coordinated by `rune-core` because it must invoke the
 existing parser and execution planner for each bounded batch. Its Rust-owned
