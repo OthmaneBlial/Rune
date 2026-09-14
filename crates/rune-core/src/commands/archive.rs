@@ -1213,6 +1213,11 @@ mod tests {
         let entries = read_central_directory(&descriptor_archive).expect("ZIP archive read");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].bytes, b"descriptor content ".repeat(256));
+
+        descriptor_archive[data_end + 4..data_end + 8].copy_from_slice(&0_u32.to_le_bytes());
+        assert!(read_central_directory(&descriptor_archive)
+            .expect_err("mismatched data descriptor must be rejected")
+            .contains("data descriptor does not match central directory"));
     }
 
     #[test]
