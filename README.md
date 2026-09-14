@@ -171,9 +171,10 @@ command, pipeline, script, and bounded traversal boundaries, returning status
 an unrelated synchronous operation is allowed to finish.
 The event-aware Rust/FFI execution path delivers bounded output after each
 completed pipeline and status/directory events at command boundaries. Swift
-copies those borrowed callback strings and renders them through the same
-bounded transcript policy; this is boundary-level event delivery, not live UI
-rendering or byte-level WASM streaming.
+copies those borrowed callback strings into an `AsyncStream` consumed by the
+main-actor terminal model, so completed pipeline output can render while the
+command is still running. This remains boundary-level event delivery, not
+byte-level WASM streaming.
 Environment changes are not serialized by default. On restore, Rune selects a
 bounded startup profile in this order: `~/.rune_profile`, `~/.profile`, then
 `~/.bashrc`. Rune filters blank and full-line comment entries, joins the

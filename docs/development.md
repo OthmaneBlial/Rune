@@ -145,8 +145,10 @@ File-transfer tests verify confined paths, the 16 MiB boundary, and binary
 payloads containing NUL bytes across the Rust/FFI boundary.
 Event tests verify Rust pipeline/status emission and the C callback lifetime:
 event strings are borrowed only during the callback and are copied by the
-native bridge. This validates boundary-level event delivery, not Apple runtime,
-live UI rendering, or byte-level WASM streaming.
+native bridge. The source-only Swift model then consumes the copied events via
+`AsyncStream` while detached execution is still running. This validates the
+source-level incremental rendering path, not Apple runtime behavior or
+byte-level WASM streaming.
 The Swift transcript stores parsed ANSI spans once per immutable transcript
 entry and renders bounded entries through `LazyVStack`; this is source-level
 rendering architecture evidence, not a measured Apple frame-time or device

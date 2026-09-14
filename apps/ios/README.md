@@ -81,9 +81,10 @@ an unsafe force-stop of a synchronous operation.
 
 The bridge also exposes synchronous event-aware command/script calls. Rust
 delivers borrowed output and status events through a C callback; Swift copies
-them before the callback returns and the terminal model renders the ordered
-boundary events when execution returns. This is boundary-level event delivery,
-not live UI rendering or byte-level streaming from inside a WASM call.
+them before the callback returns and feeds them into an `AsyncStream` consumed
+by the main-actor terminal model while execution is still in progress. This is
+boundary-level event delivery, not byte-level streaming from inside a WASM call;
+Apple runtime rendering remains unverified.
 
 The source-only bridge also installs an explicit bounded HTTP callback backed by
 an ephemeral `URLSession`. Rust parses and validates `curl` requests, while

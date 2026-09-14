@@ -174,11 +174,28 @@ public final class RuneTerminalModel: ObservableObject {
             return
         }
         isExecuting = true
+        // Preserve callback order while allowing SwiftUI to render each
+        // completed Rust pipeline before the command finishes.
+        let (events, continuation) = AsyncStream<RuneExecutionEvent>.makeStream()
+        let eventTask = Task { @MainActor [weak self] in
+            for await event in events {
+                self?.append(event)
+            }
+        }
         executionTask = Task { [weak self, session] in
             let execution = await Task.detached(priority: .userInitiated) {
-                session.executeWithEvents(line)
+                session.executeWithEvents(line) { event in
+                    continuation.yield(event)
+                }
             }.value
-            self?.finishExecution(execution.0, events: execution.1, session: session)
+            continuation.finish()
+            await eventTask.value
+            self?.finishExecution(
+                execution.0,
+                events: execution.1,
+                session: session,
+                eventsAlreadyDelivered: true
+            )
         }
     }
 
@@ -249,11 +266,12 @@ public final class RuneTerminalModel: ObservableObject {
     private func finishExecution(
         _ result: RuneCommandResult,
         events: [RuneExecutionEvent],
-        session: RuneFFISession
+        session: RuneFFISession,
+        eventsAlreadyDelivered: Bool = false
     ) {
         if events.isEmpty {
             append(result)
-        } else {
+        } else if !eventsAlreadyDelivered {
             events.forEach(append)
             let reportedStatus = events.reversed().compactMap { event in
                 event.kind == .status ? event.status : nil

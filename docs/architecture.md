@@ -41,9 +41,11 @@ The first execution engine is synchronous and deterministic so behavior can be
 tested easily. Its result model already separates stdout, stderr, and exit
 status. An event sink can receive bounded output after each completed pipeline
 and a status/directory event at each command boundary; the C ABI forwards this
-as borrowed callback data for Swift to copy. This is boundary-level event
-delivery, not live UI rendering or byte-level streaming from an in-flight WASM
-call.
+as borrowed callback data for Swift to copy. The source-only terminal model
+feeds those copies through an `AsyncStream` so the main actor can render each
+completed pipeline while execution is still in progress. This is
+boundary-level event delivery, not byte-level streaming from an in-flight WASM
+call; Apple runtime behavior remains unverified.
 
 A synchronous command response is capped at 1 MiB per stdout or stderr
 channel, and the same bound is applied between pipeline stages. The cap is

@@ -28,8 +28,13 @@ public struct RuneExecutionEvent: Sendable {
     }
 }
 
-private final class RuneEventCollector {
+private final class RuneEventCollector: @unchecked Sendable {
     var events: [RuneExecutionEvent] = []
+    let onEvent: (@Sendable (RuneExecutionEvent) -> Void)?
+
+    init(onEvent: (@Sendable (RuneExecutionEvent) -> Void)? = nil) {
+        self.onEvent = onEvent
+    }
 }
 
 private let runeEventCallback: RuneEventCallback = { event, userData in
@@ -40,13 +45,15 @@ private let runeEventCallback: RuneEventCallback = { event, userData in
     guard let kind = RuneExecutionEventKind(rawValue: event.pointee.kind) else {
         return
     }
-    collector.events.append(RuneExecutionEvent(
+    let value = RuneExecutionEvent(
         kind: kind,
         stdout: event.pointee.stdout.map { String(cString: $0) } ?? "",
         stderr: event.pointee.stderr.map { String(cString: $0) } ?? "",
         status: event.pointee.status,
         currentDirectory: event.pointee.current_directory.map { String(cString: $0) } ?? ""
-    ))
+    )
+    collector.events.append(value)
+    collector.onEvent?(value)
 }
 
 public struct RuneCommandResult: Equatable, Sendable {
@@ -176,10 +183,14 @@ public final class RuneFFISession: @unchecked Sendable {
     }
 
     /// Executes a command while collecting bounded Rust events synchronously.
-    /// Event strings are copied before the callback returns.
-    public func executeWithEvents(_ command: String) -> (RuneCommandResult, [RuneExecutionEvent]) {
+    /// Event strings are copied before the callback returns; an optional
+    /// handler receives each copied event before execution continues.
+    public func executeWithEvents(
+        _ command: String,
+        onEvent: (@Sendable (RuneExecutionEvent) -> Void)? = nil
+    ) -> (RuneCommandResult, [RuneExecutionEvent]) {
         withLock {
-            let collector = RuneEventCollector()
+            let collector = RuneEventCollector(onEvent: onEvent)
             let raw = command.withCString { input in
                 rune_session_execute_with_events(
                     handle,
@@ -200,9 +211,14 @@ public final class RuneFFISession: @unchecked Sendable {
     }
 
     /// Executes a script while collecting bounded Rust events synchronously.
-    public func executeScriptWithEvents(_ script: String) -> (RuneCommandResult, [RuneExecutionEvent]) {
+    /// Event strings are copied before the callback returns; an optional
+    /// handler receives each copied event before execution continues.
+    public func executeScriptWithEvents(
+        _ script: String,
+        onEvent: (@Sendable (RuneExecutionEvent) -> Void)? = nil
+    ) -> (RuneCommandResult, [RuneExecutionEvent]) {
         withLock {
-            let collector = RuneEventCollector()
+            let collector = RuneEventCollector(onEvent: onEvent)
             let raw = script.withCString { input in
                 rune_session_execute_script_with_events(
                     handle,
