@@ -2,8 +2,9 @@ use std::collections::BTreeSet;
 use std::io::{Read as _, Write as _};
 
 use crate::{fs_failure, usage, CommandContext, CommandOutput};
-use flate2::read::DeflateDecoder;
+use flate2::read::{DeflateDecoder, GzDecoder};
 use flate2::write::DeflateEncoder;
+use flate2::write::GzEncoder;
 use flate2::Compression;
 
 const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
@@ -117,11 +118,12 @@ pub(super) fn unzip(context: &mut CommandContext<'_>) -> CommandOutput {
     ))
 }
 
-/// Creates, lists, or extracts a bounded uncompressed USTAR archive.
+/// Creates, lists, or extracts a bounded USTAR archive, optionally gzip-compressed.
 ///
 /// The implementation deliberately keeps the supported surface explicit:
-/// regular files and directories only, no compression, links, device nodes,
-/// PAX extensions, or host-process fallback. `-C` applies to extraction.
+/// regular files and directories only, optional gzip compression, no links,
+/// device nodes, PAX extensions, or host-process fallback. `-C` applies to
+/// extraction.
 pub(super) fn tar(context: &mut CommandContext<'_>) -> CommandOutput {
     let parsed = match parse_tar_arguments(context.args) {
         Ok(parsed) => parsed,
@@ -139,7 +141,7 @@ fn tar_create(context: &mut CommandContext<'_>, parsed: &TarArguments<'_>) -> Co
         return archive_failure_for("tar", "-C is only supported with extraction");
     }
     if parsed.paths.is_empty() {
-        return usage("tar", "usage: tar -cf ARCHIVE FILE ...");
+        return usage("tar", "usage: tar [-z|--gzip] -cf ARCHIVE FILE ...");
     }
     let mut entries = Vec::new();
     for path in &parsed.paths {
@@ -152,6 +154,14 @@ fn tar_create(context: &mut CommandContext<'_>, parsed: &TarArguments<'_>) -> Co
     let archive = match build_tar_archive(&entries) {
         Ok(archive) => archive,
         Err(error) => return archive_failure_for("tar", &error),
+    };
+    let archive = if parsed.gzip {
+        match compress_tar_archive(&archive) {
+            Ok(archive) => archive,
+            Err(error) => return archive_failure_for("tar", &error),
+        }
+    } else {
+        archive
     };
     if let Err(error) = context.fs.write(parsed.archive, &archive, false) {
         return fs_failure("tar", &error);
@@ -174,7 +184,7 @@ fn tar_list(context: &mut CommandContext<'_>, parsed: &TarArguments<'_>) -> Comm
         Ok(bytes) => bytes,
         Err(error) => return fs_failure("tar", &error),
     };
-    let entries = match read_tar_archive(&archive) {
+    let entries = match read_tar_entries(&archive, parsed.gzip) {
         Ok(entries) => entries,
         Err(error) => return archive_failure_for("tar", &error),
     };
@@ -190,7 +200,7 @@ fn tar_extract(context: &mut CommandContext<'_>, parsed: &TarArguments<'_>) -> C
         Ok(bytes) => bytes,
         Err(error) => return fs_failure("tar", &error),
     };
-    let entries = match read_tar_archive(&archive) {
+    let entries = match read_tar_entries(&archive, parsed.gzip) {
         Ok(entries) => entries,
         Err(error) => return archive_failure_for("tar", &error),
     };
@@ -258,6 +268,7 @@ struct TarArguments<'a> {
     destination: Option<String>,
     paths: Vec<&'a str>,
     verbose: bool,
+    gzip: bool,
 }
 
 fn parse_tar_arguments(arguments: &[String]) -> Result<TarArguments<'_>, String> {
@@ -271,6 +282,7 @@ struct TarParser<'a> {
     destination: Option<String>,
     paths: Vec<&'a str>,
     verbose: bool,
+    gzip: bool,
 }
 
 impl<'a> TarParser<'a> {
@@ -282,6 +294,7 @@ impl<'a> TarParser<'a> {
             destination: None,
             paths: Vec::new(),
             verbose: false,
+            gzip: false,
         }
     }
 
@@ -312,6 +325,7 @@ impl<'a> TarParser<'a> {
             destination: parser.destination,
             paths: parser.paths,
             verbose: parser.verbose,
+            gzip: parser.gzip,
         })
     }
 
@@ -353,6 +367,10 @@ impl<'a> TarParser<'a> {
             set_tar_mode(&mut self.mode, mode)?;
             return Ok(true);
         }
+        if argument == "--gzip" {
+            self.gzip = true;
+            return Ok(true);
+        }
         Ok(false)
     }
 
@@ -373,8 +391,9 @@ impl<'a> TarParser<'a> {
                 't' => set_tar_mode(&mut self.mode, TarMode::List)?,
                 'x' => set_tar_mode(&mut self.mode, TarMode::Extract)?,
                 'v' => self.verbose = true,
-                'z' | 'j' | 'J' => {
-                    return Err("compressed tar archives are not supported".to_string())
+                'z' => self.gzip = true,
+                'j' | 'J' => {
+                    return Err("only gzip-compressed tar archives are supported".to_string())
                 }
                 'f' => {
                     let inline = &flags[flag_index + 1..];
@@ -547,6 +566,39 @@ fn build_tar_archive(entries: &[ArchiveEntry]) -> Result<Vec<u8>, String> {
         return Err("archive exceeds the 64 MiB limit".to_string());
     }
     Ok(output)
+}
+
+fn compress_tar_archive(archive: &[u8]) -> Result<Vec<u8>, String> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder
+        .write_all(archive)
+        .map_err(|error| format!("gzip compression failed: {error}"))?;
+    let compressed = encoder
+        .finish()
+        .map_err(|error| format!("gzip compression failed: {error}"))?;
+    if compressed.len() > MAX_ARCHIVE_BYTES {
+        return Err("compressed archive exceeds the 64 MiB limit".to_string());
+    }
+    Ok(compressed)
+}
+
+fn read_tar_entries(archive: &[u8], gzip: bool) -> Result<Vec<ArchiveEntry>, String> {
+    if archive.len() > MAX_ARCHIVE_BYTES {
+        return Err("archive exceeds the 64 MiB limit".to_string());
+    }
+    if !gzip {
+        return read_tar_archive(archive);
+    }
+    let decoder = GzDecoder::new(archive);
+    let mut bounded = decoder.take((MAX_ARCHIVE_BYTES + 1) as u64);
+    let mut decompressed = Vec::new();
+    bounded
+        .read_to_end(&mut decompressed)
+        .map_err(|error| format!("gzip decompression failed: {error}"))?;
+    if decompressed.len() > MAX_ARCHIVE_BYTES {
+        return Err("decompressed archive exceeds the 64 MiB limit".to_string());
+    }
+    read_tar_archive(&decompressed)
 }
 
 fn read_tar_archive(archive: &[u8]) -> Result<Vec<ArchiveEntry>, String> {

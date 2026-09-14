@@ -3508,6 +3508,15 @@ mod tests {
         assert!(listing.stdout.contains("source/\n"));
         assert!(listing.stdout.contains("source/nested/note.txt\n"));
 
+        let compressed = session.execute_line("tar -czf compressed.tar source");
+        assert_eq!(compressed.status, 0, "{compressed:?}");
+        assert!(root.join("compressed.tar").exists());
+        let compressed_listing = session.execute_line("tar -tzf compressed.tar");
+        assert_eq!(compressed_listing.status, 0, "{compressed_listing:?}");
+        assert!(compressed_listing
+            .stdout
+            .contains("source/nested/note.txt\n"));
+
         assert_eq!(session.execute_line("rm -r source").status, 0);
         let extracted = session.execute_line("tar -xf bundle.tar -C restored");
         assert_eq!(extracted.status, 0);
@@ -3517,9 +3526,17 @@ mod tests {
                 .stdout,
             "tar-data\n"
         );
+        let compressed_extracted = session.execute_line("tar -xzf compressed.tar -C restored-gzip");
+        assert_eq!(compressed_extracted.status, 0, "{compressed_extracted:?}");
         assert_eq!(
             session
-                .execute_line("tar -czf compressed.tar source")
+                .execute_line("cat restored-gzip/source/nested/note.txt")
+                .stdout,
+            "tar-data\n"
+        );
+        assert_eq!(
+            session
+                .execute_line("tar -xzf bundle.tar -C invalid")
                 .status,
             1
         );

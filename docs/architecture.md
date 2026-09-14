@@ -442,8 +442,9 @@ before the local installer accepts them.
 This is integrity evidence, not a signature or publisher-trust system; signed
 repositories and publisher policy remain future work.
 
-The archive command layer implements deliberately narrow stored/Deflate ZIP32 and USTAR
-profiles. ZIP creation writes UTF-8 entries and CRC32 values through the VFS;
+The archive command layer implements deliberately narrow stored/Deflate ZIP32 and
+USTAR profiles, with optional bounded gzip wrapping for tar. ZIP creation writes
+UTF-8 entries and CRC32 values through the VFS;
 USTAR creation writes regular-file and directory headers, using the standard
 name/prefix fields for longer paths. Both recursive traversals are bounded to
 10,000 entries and complete archives to 64 MiB. ZIP extraction rejects
