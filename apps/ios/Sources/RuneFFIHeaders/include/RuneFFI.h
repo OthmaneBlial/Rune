@@ -190,6 +190,8 @@ RuneOutput rune_session_set_configuration(
 );
 // Reset Rust-owned configuration without history entry.
 RuneOutput rune_session_reset_configuration(void *handle);
+// Clear and persist the Rust-owned terminal screen without history entry.
+RuneOutput rune_session_clear_terminal(void *handle);
 RuneOutput rune_session_put_file(
     void *handle,
     const char *path,

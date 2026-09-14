@@ -279,7 +279,9 @@ cooperative cancellation, history navigation, reverse history search, command
 submission, and a source-only settings sheet. The UIKit command editor also
 routes bare hardware-keyboard Up/Down presses to the model's history navigation;
 the SwiftUI fallback retains the visible history buttons. An optional bounded input toolbar adds
-Tab/completion cycling, Escape dismissal, Ctrl-C, display-clear, and paste controls. These
+Tab/completion cycling, Escape dismissal, Ctrl-C, display-clear, and paste controls.
+Display-clear resets and persists the Rust terminal grid without recording a
+shell command. These
 controls dispatch into the existing Swift model and Rust FFI rather than
 maintaining a second command, configuration, or history implementation; the
 toolbar visibility preference is persisted by Rust and surfaced through the

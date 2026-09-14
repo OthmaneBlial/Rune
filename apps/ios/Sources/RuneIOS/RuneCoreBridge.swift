@@ -165,6 +165,14 @@ public final class RuneFFISession: @unchecked Sendable {
         }
     }
 
+    /// Clears and persists the Rust-owned terminal screen without adding a
+    /// shell command to history.
+    public func clearTerminalScreen() -> RuneCommandResult {
+        withLock {
+            consume(rune_session_clear_terminal(handle))
+        }
+    }
+
     public var currentDirectory: String {
         withLock {
             guard let pointer = rune_session_current_directory(handle.map(UnsafeRawPointer.init)) else {

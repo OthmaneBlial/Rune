@@ -1031,6 +1031,26 @@ pub extern "C" fn rune_session_reset_configuration(handle: *mut c_void) -> RuneO
     into_output(&output)
 }
 
+/// Clears and persists the Rust-owned terminal screen without recording a
+/// shell command in session history.
+#[no_mangle]
+pub extern "C" fn rune_session_clear_terminal(handle: *mut c_void) -> RuneOutput {
+    if handle.is_null() {
+        let output = CommandOutput::failure(1, "rune: session is unavailable\n");
+        return into_output(&output);
+    }
+    // SAFETY: Swift serializes access to the opaque session handle and does
+    // not call this after rune_session_destroy.
+    let core = unsafe { &mut (*handle.cast::<RuneSession>()).core };
+    let output = match core.clear_terminal_screen() {
+        Ok(()) => CommandOutput::success(""),
+        Err(error) => {
+            CommandOutput::failure(1, format!("rune: could not clear terminal: {error}\n"))
+        }
+    };
+    into_output(&output)
+}
+
 /// Executes one Rune command line and persists the session state before
 /// returning. A persistence failure is reported on stderr and changes a
 /// successful command's status to 1.
@@ -1447,9 +1467,9 @@ pub unsafe extern "C" fn rune_file_bytes_free(data: *mut u8, length: usize) {
 mod tests {
     use super::{
         rune_file_bytes_free, rune_session_apply_completion, rune_session_cancel,
-        rune_session_commands, rune_session_complete, rune_session_configuration,
-        rune_session_current_directory, rune_session_destroy, rune_session_execute,
-        rune_session_execute_script, rune_session_execute_script_with_events,
+        rune_session_clear_terminal, rune_session_commands, rune_session_complete,
+        rune_session_configuration, rune_session_current_directory, rune_session_destroy,
+        rune_session_execute, rune_session_execute_script, rune_session_execute_script_with_events,
         rune_session_execute_with_events, rune_session_get_file, rune_session_history,
         rune_session_history_search, rune_session_new, rune_session_new_named,
         rune_session_new_with_layout, rune_session_put_file, rune_session_reset_configuration,
@@ -2535,6 +2555,48 @@ mod tests {
         );
 
         rune_session_destroy(handle);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn c_abi_clears_and_persists_the_rust_owned_terminal_screen() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rune-ffi-clear-terminal-test-{suffix}"));
+        std::fs::create_dir_all(&root).expect("test root created");
+        let root_string = CString::new(root.to_string_lossy().as_bytes()).expect("valid root");
+        let handle = rune_session_new(root_string.as_ptr());
+        assert!(!handle.is_null());
+
+        let command = CString::new("printf 'stale'").expect("valid command");
+        let output = rune_session_execute(handle, command.as_ptr());
+        assert_eq!(output.status, 0);
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+        let snapshot = rune_session_terminal_snapshot(handle);
+        assert_eq!(c_string(snapshot), "stale");
+        unsafe { rune_string_free(snapshot) };
+        let cleared = rune_session_clear_terminal(handle);
+        assert_eq!(cleared.status, 0);
+        unsafe {
+            rune_string_free(cleared.stdout);
+            rune_string_free(cleared.stderr);
+        }
+        let snapshot = rune_session_terminal_snapshot(handle);
+        assert!(c_string(snapshot).is_empty());
+        unsafe { rune_string_free(snapshot) };
+        rune_session_destroy(handle);
+
+        let restored = rune_session_new(root_string.as_ptr());
+        assert!(!restored.is_null());
+        let snapshot = rune_session_terminal_snapshot(restored);
+        assert!(c_string(snapshot).is_empty());
+        unsafe { rune_string_free(snapshot) };
+        rune_session_destroy(restored);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

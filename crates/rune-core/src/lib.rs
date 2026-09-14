@@ -700,6 +700,18 @@ impl Session {
         self.config.save(self.filesystem.as_mut())
     }
 
+    /// Clears the Rust-owned terminal screen without recording a shell
+    /// command, then persists the empty screen for the next launch.
+    ///
+    /// # Errors
+    ///
+    /// Returns the filesystem error when the cleared session cannot be
+    /// persisted.
+    pub fn clear_terminal_screen(&mut self) -> Result<(), FsError> {
+        self.terminal_screen.reset();
+        self.persist()
+    }
+
     /// Returns the current virtual directory, useful to native frontends.
     #[must_use]
     pub fn current_directory(&self) -> String {

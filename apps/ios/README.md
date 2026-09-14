@@ -209,7 +209,9 @@ open/openurl capability; the portable CLI remains launcher-disabled by default.
   native focused command bar/history controls. Its history search panel calls
   the Rust-owned newest-first search endpoint and does not add search text to
   session history. It consumes Rune's clear-screen
-  control sequence as a display action instead of showing escape bytes. The
+  control sequence as a display action instead of showing escape bytes; the
+  toolbar's display-clear action also resets and persists the Rust terminal
+  grid without adding history. The
   source-only `RuneANSIText.swift` renderer also consumes common SGR foreground/
   background colors, 256-color/RGB colors, bold, underline, and inverse
   sequences; unsupported control sequences are omitted from display rather than

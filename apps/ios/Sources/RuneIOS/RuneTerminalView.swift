@@ -325,12 +325,20 @@ public final class RuneTerminalModel: ObservableObject {
         invalidateCompletionCycle()
     }
 
-    /// Clears only the native transcript presentation. The Rust session and
-    /// persisted history remain unchanged; the `clear` command remains the
-    /// portable shell control for scripted callers.
+    /// Clears the native transcript and Rust terminal grid. The rest of the
+    /// Rust session and persisted history remain unchanged; the reset is
+    /// persisted without recording a shell command. The `clear` command
+    /// remains the portable shell control for scripted callers.
     public func clearDisplay() {
         guard !isExecuting else { return }
         clearTranscript()
+        if let session {
+            let result = session.clearTerminalScreen()
+            if result.status != 0 {
+                append(result)
+            }
+            refreshTerminalState(from: session)
+        }
     }
 
     /// Updates a validated Rust-owned setting without routing the change
