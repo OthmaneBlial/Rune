@@ -5,6 +5,11 @@ ABI declaration used to link `rune-ffi`. It is intentionally source-first:
 this checkout does not download or install Xcode, an iOS SDK, simulators, or
 third-party packages.
 
+The runtime hand-off is documented in
+[`../../docs/apple-validation.md`](../../docs/apple-validation.md). Until that
+runbook is executed on a machine with an existing Apple toolchain, this
+directory is source/API evidence only and is not an installable iOS build.
+
 The SwiftUI view sends real command lines to the Rust session. It does not
 invent terminal output. The Rust static library must be linked by the eventual
 Xcode application target; a Swift package manifest alone is not an App Store
