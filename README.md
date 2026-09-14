@@ -129,6 +129,11 @@ arguments.
 `sh -c SCRIPT` and `dash -c SCRIPT` execute an inline bounded script through
 that same Rust planner, with an optional `$0` name and up to 64 positional
 arguments; they never start a host shell.
+Multiline automation scripts also support bounded `for NAME in VALUE ...; do`
+loops, including nested loops; each loop accepts at most 256 expanded values
+and keeps the loop variable in the Rust session. Full shell control-flow
+compatibility, including `while`, `case`, and one-line loop bodies, remains
+outside this subset.
 `type` complements `which` by describing aliases, Rust built-ins, installed
 package commands, and missing names without exposing host executables.
 `command -v` and `command -V` provide the same bounded discovery for scripts;
@@ -501,6 +506,7 @@ result.
 - [x] Bounded session-local command aliases
 - [x] Bounded script-file sourcing with positional arguments and nested execution limits
 - [x] Bounded `sh -c`/`dash -c` inline scripts with positional arguments
+- [x] Bounded multiline `for` loops in Rust-planned scripts
 - [x] Cooperative command cancellation boundary, including cancellable `sleep`
 - [x] `&&` and `||` conditional chaining
 - [x] Bounded recursive `find` traversal with type/depth filters

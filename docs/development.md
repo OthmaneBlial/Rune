@@ -107,7 +107,10 @@ Script tests also cover bounded positional arguments (`$0`, `$1...`, `$#`, and
 `$@`), preservation of pipeline stdin, and restoration of outer parameters
 after nested source calls. The inline `sh -c`/`dash -c` tests cover the same
 Rust planner, positional values, pipeline stdin, sequencing, and rejection of
-unsupported shell modes without starting a host process.
+unsupported shell modes without starting a host process. Script control-flow
+tests cover multiline `for` loops, nested loops, variable expansion, bounded
+value lists, and missing `done` errors; `while`, `case`, and one-line loop
+bodies remain outside the bounded grammar.
 Shell parser tests cover quoted and nested `$(...)` forms and unclosed
 substitution rejection. The core integration test covers stdout capture,
 trailing-newline removal, nested substitutions, redirection targets, and

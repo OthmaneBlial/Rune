@@ -175,7 +175,11 @@ executor for inline scripts. An optional command name becomes `$0`, following
 arguments become bounded `$1...` values, and stdin/redirections remain inside
 the current virtual session; no host shell or process is started. Shell-script
 nesting shares the 16-level source limit and accepts at most 64 positional
-arguments.
+arguments. Multiline scripts also have a bounded `for NAME in VALUE ...; do`
+construct. Its expanded values and nested bodies are executed through this same
+Rust planner; each loop accepts at most 256 values and leaves its final loop
+variable in the session environment. `while`, `case`, and one-line loop bodies
+remain outside the subset.
 
 The Apple source layer declares command, script, and named-session command App
 Intents that construct a normal `RuneFFISession` rooted at the app Documents
