@@ -94,6 +94,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::clear,
     },
     CommandDefinition {
+        name: "command",
+        summary: "discover bounded Rune and package commands",
+        handler: shell::command,
+    },
+    CommandDefinition {
         name: "compress",
         summary: "compress bounded VFS files with LZW",
         handler: compression::compress,

@@ -5231,6 +5231,17 @@ mod tests {
             "ll is an alias for ls\necho is a Rune builtin\n"
         );
         assert_eq!(typed.stderr, "type: missing: not found\n");
+        let compact = session.execute_line("command -v ll echo missing");
+        assert_eq!(compact.status, 1);
+        assert_eq!(compact.stdout, "alias ll='ls'\necho\n");
+        assert_eq!(compact.stderr, "command: missing: not found\n");
+        let verbose = session.execute_line("command -V ll echo");
+        assert_eq!(verbose.status, 0);
+        assert_eq!(
+            verbose.stdout,
+            "ll is an alias for ls\necho is a Rune builtin\n"
+        );
+        assert_eq!(session.execute_line("command echo").status, 2);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

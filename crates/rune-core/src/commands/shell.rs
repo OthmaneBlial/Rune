@@ -172,6 +172,88 @@ pub(super) fn type_command(context: &mut CommandContext<'_>) -> CommandOutput {
     output
 }
 
+/// Provides bounded shell-script command discovery without probing host
+/// executables. `-v` emits a compact command value; `-V` emits the descriptive
+/// form used by Rune's `type`-like discovery.
+pub(super) fn command(context: &mut CommandContext<'_>) -> CommandOutput {
+    let mut mode = None;
+    let mut names = Vec::new();
+    let mut parse_options = true;
+    for argument in context.args {
+        if parse_options && argument == "--" {
+            parse_options = false;
+        } else if parse_options && argument == "-v" {
+            if mode.is_some() {
+                return usage("command", "usage: command [-v|-V] COMMAND ...");
+            }
+            mode = Some(false);
+        } else if parse_options && argument == "-V" {
+            if mode.is_some() {
+                return usage("command", "usage: command [-v|-V] COMMAND ...");
+            }
+            mode = Some(true);
+        } else if parse_options && argument.starts_with('-') {
+            return usage("command", "usage: command [-v|-V] COMMAND ...");
+        } else {
+            names.push(argument.as_str());
+        }
+    }
+    let Some(verbose) = mode else {
+        return usage("command", "usage: command [-v|-V] COMMAND ...");
+    };
+    if names.is_empty() {
+        return usage("command", "usage: command [-v|-V] COMMAND ...");
+    }
+
+    let mut output = CommandOutput::success("");
+    for name in names {
+        if let Some(value) = context.aliases.get(name) {
+            if verbose {
+                let _ = writeln!(output.stdout, "{name} is an alias for {value}");
+            } else {
+                let _ = writeln!(output.stdout, "alias {name}='{value}'");
+            }
+        } else if context
+            .command_definitions
+            .iter()
+            .any(|definition| definition.name == name)
+        {
+            if verbose {
+                let _ = writeln!(output.stdout, "{name} is a Rune builtin");
+            } else {
+                let _ = writeln!(output.stdout, "{name}");
+            }
+        } else {
+            match crate::find_installed_command_in_filesystem(context.fs, name) {
+                Ok(Some(installed_command)) => {
+                    if verbose {
+                        let _ = writeln!(
+                            output.stdout,
+                            "{name} is an installed package command ({})",
+                            installed_command.package
+                        );
+                    } else {
+                        let _ = writeln!(
+                            output.stdout,
+                            "{name}: package {}",
+                            installed_command.package
+                        );
+                    }
+                }
+                Ok(None) => {
+                    output.status = 1;
+                    let _ = writeln!(output.stderr, "command: {name}: not found");
+                }
+                Err(error) => {
+                    output.status = 1;
+                    let _ = writeln!(output.stderr, "command: {name}: {error}");
+                }
+            }
+        }
+    }
+    output
+}
+
 pub(super) fn clear(context: &mut CommandContext<'_>) -> CommandOutput {
     if !context.args.is_empty() {
         return usage("clear", "usage: clear");

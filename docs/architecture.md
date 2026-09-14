@@ -352,6 +352,9 @@ missing names. These commands never expose the host user's name or claim that
 arbitrary host executables are available; installed package commands are
 discovered from local package manifests and reported with their package and
 version.
+`command -v` and `command -V` expose the same discovery boundary for scripts;
+the bounded implementation is introspection-only and does not implement the
+host shell's command-execution form.
 
 Native completion asks the Rust session for replacement tokens. At the start
 of a line it returns built-in and installed-package command names; for

@@ -37,7 +37,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 `touch`, `mktemp`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
 `setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `file`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`, `unlink`, `tee`, `tr`, `tree`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
-`true`, `false`, `ar`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`, `type`,
+`true`, `false`, `ar`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`, `type`, `command`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
 `help`, `history`, `sleep`, `uname`, `which`, `whoami`, `xargs`, `pbcopy`, `pbpaste`,
 `test`, `[`, `source`, `.`, `sh`, and `dash` against a
@@ -130,6 +130,9 @@ that same Rust planner, with an optional `$0` name and up to 64 positional
 arguments; they never start a host shell.
 `type` complements `which` by describing aliases, Rust built-ins, installed
 package commands, and missing names without exposing host executables.
+`command -v` and `command -V` provide the same bounded discovery for scripts;
+they report aliases, Rust built-ins, and installed package commands without
+probing or launching host executables.
 The Rust-owned `test` and `[` built-ins evaluate bounded file predicates
 (`-e`, `-f`, `-d`, `-L`, `-h`, `-s`), string predicates, integer comparisons,
 negation, and `-a`/`-o` composition so scripts can branch without a host shell.
@@ -468,6 +471,7 @@ engineering measurements, not release or device-performance claims.
 - [x] Bounded regular-expression and fixed-string `grep` modes
 - [x] Bounded numeric, reverse, and unique `sort` options
 - [x] Bounded `type` command discovery
+- [x] Bounded `command -v`/`-V` discovery for scripts
 - [x] Bounded Rust-owned `file` identification utility
 - [x] Bounded VFS `tree` directory rendering
 - [x] Bounded `test` and `[` predicates for script conditionals
