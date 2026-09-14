@@ -85,6 +85,9 @@ The `awk` test covers stdin field selection, `-F`/`OFS`, `BEGIN`, equality and
 bounded regular-expression filtering, `END`, and rejection of unsupported
 actions; it does not establish full awk language or regular-expression
 compatibility.
+The `find` integration test covers basename, file/directory/symlink type,
+minimum and maximum depth filters, and invalid type rejection while preserving
+the no-symlink-following traversal boundary.
 Redirection tests cover append writes, `2>&1`, `1>&2`, `&>`, left-to-right
 duplication order, and carrying merged stderr through a pipeline.
 Script tests also cover bounded positional arguments (`$0`, `$1...`, `$#`, and

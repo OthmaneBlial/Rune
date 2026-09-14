@@ -77,6 +77,8 @@ classification. It is not a `libmagic` replacement.
 `tree` renders a bounded Unicode directory view through the VFS, with hidden
 entry selection via `-a`, directory-only output via `-d`, and depth control via
 `-L`; it never follows symlink entries.
+`find` supports a bounded start path with `-name`, `-type f|d|l`, `-mindepth`,
+and `-maxdepth`; it reports symlink entries without following them.
 `awk` provides a Rust-owned bounded text-processing subset: `-F` field
 separators, `$0`/`$1...`, `NF`/`NR`/`FNR`, `print`, `FS`/`OFS` assignments,
 `BEGIN`/`END`, regular-expression `/.../` filters, simple equality, and
@@ -423,7 +425,7 @@ git check-ignore -v base/a-shell
 - [x] Bounded `sh -c`/`dash -c` inline scripts with positional arguments
 - [x] Cooperative command cancellation boundary, including cancellable `sleep`
 - [x] `&&` and `||` conditional chaining
-- [x] Bounded recursive `find` traversal
+- [x] Bounded recursive `find` traversal with type/depth filters
 - [x] Bounded regular-expression `sed` substitutions
 - [x] Bounded terminal output channels
 - [x] Session-local virtual directory bookmarks

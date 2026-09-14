@@ -210,32 +210,31 @@ pub(super) fn cat(context: &mut CommandContext<'_>) -> CommandOutput {
 }
 
 pub(super) fn find(context: &mut CommandContext<'_>) -> CommandOutput {
-    let (path, pattern, max_depth) = match parse_find_args(context.args) {
+    let (path, options) = match parse_find_args(context.args) {
         Ok(parsed) => parsed,
         Err(output) => return output,
     };
     let mut stdout = String::new();
     let mut visited = 0;
-    if let Err(output) = visit_find(
-        context,
-        &path,
-        pattern.as_deref(),
-        max_depth,
-        0,
-        &mut visited,
-        &mut stdout,
-    ) {
+    let mut traversal = FindTraversal {
+        options: &options,
+        visited: &mut visited,
+        stdout: &mut stdout,
+    };
+    if let Err(output) = visit_find(context, &path, 0, &mut traversal) {
         return output;
     }
     CommandOutput::success(stdout)
 }
 
-fn parse_find_args(
-    args: &[String],
-) -> Result<(String, Option<String>, Option<usize>), CommandOutput> {
+fn parse_find_args(args: &[String]) -> Result<(String, FindOptions), CommandOutput> {
     let mut path = ".".to_string();
-    let mut pattern = None;
-    let mut max_depth = None;
+    let mut options = FindOptions {
+        pattern: None,
+        find_type: None,
+        min_depth: 0,
+        max_depth: None,
+    };
     let mut index = 0;
     if let Some(first) = args.first() {
         if !first.starts_with('-') {
@@ -250,13 +249,13 @@ fn parse_find_args(
                 if index >= args.len() {
                     return Err(usage(
                         "find",
-                        "usage: find [path] [-name PATTERN] [-maxdepth N]",
+                        "usage: find [path] [-name PATTERN] [-type f|d|l] [-mindepth N] [-maxdepth N]",
                     ));
                 }
                 if index + 1 != args.len() {
                     return Err(usage(
                         "find",
-                        "usage: find [path] [-name PATTERN] [-maxdepth N]",
+                        "usage: find [path] [-name PATTERN] [-type f|d|l] [-mindepth N] [-maxdepth N]",
                     ));
                 }
                 path.clone_from(&args[index]);
@@ -267,7 +266,7 @@ fn parse_find_args(
                 let Some(value) = args.get(index) else {
                     return Err(usage("find", "-name requires a pattern"));
                 };
-                pattern = Some(value.clone());
+                options.pattern = Some(value.clone());
                 index += 1;
             }
             "-maxdepth" => {
@@ -275,37 +274,77 @@ fn parse_find_args(
                 let Some(value) = args.get(index) else {
                     return Err(usage("find", "-maxdepth requires a non-negative number"));
                 };
-                max_depth = Some(
+                options.max_depth = Some(
                     value
                         .parse::<usize>()
                         .map_err(|_| usage("find", "-maxdepth requires a non-negative number"))?,
                 );
                 index += 1;
             }
+            "-mindepth" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(usage("find", "-mindepth requires a non-negative number"));
+                };
+                options.min_depth = value
+                    .parse::<usize>()
+                    .map_err(|_| usage("find", "-mindepth requires a non-negative number"))?;
+                index += 1;
+            }
+            "-type" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(usage("find", "-type requires f, d, or l"));
+                };
+                options.find_type = Some(match value.as_str() {
+                    "f" => FindType::File,
+                    "d" => FindType::Directory,
+                    "l" => FindType::Symlink,
+                    _ => return Err(usage("find", "-type requires f, d, or l")),
+                });
+                index += 1;
+            }
             _ => {
                 return Err(usage(
                     "find",
-                    "usage: find [path] [-name PATTERN] [-maxdepth N]",
+                    "usage: find [path] [-name PATTERN] [-type f|d|l] [-mindepth N] [-maxdepth N]",
                 ))
             }
         }
     }
-    Ok((path, pattern, max_depth))
+    Ok((path, options))
+}
+
+#[derive(Clone, Copy)]
+enum FindType {
+    File,
+    Directory,
+    Symlink,
+}
+
+struct FindOptions {
+    pattern: Option<String>,
+    find_type: Option<FindType>,
+    min_depth: usize,
+    max_depth: Option<usize>,
+}
+
+struct FindTraversal<'a> {
+    options: &'a FindOptions,
+    visited: &'a mut usize,
+    stdout: &'a mut String,
 }
 
 fn visit_find(
     context: &mut CommandContext<'_>,
     path: &str,
-    pattern: Option<&str>,
-    max_depth: Option<usize>,
     depth: usize,
-    visited: &mut usize,
-    stdout: &mut String,
+    traversal: &mut FindTraversal<'_>,
 ) -> Result<(), CommandOutput> {
     if let Some(output) = context.take_cancellation() {
         return Err(output);
     }
-    if *visited >= FIND_ENTRY_LIMIT {
+    if *traversal.visited >= FIND_ENTRY_LIMIT {
         return Err(CommandOutput::failure(
             1,
             format!("find: traversal exceeded {FIND_ENTRY_LIMIT} entries\n"),
@@ -315,12 +354,31 @@ fn visit_find(
         .fs
         .metadata(path)
         .map_err(|error| fs_failure("find", &error))?;
-    *visited += 1;
-    if pattern.map_or(true, |value| wildcard_match(value, path_basename(path))) {
-        stdout.push_str(path);
-        stdout.push('\n');
+    *traversal.visited += 1;
+    let type_matches = match traversal.options.find_type {
+        None => true,
+        Some(FindType::File) => !info.is_directory && !info.is_symlink,
+        Some(FindType::Directory) => info.is_directory && !info.is_symlink,
+        Some(FindType::Symlink) => info.is_symlink,
+    };
+    if depth >= traversal.options.min_depth
+        && type_matches
+        && traversal
+            .options
+            .pattern
+            .as_deref()
+            .map_or(true, |value| wildcard_match(value, path_basename(path)))
+    {
+        traversal.stdout.push_str(path);
+        traversal.stdout.push('\n');
     }
-    if !info.is_directory || info.is_symlink || max_depth.is_some_and(|limit| depth >= limit) {
+    if !info.is_directory
+        || info.is_symlink
+        || traversal
+            .options
+            .max_depth
+            .is_some_and(|limit| depth >= limit)
+    {
         return Ok(());
     }
     let entries = context
@@ -329,15 +387,7 @@ fn visit_find(
         .map_err(|error| fs_failure("find", &error))?;
     for entry in entries {
         let child = append_child_path(path, &entry.name);
-        visit_find(
-            context,
-            &child,
-            pattern,
-            max_depth,
-            depth + 1,
-            visited,
-            stdout,
-        )?;
+        visit_find(context, &child, depth + 1, traversal)?;
     }
     Ok(())
 }

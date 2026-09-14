@@ -3846,12 +3846,35 @@ mod tests {
             session.execute_line("find project -name '*.rs'").stdout,
             "project/src/main.rs\n"
         );
+        assert_eq!(
+            session
+                .execute_line("find project -type f -name '*.rs'")
+                .stdout,
+            "project/src/main.rs\n"
+        );
+        assert_eq!(
+            session
+                .execute_line("find project -type d -mindepth 1 -maxdepth 1")
+                .stdout,
+            "project/docs\nproject/src\n"
+        );
+        assert_eq!(
+            session
+                .execute_line("ln -s src/main.rs project/link.rs")
+                .status,
+            0
+        );
+        assert_eq!(
+            session.execute_line("find project -type l").stdout,
+            "project/link.rs\n"
+        );
         let missing = session.execute_line("find missing");
         assert_eq!(missing.status, 1);
         assert!(missing.stderr.contains("no such file or directory"));
         let invalid = session.execute_line("find project -maxdepth many");
         assert_eq!(invalid.status, 2);
         assert!(invalid.stderr.contains("non-negative number"));
+        assert_eq!(session.execute_line("find project -type x").status, 2);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
