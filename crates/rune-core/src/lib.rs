@@ -7215,6 +7215,26 @@ true
     }
 
     #[test]
+    fn prints_bounded_integer_sequences() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("seq 3").stdout, "0\n1\n2\n3\n");
+        assert_eq!(session.execute_line("seq 2 2 6").stdout, "2\n4\n6\n");
+        assert_eq!(
+            session.execute_line("seq 3 -1 -1").stdout,
+            "3\n2\n1\n0\n-1\n"
+        );
+        assert_eq!(session.execute_line("seq 5 1 3").stdout, "");
+        let zero = session.execute_line("seq 1 0 3");
+        assert_eq!(zero.status, 1);
+        assert!(zero.stderr.contains("must not be zero"));
+        let too_large = session.execute_line("seq 1 100001");
+        assert_eq!(too_large.status, 1);
+        assert!(too_large.stderr.contains("exceeds 100000"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn manages_virtual_bookmarks_and_restores_them() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));

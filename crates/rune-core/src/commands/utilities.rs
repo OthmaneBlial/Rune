@@ -24,6 +24,7 @@ const MAX_MKTEMP_TEMPLATE_BYTES: usize = 1024;
 const MIN_MKTEMP_X_COUNT: usize = 3;
 const MAX_MKTEMP_X_COUNT: usize = 32;
 const MAX_FILE_PROBE_BYTES: usize = 256 * 1024;
+const MAX_SEQ_VALUES: usize = 100_000;
 
 const BASE64_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -1455,6 +1456,45 @@ pub(super) fn tee(context: &mut CommandContext<'_>) -> CommandOutput {
         }
     }
     CommandOutput::success(context.stdin)
+}
+
+pub(super) fn seq(context: &mut CommandContext<'_>) -> CommandOutput {
+    let (first_text, increment_text, last_text) = match context.args {
+        [last] => ("0", "1", last.as_str()),
+        [first, last] => (first.as_str(), "1", last.as_str()),
+        [first, increment, last] => (first.as_str(), increment.as_str(), last.as_str()),
+        _ => return usage("seq", "usage: seq [FIRST [INCREMENT]] LAST"),
+    };
+    let parse = |text: &str| text.parse::<i64>().map(i128::from);
+    let Ok(first) = parse(first_text) else {
+        return CommandOutput::failure(1, format!("seq: invalid integer: {first_text}\n"));
+    };
+    let Ok(increment) = parse(increment_text) else {
+        return CommandOutput::failure(1, format!("seq: invalid integer: {increment_text}\n"));
+    };
+    let Ok(last) = parse(last_text) else {
+        return CommandOutput::failure(1, format!("seq: invalid integer: {last_text}\n"));
+    };
+    if increment == 0 {
+        return CommandOutput::failure(1, "seq: increment must not be zero\n");
+    }
+    let count = if (increment > 0 && first > last) || (increment < 0 && first < last) {
+        0
+    } else if increment > 0 {
+        ((last - first) / increment) + 1
+    } else {
+        ((first - last) / -increment) + 1
+    };
+    if count > MAX_SEQ_VALUES as i128 {
+        return CommandOutput::failure(1, format!("seq: output exceeds {MAX_SEQ_VALUES} values\n"));
+    }
+    let mut output = String::new();
+    let mut current = first;
+    for _ in 0..count {
+        let _ = writeln!(output, "{current}");
+        current += increment;
+    }
+    CommandOutput::success(output)
 }
 
 pub(super) fn tr(context: &mut CommandContext<'_>) -> CommandOutput {

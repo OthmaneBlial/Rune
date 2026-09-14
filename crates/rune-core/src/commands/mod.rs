@@ -565,6 +565,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::setenv,
     },
     CommandDefinition {
+        name: "seq",
+        summary: "print a bounded integer sequence",
+        handler: utilities::seq,
+    },
+    CommandDefinition {
         name: "showmarks",
         summary: "list saved directory bookmarks",
         handler: bookmarks::showmarks,

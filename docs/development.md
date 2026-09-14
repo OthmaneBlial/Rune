@@ -75,7 +75,9 @@ alias while executing the selected Rust builtin, rejects a missing target, and
 checks the bounded case-insensitive `apropos` command-description search.
 Base64 tests cover stdin encode/decode, padded input, malformed characters,
 non-UTF-8 decoded output, usage errors, and the 768 KiB input bound.
-Checksum tests cover the POSIX CRC vector and invalid operand counts. The
+Checksum tests cover the POSIX CRC vector and invalid operand counts. Utility
+tests also cover bounded ascending/descending `seq` output, zero increments,
+and the 100,000-value output cap. The
 portable utility tests also cover UTC `date` formatting and BSD/System V `sum`
 vectors, plus arithmetic, comments, separators, overflow, and division errors
 for the bounded `bc` surface. Date setting and locale-specific formatting remain

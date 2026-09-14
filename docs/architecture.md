@@ -394,7 +394,7 @@ malicious or cyclic tree from turning a synchronous command into unbounded
 work.
 
 The portable utility slice adds bounded `base64`, `basename`, `bc`, `cksum`,
-`date`, `dirname`, `du`, `expr`, `file`, `md5`, `mktemp`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`,
+`date`, `dirname`, `du`, `expr`, `file`, `md5`, `mktemp`, `realpath`, `rmdir`, `seq`, `sha256`, `stat`, `sum`,
 `tree`, `unlink`, `tee`, `tr`, and `xxd` commands, plus
 `ln -s`/`readlink` and
 the `unsetenv` spelling for environment removal. They operate on Rune's virtual filesystem or pipeline

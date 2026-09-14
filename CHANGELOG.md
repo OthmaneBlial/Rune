@@ -4,6 +4,13 @@ All notable public changes to Rune are documented here. The project is
 pre-1.0; entries describe verified repository behavior and do not imply an
 iOS runtime release.
 
+## [Unreleased]
+
+### Added
+
+- A bounded Rust-native `seq` utility for ascending and descending integer
+  sequences, with explicit zero-increment and output-size errors.
+
 ## [0.1.0-alpha.6] - 2026-09-14
 
 ### Added
