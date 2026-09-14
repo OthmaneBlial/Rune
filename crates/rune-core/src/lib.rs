@@ -7188,6 +7188,14 @@ true
             "name=Rune count=3\n"
         );
         assert_eq!(session.execute_line("printf '100%%'").stdout, "100%");
+        assert_eq!(
+            session.execute_line(r"printf '\033[?25l'").stdout,
+            "\u{1b}[?25l"
+        );
+        assert_eq!(
+            session.execute_line(r"printf '\x1b[?25h'").stdout,
+            "\u{1b}[?25h"
+        );
         let invalid = session.execute_line("printf '%d' nope");
         assert_eq!(invalid.status, 2);
         assert!(invalid.stderr.contains("integer argument is invalid"));

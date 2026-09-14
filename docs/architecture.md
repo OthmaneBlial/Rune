@@ -487,7 +487,8 @@ visible status 1 so scripts and native clients can distinguish it from usage
 failure.
 
 The Rust shell includes a bounded `printf` formatter for `%s`, `%c`, `%d`,
-`%i`, `%%`, and the `\\n`, `\\r`, `\\t`, and `\\\\` escapes. It deliberately
+`%i`, `%%`, and common simple, octal, and hexadecimal escapes such as `\\n`,
+`\\r`, `\\t`, `\\033`, and `\\x1b`. It deliberately
 rejects unsupported conversions and malformed integer arguments instead of
 delegating formatting to a host shell.
 

@@ -12,6 +12,8 @@ iOS runtime release.
   controls, exposed through the C ABI and consumed by the source-only SwiftUI
   terminal surface.
 - Public C FFI smoke coverage for cursor visibility transitions.
+- Bounded `printf` octal and hexadecimal escapes for real ANSI-oriented
+  terminal workflows.
 
 ## [0.1.0-alpha] - 2026-09-14
 

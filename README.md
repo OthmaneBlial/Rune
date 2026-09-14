@@ -10,7 +10,7 @@ for a-Shell.
 
 ## Development Progress
 
-**Overall progress: 46%**
+**Overall progress: 47%**
 
 This is an engineering estimate of the product path toward a validated iPhone
 and iPad terminal, not a percentage of lines of code. Portable Rust behavior is
@@ -21,7 +21,7 @@ this disk-constrained workspace.
 | --- | ---: |
 | Rust core and session model | 68% |
 | Shell grammar and execution planning | 59% |
-| Built-in command surface | 52% |
+| Built-in command surface | 54% |
 | Confined filesystem and security policy | 62% |
 | Persistence and command history | 55% |
 | Terminal state and ANSI handling | 49% |

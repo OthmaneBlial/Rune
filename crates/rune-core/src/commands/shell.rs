@@ -694,16 +694,10 @@ fn format_printf(format: &str, arguments: &[String]) -> Result<String, String> {
         match characters[index] {
             '\\' => {
                 index += 1;
-                let Some(escape) = characters.get(index) else {
+                let Some(_escape) = characters.get(index) else {
                     return Err("trailing escape".to_string());
                 };
-                output.push(match escape {
-                    'n' => '\n',
-                    'r' => '\r',
-                    't' => '\t',
-                    '\\' => '\\',
-                    _ => *escape,
-                });
+                output.push(parse_printf_escape(&characters, &mut index)?);
             }
             '%' => {
                 index += 1;
@@ -739,6 +733,55 @@ fn format_printf(format: &str, arguments: &[String]) -> Result<String, String> {
         index += 1;
     }
     Ok(output)
+}
+
+fn parse_printf_escape(characters: &[char], index: &mut usize) -> Result<char, String> {
+    let escape = characters[*index];
+    let simple = match escape {
+        'a' => Some('\x07'),
+        'b' => Some('\x08'),
+        'e' | 'E' => Some('\x1b'),
+        'f' => Some('\x0c'),
+        'n' => Some('\n'),
+        'r' => Some('\r'),
+        't' => Some('\t'),
+        'v' => Some('\x0b'),
+        '\\' => Some('\\'),
+        _ => None,
+    };
+    if let Some(character) = simple {
+        return Ok(character);
+    }
+
+    if escape == 'x' {
+        let start = *index + 1;
+        let end = (start + 2).min(characters.len());
+        let digits = characters[start..end]
+            .iter()
+            .take_while(|character| character.is_ascii_hexdigit())
+            .collect::<String>();
+        if digits.is_empty() {
+            return Err("hex escape requires at least one digit".to_string());
+        }
+        *index = start + digits.len() - 1;
+        let value =
+            u8::from_str_radix(&digits, 16).map_err(|_| "hex escape is invalid".to_string())?;
+        return Ok(char::from(value));
+    }
+
+    if escape.is_ascii_digit() && escape <= '7' {
+        let end = (*index + 3).min(characters.len());
+        let digits = characters[*index..end]
+            .iter()
+            .take_while(|character| character.is_ascii_digit() && **character <= '7')
+            .collect::<String>();
+        *index += digits.len().saturating_sub(1);
+        let value =
+            u8::from_str_radix(&digits, 8).map_err(|_| "octal escape is invalid".to_string())?;
+        return Ok(char::from(value));
+    }
+
+    Ok(escape)
 }
 
 fn aliases_output(context: &CommandContext<'_>) -> CommandOutput {
