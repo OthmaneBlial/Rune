@@ -6,6 +6,8 @@ cd "$project_root"
 
 echo "==> compatibility matrix validation"
 python3 scripts/validate_compatibility.py
+python3 scripts/compatibility_runner.py --validate-only
+python3 scripts/test_compatibility_runner.py
 
 echo "==> shell script syntax"
 bash -n scripts/ci.sh scripts/demo.sh scripts/bench.sh

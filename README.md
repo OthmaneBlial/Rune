@@ -380,6 +380,13 @@ boundary remain unverified.
 
 No a-Shell compatibility area is marked `supported` without behavior and test
 evidence. See [`compat/a-shell-compatibility.json`](compat/a-shell-compatibility.json).
+The versioned scenarios in [`compat/scenarios/core.json`](compat/scenarios/core.json)
+define a small, bounded differential surface for quoting, pipelines,
+substitution, conditionals, confined files, status, and aliases. The local
+runner executes each scenario in a fresh temporary Rune filesystem and can
+compare separately captured a-Shell observations; it never executes the
+reference checkout and keeps direct comparison pending until Apple-runtime
+evidence exists.
 
 ## Architecture
 
@@ -423,6 +430,14 @@ For local timing samples of the warm CLI startup, a confined filesystem
 pipeline, and bounded tree rendering, run `./scripts/bench.sh`. It reports
 `real`, `user`, and `sys` durations for the current machine; these samples are
 engineering measurements, not release or device-performance claims.
+
+Validate the compatibility scenario document with
+`python3 scripts/compatibility_runner.py --validate-only`. After
+`cargo build -p rune-cli`, run the isolated Rune side with
+`python3 scripts/compatibility_runner.py`; provide a directory of separately
+captured a-Shell observations with `--reference-dir` to perform a bounded
+comparison. A green scenario run alone is not a direct a-Shell compatibility
+result.
 
 ## Roadmap
 
@@ -492,6 +507,7 @@ engineering measurements, not release or device-performance claims.
 - [x] Bounded JavaScript runtime evaluation
 - [x] Bounded Lua 5.4 runtime evaluation
 - [x] Rust-owned command/path completion and help metadata
+- [x] Versioned isolated differential scenarios (direct a-Shell comparison pending)
 
 ### Phase 4 — Apple integration
 

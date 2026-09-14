@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "reference": {
+    "name": "a-Shell",
+    "path": "base/a-shell",
+    "comparison": "pending"
+  },
+  "normalization_rules": [
+    "crlf",
+    "trailing-newline",
+    "sandbox-root"
+  ],
+  "scenarios": [
+    {
+      "id": "shell/quoted-arguments",
+      "command": "printf '%s\\n%s\\n' \"left right\" 'quoted'",
+      "stdin": "",
+      "normalization": ["crlf", "trailing-newline"]
+    },
+    {
+      "id": "shell/pipeline-filter",
+      "command": "printf '%s\\n%s\\n' alpha beta | grep -n beta",
+      "stdin": "",
+      "normalization": ["crlf", "trailing-newline"]
+    },
+    {
+      "id": "shell/command-substitution",
+      "command": "printf '%s\\n' \"$(echo nested)\"",
+      "stdin": "",
+      "normalization": ["crlf", "trailing-newline"]
+    },
+    {
+      "id": "shell/conditional-status",
+      "command": "test -f missing.txt && echo present || echo absent",
+      "stdin": "",
+      "normalization": ["crlf", "trailing-newline"]
+    },
+    {
+      "id": "filesystem/confined-redirection",
+      "command": "echo artifact > value.txt && cat value.txt",
+      "stdin": "",
+      "normalization": ["crlf", "trailing-newline"]
+    },
+    {
+      "id": "filesystem/working-directory",
+      "command": "mkdir work && cd work && pwd",
+      "stdin": "",
+      "normalization": ["crlf", "trailing-newline", "sandbox-root"]
+    },
+    {
+      "id": "shell/stderr-status",
+      "command": "cat missing.txt",
+      "stdin": "",
+      "normalization": ["crlf", "trailing-newline"]
+    },
+    {
+      "id": "shell/alias-bypass",
+      "command": "alias greet='echo alias' && greet && command echo registry",
+      "stdin": "",
+      "normalization": ["crlf", "trailing-newline"]
+    }
+  ]
+}

@@ -22,6 +22,49 @@ It verifies the schema, allowed statuses, ISO review date, repository evidence
 paths, and the Git ignore rule for `base/a-shell`. This is evidence hygiene; it
 does not execute a-Shell or upgrade any comparison state by itself.
 
-For differential tests, record the scenario, observed reference behavior,
+## Differential scenario runner
+
+[`compat/scenarios/core.json`](../compat/scenarios/core.json) is a versioned
+scenario document. Each scenario contains one bounded command, optional UTF-8
+stdin, and an explicit list of normalization rules. The initial set covers
+quoted arguments, pipelines, command substitution, conditional status,
+confined redirection, working-directory state, stderr/status, and alias
+bypass.
+
+Validate only the scenario contract with:
+
+```bash
+python3 scripts/compatibility_runner.py --validate-only
+```
+
+After building the CLI, execute the Rune side with:
+
+```bash
+cargo build -p rune-cli
+python3 scripts/compatibility_runner.py > /tmp/rune-compatibility.json
+```
+
+Every scenario gets a fresh temporary filesystem. The output records Rune
+stdout, stderr, and process status, but labels the comparison `pending` because
+this workspace cannot execute the Apple reference. A separate Apple/a-Shell
+harness may place files named after the scenario (with `/` replaced by `__`)
+in an observation directory and then run:
+
+```bash
+python3 scripts/compatibility_runner.py --reference-dir PATH
+```
+
+An observation must identify `a-Shell`, carry the matching scenario id, and
+contain captured stdout, stderr, and an exit status. The runner compares only
+the declared normalized streams and status; it does not inspect or execute
+`base/a-shell`. A mismatch is a useful regression lead, not permission to mark
+the matrix `supported` without reviewing the reference capture and preserving
+the scenario-specific regression test.
+
+The local CI runs the schema validator and runner unit tests, not the
+comparison mode. This keeps the absence of an Apple runtime visible instead of
+turning a self-comparison or a missing observation into compatibility evidence.
+
+For every differential test, record the scenario, observed reference behavior,
 Rune behavior, normalization rules, and the regression test that preserves the
 result. Keep compatibility claims bounded to the tested scenario.

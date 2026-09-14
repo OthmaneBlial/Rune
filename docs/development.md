@@ -180,6 +180,11 @@ The source-only renderer also consumes bounded ANSI SGR foreground/background
 colors, 256-color/RGB colors, bold, underline, and inverse controls; Apple
 text-layout and terminal-control fidelity remain unverified without the Apple
 runtime.
+The versioned compatibility scenario runner validates bounded command fixtures,
+runs Rune scenarios in isolated temporary filesystems, and supports comparison
+against separately captured a-Shell observations. Its default output remains
+`pending`; it does not execute `base/a-shell` or convert a self-run into direct
+compatibility evidence.
 The network tests use an injected provider and verify method, URL, headers,
 request data, response output, raw VFS-file output, disabled-provider behavior,
 the bounded `nslookup` DNS-over-HTTPS query/answer path, resolver error
