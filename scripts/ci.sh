@@ -24,6 +24,9 @@ cargo test --workspace
 echo "==> cargo build"
 cargo build --workspace
 
+echo "==> public C FFI smoke"
+scripts/ffi-smoke.sh
+
 echo "==> CLI metadata"
 rune_cli_version="$(target/debug/rune-cli --version)"
 test "$rune_cli_version" = "rune-cli 0.1.0"

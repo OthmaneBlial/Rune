@@ -206,6 +206,10 @@ source-only Swift typecheck when swiftc is already present. It does not
 contact a live a-Shell instance, start an iOS simulator, or claim Apple
 runtime behavior.
 
+It also compiles a small C consumer against the public Rust FFI header and
+host library. This validates the ownership and execution boundary without
+installing Xcode or an Apple SDK.
+
 Useful focused commands:
 
 ~~~bash

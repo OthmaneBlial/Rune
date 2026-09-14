@@ -54,8 +54,8 @@ private let runeEventCallback: RuneEventCallback = { event, userData in
     }
     let value = RuneExecutionEvent(
         kind: kind,
-        stdout: event.pointee.stdout.map { String(cString: $0) } ?? "",
-        stderr: event.pointee.stderr.map { String(cString: $0) } ?? "",
+        stdout: event.pointee.stdout_data.map { String(cString: $0) } ?? "",
+        stderr: event.pointee.stderr_data.map { String(cString: $0) } ?? "",
         status: event.pointee.status,
         currentDirectory: event.pointee.current_directory.map { String(cString: $0) } ?? ""
     )
@@ -494,11 +494,11 @@ public final class RuneFFISession: @unchecked Sendable {
 
     private func consume(_ raw: RuneOutput) -> RuneCommandResult {
         defer {
-            rune_string_free(raw.stdout)
-            rune_string_free(raw.stderr)
+            rune_string_free(raw.stdout_data)
+            rune_string_free(raw.stderr_data)
         }
-        let stdout = raw.stdout.map { String(cString: $0) } ?? ""
-        let stderr = raw.stderr.map { String(cString: $0) } ?? ""
+        let stdout = raw.stdout_data.map { String(cString: $0) } ?? ""
+        let stderr = raw.stderr_data.map { String(cString: $0) } ?? ""
         return RuneCommandResult(stdout: stdout, stderr: stderr, status: raw.status)
     }
 

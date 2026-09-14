@@ -6,8 +6,8 @@
 #include <stdint.h>
 
 typedef struct {
-    char *stdout;
-    char *stderr;
+    char *stdout_data;
+    char *stderr_data;
     int32_t status;
 } RuneOutput;
 
@@ -20,8 +20,8 @@ typedef struct {
 
 typedef struct {
     int32_t kind;
-    const char *stdout;
-    const char *stderr;
+    const char *stdout_data;
+    const char *stderr_data;
     int32_t status;
     const char *current_directory;
 } RuneEvent;

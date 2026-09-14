@@ -289,7 +289,8 @@ handling, or completion on an Apple runtime.
 ## Local checks
 
 Run `./scripts/ci.sh` from the repository root. It runs formatting, Clippy,
-workspace unit and integration tests, and a workspace build. The project
+workspace unit and integration tests, a workspace build, and a C consumer
+smoke test against the public Rust FFI header. The project
 intentionally does not use GitHub Actions or cloud CI.
 
 Run `./scripts/demo.sh` for a real two-process CLI workflow covering file
