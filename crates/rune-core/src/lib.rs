@@ -1609,20 +1609,21 @@ impl Session {
                 return;
             }
         };
+        if lines.is_empty() {
+            return;
+        }
+        let script = lines.join("\n");
         let mut sink = NoopEventSink;
-        for (index, line) in lines.iter().enumerate() {
-            let output = self.execute_line_internal(line, false, 0, "", &mut sink);
-            self.startup_output.stdout.push_str(&output.stdout);
-            self.startup_output.stderr.push_str(&output.stderr);
-            if output.status != 0 {
-                self.startup_output.status = output.status;
-                let _ = writeln!(
-                    self.startup_output.stderr,
-                    "rune: profile command {} exited with status {}",
-                    index + 1,
-                    output.status
-                );
-            }
+        let output = self.execute_script_internal(&script, false, 0, "", &mut sink);
+        self.startup_output.stdout.push_str(&output.stdout);
+        self.startup_output.stderr.push_str(&output.stderr);
+        if output.status != 0 {
+            self.startup_output.status = output.status;
+            let _ = writeln!(
+                self.startup_output.stderr,
+                "rune: profile script exited with status {}",
+                output.status
+            );
         }
     }
 
@@ -7547,6 +7548,36 @@ true
             session.execute_line("profile-greeting").stdout,
             "from-alias\n"
         );
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn loads_multiline_profile_script_without_history_pollution() {
+        let root = test_root();
+        std::fs::create_dir_all(&root).expect("root created");
+        std::fs::write(
+            root.join(".rune_profile"),
+            b"profile_greeting() {\n  echo \"profile:$1\"\n}\nprofile_greeting startup\n",
+        )
+        .expect("profile written");
+
+        let mut session = Session::restore(SandboxedFileSystem::new(&root).expect("root opened"));
+        let startup = session.take_startup_output();
+        assert_eq!(
+            startup.status, 0,
+            "startup stdout={:?} stderr={:?}",
+            startup.stdout, startup.stderr
+        );
+        assert_eq!(startup.stdout, "profile:startup\n");
+        assert!(session
+            .history()
+            .iter()
+            .all(|line| !line.contains("profile_greeting")));
+        assert_eq!(
+            session.execute_line("profile_greeting later").stdout,
+            "profile:later\n"
+        );
+
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

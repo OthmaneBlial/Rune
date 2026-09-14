@@ -154,11 +154,14 @@ normal shell error instead of recursing indefinitely.
 
 On restore, Rune reads at most 64 KiB from the first existing startup profile
 in this order: `~/.rune_profile`, `~/.profile`, then `~/.bashrc`. It skips blank
-and full-line comment entries, executes each remaining line through the same
-Rust parser/registry, and returns profile stdout/stderr through the CLI or FFI.
-The profile is loaded before the persisted working directory is restored, so a
-session's saved `cwd` remains authoritative. Profile lines are not added to
-history, and unsupported commands fail visibly instead of reaching the host.
+and full-line comment entries, joins the remaining content into one bounded
+script, and executes it through the same Rust parser/registry. This lets
+multiline control flow and function definitions participate in startup while
+keeping the script bounded to 256 KiB and 1,024 lines. Profile stdout/stderr is
+returned through the CLI or FFI. The profile is loaded before the persisted
+working directory is restored, so a session's saved `cwd` remains authoritative.
+Profile content is not added to history, and unsupported commands fail visibly
+instead of reaching the host.
 
 Automation and script files share one execution path. `Session::execute_script`
 accepts bounded newline-delimited input, while the Rust `source FILE [ARG ...]`

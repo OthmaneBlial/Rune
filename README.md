@@ -169,10 +169,14 @@ bounded transcript policy; this is boundary-level event delivery, not live UI
 rendering or byte-level WASM streaming.
 Environment changes are not serialized by default. On restore, Rune selects a
 bounded startup profile in this order: `~/.rune_profile`, `~/.profile`, then
-`~/.bashrc`. Its supported Rust built-ins can update the session environment
-and define aliases, with output surfaced to the CLI/native boundary without
-polluting history. Alias expansion is bounded and currently accepts one
-command per alias value; compound alias values are rejected explicitly. The
+`~/.bashrc`. Rune filters blank and full-line comment entries, joins the
+remaining content into one bounded script, and runs it through the Rust parser
+and registry; multiline control flow and function definitions are therefore
+available at startup. The script is limited to 256 KiB and 1,024 lines. Its
+supported Rust built-ins can update the session environment and define aliases,
+with output surfaced to the CLI/native boundary without polluting history.
+Alias expansion is bounded and currently accepts one command per alias value;
+compound alias values are rejected explicitly. The
 native source UI now asks Rust for bounded command and sandbox-path completion;
 the registry and filesystem lookup remain Rust-owned and the bridge exposes only
 replacement tokens. Simple separated `<`/`>` redirection targets use the same
@@ -513,7 +517,7 @@ result.
 - [x] Environment and path expansion
 - [x] Bounded virtual filesystem
 - [x] Built-in file commands
-- [x] Bounded session/history persistence and startup profile
+- [x] Bounded session/history persistence and multiline startup profile
 - [x] Rust-owned reverse history search through the native bridge
 - [x] Pipes and redirections
 - [x] Basic bounded pathname expansion

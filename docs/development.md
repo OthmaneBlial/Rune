@@ -130,8 +130,9 @@ trailing-newline removal, nested substitutions, redirection targets, and
 restoration of cwd/environment state; substitution depth and input size remain
 bounded.
 Profile tests cover comments, startup output/status, prioritized
-`~/.rune_profile`/`~/.profile` lookup, and restoration ordering without history
-pollution. Completion tests also cover simple separated redirection targets, use only the
+`~/.rune_profile`/`~/.profile` lookup, multiline function definitions, and
+restoration ordering without history pollution. Completion tests also cover
+simple separated redirection targets, use only the
 confined VFS, and do not require an Apple runtime.
 Named-session tests use separate temporary VFS state namespaces and verify that
 working directories and history do not leak between Rust or FFI handles.
