@@ -11,12 +11,12 @@ pub(super) fn config(context: &mut CommandContext<'_>) -> CommandOutput {
         "set" if context.args.len() == 3 => set(context, &context.args[1], &context.args[2]),
         "set" => usage(
             "config",
-            "usage: config set history-limit|history-redaction|font-size|scrollback-limit|toolbar-visible|theme|cursor-color|cursor-shape|font|background|foreground VALUE",
+            "usage: config set history-limit|history-redaction|environment-persistence|font-size|scrollback-limit|toolbar-visible|theme|cursor-color|cursor-shape|font|background|foreground VALUE",
         ),
         "reset" if context.args.len() == 1 => reset(context),
         "get" => usage(
             "config",
-            "usage: config get history-limit|history-redaction|font-size|scrollback-limit|toolbar-visible|theme|cursor-color|cursor-shape|font|background|foreground",
+            "usage: config get history-limit|history-redaction|environment-persistence|font-size|scrollback-limit|toolbar-visible|theme|cursor-color|cursor-shape|font|background|foreground",
         ),
         _ => usage("config", "usage: config [get KEY|set KEY VALUE|reset]"),
     }
@@ -29,6 +29,11 @@ fn show(context: &CommandContext<'_>) -> CommandOutput {
         stdout,
         "history-redaction={}",
         context.config.history_redaction()
+    );
+    let _ = writeln!(
+        stdout,
+        "environment-persistence={}",
+        context.config.environment_persistence()
     );
     let _ = writeln!(stdout, "font-size={}", context.config.font_size());
     let _ = writeln!(
@@ -76,6 +81,10 @@ fn get(context: &CommandContext<'_>, key: &str) -> CommandOutput {
             "history-redaction={}\n",
             context.config.history_redaction()
         )),
+        "environment-persistence" => CommandOutput::success(format!(
+            "environment-persistence={}\n",
+            context.config.environment_persistence()
+        )),
         "font-size" => {
             CommandOutput::success(format!("font-size={}\n", context.config.font_size()))
         }
@@ -107,7 +116,7 @@ fn get(context: &CommandContext<'_>, key: &str) -> CommandOutput {
         )),
         _ => usage(
             "config",
-            "unknown key; available keys: history-limit, history-redaction, font-size, scrollback-limit, toolbar-visible, theme, cursor-color, cursor-shape, font, background, foreground",
+            "unknown key; available keys: history-limit, history-redaction, environment-persistence, font-size, scrollback-limit, toolbar-visible, theme, cursor-color, cursor-shape, font, background, foreground",
         ),
     }
 }

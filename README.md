@@ -22,8 +22,8 @@ working iOS application or a feature-parity claim.
 | Shell tokenizer/parser | 75% |
 | Command runtime | 99% |
 | Sandboxed filesystem | 70% |
-| Sessions/history | 66% |
-| Configuration | 70% |
+| Sessions/history | 70% |
+| Configuration | 75% |
 | WASM | 52% |
 | Native iOS UI | 72% |
 | Swift/Rust bridge | 64% |
@@ -170,13 +170,18 @@ The iOS app is represented by
 source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
 and runtime gates remain unverified. Bounded directory enumeration and
 current-directory/history persistence now exist in Rust; bounded
-`history-limit`, `history-redaction`, `font`, `font-size`, `scrollback-limit`, `toolbar-visible`, `theme`,
+`history-limit`, `history-redaction`, `environment-persistence`, `font`, `font-size`, `scrollback-limit`, `toolbar-visible`, `theme`,
 `cursor-color`, `cursor-shape`, `background`, and `foreground` configuration
 is available, and the native source UI consumes the font size, bounded
 scrollback window, three named palettes, the Rust-owned font design, cursor color,
 and independent background/foreground overrides. The native source-only command
 editor applies the configured bar, block, or underline caret when UIKit is
-available. Broader session recovery remains planned.
+available. Environment restoration is opt-in: `environment-persistence` is
+false by default, and enabling it persists only bounded user-defined variables;
+`HOME`, `PATH`, `RUNE_VERSION`, `TERM`, `PWD`, and `OLDPWD` are never restored
+from session state. The explicit opt-in can still store exported values, so it
+must not be enabled for secrets. Broader terminal-state and scene recovery
+remain planned.
 The bounded Python, Lua 5.4, and JavaScript providers are implemented in Rust.
 Python intentionally starts with a finite, tested subset: host imports and
 dynamic code are denied, and loops/functions are rejected until a public
@@ -294,7 +299,9 @@ Bookmark names are limited to 64 characters, a session holds at most 256
 bookmarks, and serialized bookmark data is limited to 256 KiB.
 
 Named Rust sessions keep their virtual working directory, history, and
-bookmarks independent under `~/.rune/sessions/{id}/session.state`. IDs are
+bookmarks independent under `~/.rune/sessions/{id}/session.state`. When the
+explicit `environment-persistence` setting is enabled, bounded user-defined
+environment entries are stored in the same namespace. IDs are
 validated as bounded opaque names (up to 64 ASCII characters from `A-Z`,
 `a-z`, `0-9`, `_`, `-`, and `.`); they are never interpreted as shell paths.
 The source-only Swift workspace uses this FFI boundary for independent
@@ -352,11 +359,15 @@ This protects the UI from unbounded replay growth while Rust retains its own
 bounded per-command output and persisted history policies.
 
 The portable configuration boundary currently supports bounded `history-limit`,
+`environment-persistence`,
 `font`, `font-size`, `scrollback-limit`, `toolbar-visible`, `theme`,
 `cursor-color`, `cursor-shape`, `background`, and `foreground` settings through `config get`,
 `config set`, and `config reset`. The scrollback setting accepts 128–8,192
 rendered entries and remains subject to the UI's 8 MiB byte cap. It persists in
-`~/.rune/config.state`. The FFI also exposes validated Rust-native set/reset
+`~/.rune/config.state`. Environment persistence is disabled by default and
+excludes the core `HOME`, `PATH`, `RUNE_VERSION`, `TERM`, `PWD`, and `OLDPWD`
+variables; turning it on is an explicit choice that may store exported values.
+The FFI also exposes validated Rust-native set/reset
 calls that do not create history entries; the source-only SwiftUI settings
 sheet uses those calls for font, font size, scrollback, theme, cursor color,
 cursor shape, background, foreground, reset, and toolbar visibility. A separate source-only input toolbar provides bounded
@@ -513,7 +524,7 @@ result.
 - [x] Bounded WASI preview1 runtime boundary and resource limits
 - [x] Bounded package metadata, integrity, local WASM installation, and local update
 - [x] Portable runtime request/output contract
-- [x] Bounded Rust-owned history, history-redaction, font, font-size, scrollback, toolbar-visible, theme, cursor-color, cursor-shape, background, and foreground configuration
+- [x] Bounded Rust-owned history, history-redaction, opt-in environment persistence, font, font-size, scrollback, toolbar-visible, theme, cursor-color, cursor-shape, background, and foreground configuration
 - [x] Bounded `ar` member archives plus stored/Deflate ZIP, USTAR tar, and gzip/.Z file transforms
 - [x] Explicit host HTTP capability and bounded `curl` transport boundary
 - [x] Bounded non-interactive `nslookup` through an explicit HTTPS DoH provider

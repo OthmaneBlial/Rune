@@ -10,7 +10,11 @@ const SESSION_DIRECTORY: &str = "~/.rune/sessions";
 const STATE_HEADER: &str = "RUNE_SESSION_STATE_V1";
 pub(super) const MAX_HISTORY_ENTRIES: usize = 10_000;
 pub(super) const MAX_HISTORY_BYTES: usize = 4 * 1024 * 1024;
-const MAX_SESSION_STATE_BYTES: usize = MAX_HISTORY_BYTES + MAX_BOOKMARK_BYTES + 1_024;
+pub(super) const MAX_ENVIRONMENT_ENTRIES: usize = 1_024;
+pub(super) const MAX_ENVIRONMENT_BYTES: usize = 1024 * 1024;
+const MAX_ENVIRONMENT_NAME_BYTES: usize = 256;
+const MAX_SESSION_STATE_BYTES: usize =
+    MAX_HISTORY_BYTES + MAX_BOOKMARK_BYTES + MAX_ENVIRONMENT_BYTES + 1_024;
 pub(super) const PROFILE_PATH: &str = "~/.rune_profile";
 const PROFILE_LIMIT: usize = 64 * 1024;
 pub(super) const MAX_SESSION_ID_CHARS: usize = 64;
@@ -20,6 +24,7 @@ pub(super) struct SessionState {
     pub current_directory: Option<String>,
     pub history: Vec<String>,
     pub bookmarks: BTreeMap<String, String>,
+    pub environment: BTreeMap<String, String>,
 }
 
 pub(super) fn load(filesystem: &dyn VirtualFileSystem, session_id: Option<&str>) -> SessionState {
@@ -41,6 +46,7 @@ pub(super) fn save(
     current_directory: &str,
     history: &[String],
     bookmarks: &BTreeMap<String, String>,
+    environment: Option<&BTreeMap<String, String>>,
     session_id: Option<&str>,
 ) -> Result<(), FsError> {
     let (state_directory, state_path) = state_paths(session_id);
@@ -48,7 +54,7 @@ pub(super) fn save(
         Ok(()) | Err(FsError::AlreadyExists(_)) => {}
         Err(error) => return Err(error),
     }
-    let content = serialize(current_directory, history, bookmarks);
+    let content = serialize(current_directory, history, bookmarks, environment);
     if content.len() > MAX_SESSION_STATE_BYTES {
         return Err(FsError::Io {
             operation: "serialize session".to_string(),
@@ -107,6 +113,7 @@ fn serialize(
     current_directory: &str,
     history: &[String],
     bookmarks: &BTreeMap<String, String>,
+    environment: Option<&BTreeMap<String, String>>,
 ) -> String {
     let mut content = format!("{STATE_HEADER}\ncwd={}\n", escape(current_directory));
     let mut persisted_history = Vec::new();
@@ -143,6 +150,31 @@ fn serialize(
         content.push_str(&escaped_path);
         content.push('\n');
     }
+    if let Some(environment) = environment {
+        let mut environment_bytes = 0_usize;
+        let mut environment_entries = 0_usize;
+        for (name, value) in environment {
+            if environment_entries >= MAX_ENVIRONMENT_ENTRIES
+                || !is_persistable_environment_name(name)
+            {
+                continue;
+            }
+            let escaped_name = escape(name);
+            let escaped_value = escape(value);
+            let record_bytes =
+                "environment=".len() + escaped_name.len() + 1 + escaped_value.len() + 1;
+            if environment_bytes.saturating_add(record_bytes) > MAX_ENVIRONMENT_BYTES {
+                break;
+            }
+            environment_bytes += record_bytes;
+            environment_entries += 1;
+            content.push_str("environment=");
+            content.push_str(&escaped_name);
+            content.push('\t');
+            content.push_str(&escaped_value);
+            content.push('\n');
+        }
+    }
     content
 }
 
@@ -157,6 +189,7 @@ fn parse(content: &str) -> Option<SessionState> {
     let mut state = SessionState::default();
     let mut history_bytes = 0_usize;
     let mut bookmark_bytes = 0_usize;
+    let mut environment_bytes = 0_usize;
     for line in lines {
         let (key, raw_value) = line.split_once('=')?;
         match key {
@@ -187,6 +220,24 @@ fn parse(content: &str) -> Option<SessionState> {
                     return None;
                 }
                 state.bookmarks.insert(name, path);
+            }
+            "environment" => {
+                if state.environment.len() >= MAX_ENVIRONMENT_ENTRIES {
+                    return None;
+                }
+                let record_bytes = "environment=".len() + raw_value.len() + 1;
+                if environment_bytes.saturating_add(record_bytes) > MAX_ENVIRONMENT_BYTES {
+                    return None;
+                }
+                environment_bytes += record_bytes;
+                let (raw_name, raw_value) = raw_value.split_once('\t')?;
+                let name = unescape(raw_name)?;
+                let value = unescape(raw_value)?;
+                if !is_persistable_environment_name(&name) || state.environment.contains_key(&name)
+                {
+                    return None;
+                }
+                state.environment.insert(name, value);
             }
             _ => return None,
         }
@@ -223,6 +274,21 @@ fn is_valid_bookmark_name(name: &str) -> bool {
         })
 }
 
+fn is_persistable_environment_name(name: &str) -> bool {
+    let mut characters = name.chars();
+    let valid = matches!(
+        characters.next(),
+        Some(character) if character == '_' || character.is_ascii_alphabetic()
+    ) && characters
+        .all(|character| character == '_' || character.is_ascii_alphanumeric());
+    valid
+        && name.len() <= MAX_ENVIRONMENT_NAME_BYTES
+        && !matches!(
+            name,
+            "HOME" | "PATH" | "RUNE_VERSION" | "TERM" | "PWD" | "OLDPWD"
+        )
+}
+
 fn escape(value: &str) -> String {
     value
         .replace('%', "%25")
@@ -249,7 +315,7 @@ fn unescape(value: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse, serialize, MAX_BOOKMARK_BYTES, MAX_HISTORY_BYTES};
+    use super::{parse, serialize, MAX_BOOKMARK_BYTES, MAX_ENVIRONMENT_BYTES, MAX_HISTORY_BYTES};
     use std::collections::BTreeMap;
 
     #[test]
@@ -260,6 +326,7 @@ mod tests {
             "~/work",
             &["echo 100%".to_string(), "echo tab\tvalue".to_string()],
             &bookmarks,
+            None,
         );
         let state = parse(&content).expect("valid state");
         assert_eq!(state.current_directory.as_deref(), Some("~/work"));
@@ -282,7 +349,7 @@ mod tests {
         let commands = (0..2_000)
             .map(|index| format!("echo {}", "x".repeat(4_096 + index % 8)))
             .collect::<Vec<_>>();
-        let content = serialize("~", &commands, &BTreeMap::new());
+        let content = serialize("~", &commands, &BTreeMap::new(), None);
         assert!(content.len() <= MAX_HISTORY_BYTES + 64);
         let state = parse(&content).expect("bounded state should remain valid");
         assert!(state.history.len() < commands.len());
@@ -299,10 +366,38 @@ mod tests {
                 )
             })
             .collect::<BTreeMap<_, _>>();
-        let content = serialize("~", &[], &bookmarks);
+        let content = serialize("~", &[], &bookmarks, None);
         assert!(content.len() <= MAX_HISTORY_BYTES + MAX_BOOKMARK_BYTES + 64);
         let state = parse(&content).expect("bounded state should remain valid");
         assert!(state.bookmarks.len() < bookmarks.len());
         assert!(state.bookmarks.contains_key("mark000"));
+    }
+
+    #[test]
+    fn persists_only_bounded_user_environment_entries_when_enabled() {
+        let mut environment = BTreeMap::new();
+        environment.insert("EDITOR".to_string(), "rune-edit\tmode".to_string());
+        environment.insert("HOME".to_string(), "~/unsafe-override".to_string());
+        let content = serialize("~", &[], &BTreeMap::new(), Some(&environment));
+        let state = parse(&content).expect("valid environment state");
+        assert_eq!(
+            state.environment.get("EDITOR"),
+            Some(&"rune-edit\tmode".to_string())
+        );
+        assert!(!state.environment.contains_key("HOME"));
+        assert!(content.contains("environment=EDITOR\trune-edit%09mode\n"));
+    }
+
+    #[test]
+    fn rejects_duplicate_or_oversized_environment_state() {
+        assert!(parse(
+            "RUNE_SESSION_STATE_V1\ncwd=~\nenvironment=EDITOR\tone\nenvironment=EDITOR\ntwo\n"
+        )
+        .is_none());
+        let oversized = format!(
+            "RUNE_SESSION_STATE_V1\ncwd=~\nenvironment=EDITOR\t{}\n",
+            "x".repeat(MAX_ENVIRONMENT_BYTES)
+        );
+        assert!(parse(&oversized).is_none());
     }
 }

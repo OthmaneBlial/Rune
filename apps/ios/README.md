@@ -53,7 +53,7 @@ alive while the matching Rust session is active, and hands Rust only the
 approved folder root. This is source/API evidence; picker behavior and
 entitlements remain unverified without an Apple build/runtime.
 
-The configuration query crosses the FFI as all eleven persisted Rust-owned keys,
+The configuration query crosses the FFI as all twelve persisted Rust-owned keys,
 including history redaction, cursor color, cursor shape, font, background, and foreground overrides; Swift
 validates those values before applying them to the source-only view. This is
 contract evidence, not proof of rendered appearance on Apple hardware.
@@ -103,21 +103,27 @@ the main actor, so the source-only stop control can remain responsive. Swift
 concurrency diagnostics and Apple runtime behavior remain unverified without
 the Apple toolchain.
 
-The Rust handle restores and persists only the virtual working directory and
-typed command history in `~/.rune/session.state` inside the configured sandbox.
+The Rust handle restores and persists the virtual working directory, typed
+command history, and bounded bookmarks in `~/.rune/session.state` inside the
+configured sandbox. User-defined environment persistence is disabled by
+default; `config set environment-persistence true` enables its bounded,
+explicitly opt-in state records while excluding core directory/runtime
+variables. It may store exported values and is not a secret store.
 FFI command and script calls flush that state before returning, while handle
 destruction performs a final best-effort flush.
-Environment variables and aliases are not serialized. History persistence is
+Aliases are not serialized. Environment variables are not serialized unless
+the explicit opt-in configuration is enabled. History persistence is
 intentionally visible in the local state boundary. Interactive `export`,
 `setenv`, and assignment command lines are replaced by a redaction marker before
 history is stored when `history-redaction` is enabled (the default); disabling it
 is an explicit opt-out. The Rust core also persists bounded
-`history-limit`, `history-redaction`, `font`, `font-size`, `scrollback-limit`, `toolbar-visible`, `theme`,
+`history-limit`, `history-redaction`, `environment-persistence`, `font`, `font-size`, `scrollback-limit`, `toolbar-visible`, `theme`,
 `cursor-color`, `cursor-shape`, `background`, and `foreground` configuration in
 `~/.rune/config.state`. The bridge exposes both key/value inspection and
 validated set/reset calls without creating history entries; the source-only
 Swift view provides a settings sheet for font, font size, scrollback, theme,
-cursor color, cursor shape, background, foreground, history redaction, reset, and Rust-persisted
+cursor color, cursor shape, background, foreground, history redaction,
+environment persistence, reset, and Rust-persisted
 toolbar visibility. The source-only UIKit command editor maps bar, block, and
 underline to caret geometry when UIKit is available. Apple compilation and
 runtime rendering remain unverified.

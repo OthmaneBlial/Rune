@@ -90,8 +90,11 @@ bookmarks in `~/.rune/session.state`. Named sessions use
 cwd/history/bookmark state without sharing records. Session IDs are opaque,
 validated names of at most 64 ASCII alphanumeric, `_`, `-`, or `.` characters;
 they are never resolved as filesystem input. Environment variables are
-reconstructed for every session and are never serialized. The
-current shell environment can be changed by the Rust `export`, `unset`, and
+reconstructed for every session by default and are never serialized unless
+the explicit `environment-persistence` setting is enabled. In that opt-in
+mode, only bounded user-defined names are restored; `HOME`, `PATH`,
+`RUNE_VERSION`, `TERM`, `PWD`, and `OLDPWD` remain process-owned and are never
+taken from disk. The current shell environment can be changed by the Rust `export`, `unset`, and
 `setenv` built-ins, or by leading `NAME=value` assignments. Directory changes
 maintain `PWD` and `OLDPWD`; `cd -` returns to the previous virtual directory
 and prints it. Assignments are
@@ -107,7 +110,8 @@ Configuration is a separate, versioned Rust-owned file at
 `~/.rune/config.state`. The current schema contains a validated `history_limit`
 between 1 and 10,000, a `history_redaction` boolean enabled by default, a
 `font_size` between 8 and 32 points, a
-`scrollback_limit` between 128 and 8,192 rendered entries, a font design in
+`scrollback_limit` between 128 and 8,192 rendered entries, an
+`environment_persistence` boolean disabled by default, a font design in
 `monospaced`, `system`, or `rounded`, a theme in `ink`, `light`, or `ember`, and
 a cursor color in `cyan`, `ember`, or `foreground`, and a cursor shape in
 `bar`, `block`, or `underline`.
@@ -116,7 +120,10 @@ or `slate`, and foreground overrides in `auto`, `black`, `white`, `cyan`, or
 `ember`.
 `config get`, `config set`, and `config reset` update these
 values, and the session applies them immediately. Setting `history-redaction`
-to false is an explicit opt-out that may persist secrets. SwiftUI consumes all eleven
+to false is an explicit opt-out that may persist secrets. Setting
+`environment-persistence` to true is a separate explicit opt-in that may store
+exported values; it is false by default and bounded to user-defined variables.
+SwiftUI consumes all twelve
 settings; the public session and C ABI also expose validated set/reset
 operations that do not add shell text to history, allowing native settings
 surfaces to use the same Rust policy. The source-only SwiftUI sheet uses that

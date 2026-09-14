@@ -457,7 +457,8 @@ impl Session {
     /// Restores current directory and command history from the sandbox state.
     ///
     /// Invalid or missing state is ignored and produces a fresh session. The
-    /// environment is deliberately never restored from disk.
+    /// Environment values are restored only when the explicit
+    /// `environment-persistence` configuration is enabled.
     pub fn restore(filesystem: impl VirtualFileSystem + 'static) -> Self {
         Self::restore_with_namespace(filesystem, None)
     }
@@ -502,6 +503,9 @@ impl Session {
         session.history = state.history;
         session.apply_history_limit();
         session.bookmarks = state.bookmarks;
+        if session.config.environment_persistence() {
+            session.environment.extend(state.environment);
+        }
         if let Some(directory) = state.current_directory {
             let _ = session.filesystem.change_dir(&directory);
         }
@@ -564,7 +568,9 @@ impl Session {
         Arc::clone(&self.cancellation_requested)
     }
 
-    /// Persists only the current virtual directory and command history.
+    /// Persists the current virtual directory, history, and bookmarks.
+    /// User-defined environment values are included only when the explicit
+    /// `environment-persistence` setting is enabled.
     ///
     /// # Errors
     ///
@@ -572,11 +578,16 @@ impl Session {
     /// created or the state file cannot be written.
     pub fn persist(&mut self) -> Result<(), FsError> {
         let directory = self.filesystem.current_dir_display();
+        let persisted_environment = self
+            .config
+            .environment_persistence()
+            .then_some(&self.environment);
         persistence::save(
             self.filesystem.as_mut(),
             &directory,
             &self.history,
             &self.bookmarks,
+            persisted_environment,
             self.state_session_id.as_deref(),
         )?;
         self.config.save(self.filesystem.as_mut())
@@ -3843,6 +3854,79 @@ mod tests {
             restored.history().last().map(String::as_str),
             Some("[redacted environment assignment]")
         );
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn persists_user_environment_only_after_explicit_opt_in() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert!(!session.configuration().environment_persistence());
+        assert_eq!(
+            session.execute_line("export RUNE_EDITOR=rune-edit").status,
+            0
+        );
+        session.persist().expect("default state persisted");
+        let state_without_environment = std::fs::read_to_string(root.join(".rune/session.state"))
+            .expect("session state readable");
+        assert!(!state_without_environment.contains("environment="));
+        let restored_without_environment =
+            Session::restore(SandboxedFileSystem::new(&root).expect("root reopened"));
+        assert!(!restored_without_environment
+            .environment()
+            .contains_key("RUNE_EDITOR"));
+
+        assert_eq!(
+            session
+                .set_configuration("environment-persistence", "true")
+                .status,
+            0
+        );
+        assert_eq!(
+            session.execute_line("export RUNE_PAGER=rune-page").status,
+            0
+        );
+        assert_eq!(
+            session
+                .execute_line("export HOME=~/should-not-persist")
+                .status,
+            0
+        );
+        session.persist().expect("opted-in state persisted");
+        let state_with_environment = std::fs::read_to_string(root.join(".rune/session.state"))
+            .expect("opted-in session state readable");
+        assert!(state_with_environment.contains("environment=RUNE_EDITOR\trune-edit"));
+        assert!(state_with_environment.contains("environment=RUNE_PAGER\trune-page"));
+        assert!(!state_with_environment.contains("should-not-persist"));
+        let restored_with_environment =
+            Session::restore(SandboxedFileSystem::new(&root).expect("root reopened again"));
+        assert!(restored_with_environment
+            .configuration()
+            .environment_persistence());
+        assert_eq!(
+            restored_with_environment.environment().get("RUNE_EDITOR"),
+            Some(&"rune-edit".to_string())
+        );
+        assert_eq!(
+            restored_with_environment.environment().get("RUNE_PAGER"),
+            Some(&"rune-page".to_string())
+        );
+        assert_eq!(
+            restored_with_environment.environment().get("HOME"),
+            Some(&"~".to_string())
+        );
+
+        let mut opted_out = restored_with_environment;
+        assert_eq!(
+            opted_out
+                .set_configuration("environment-persistence", "false")
+                .status,
+            0
+        );
+        opted_out.persist().expect("opted-out state persisted");
+        let state_after_opt_out = std::fs::read_to_string(root.join(".rune/session.state"))
+            .expect("opted-out session state readable");
+        assert!(!state_after_opt_out.contains("environment="));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

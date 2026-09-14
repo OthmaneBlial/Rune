@@ -44,6 +44,7 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var scrollbackLimit = Self.defaultScrollbackLimit
     @Published public private(set) var toolbarVisible = true
     @Published public private(set) var historyRedaction = true
+    @Published public private(set) var environmentPersistence = false
     @Published public private(set) var theme = "ink"
     @Published public private(set) var cursorColor = "cyan"
     @Published public private(set) var cursorShape = "bar"
@@ -355,6 +356,12 @@ public final class RuneTerminalModel: ObservableObject {
                     historyRedaction = true
                 } else if ["false", "0"].contains(pair[1]) {
                     historyRedaction = false
+                }
+            case "environment-persistence":
+                if ["true", "1"].contains(pair[1]) {
+                    environmentPersistence = true
+                } else if ["false", "0"].contains(pair[1]) {
+                    environmentPersistence = false
                 }
             case "theme":
                 if ["ink", "light", "ember"].contains(pair[1]) {
@@ -946,6 +953,22 @@ private struct RuneSettingsView: View {
                         "When enabled, detected environment assignments and network commands are replaced before history is stored."
                     )
 
+                    Toggle(
+                        "Persist session environment",
+                        isOn: Binding(
+                            get: { model.environmentPersistence },
+                            set: {
+                                model.setConfiguration(
+                                    key: "environment-persistence",
+                                    value: $0 ? "true" : "false"
+                                )
+                            }
+                        )
+                    )
+                    .accessibilityHint(
+                        "When enabled, user-defined environment values are restored with this session. Do not use it for secrets."
+                    )
+
                     HStack {
                         Text("Font size")
                         Spacer()
@@ -1064,7 +1087,7 @@ private struct RuneSettingsView: View {
                         model.resetConfiguration()
                     }
                 } footer: {
-                    Text("Settings are validated and persisted by the Rust session.")
+                    Text("Settings are validated and persisted by the Rust session. Environment persistence is off by default and may store exported values.")
                 }
             }
             .navigationTitle("Rune Settings")
