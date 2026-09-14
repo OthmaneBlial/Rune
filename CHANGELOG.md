@@ -16,6 +16,8 @@ iOS runtime release.
   and external-capability command surfaces.
 - Narrow C FFI and source-only SwiftUI/UIKit boundary for the eventual iOS and
   iPadOS application.
+- Rust-planned scripts can be launched from the CLI with repeated
+  `--script-arg` values that populate bounded positional parameters.
 - Local compatibility matrix and differential scenario runner that keep direct
   a-Shell evidence explicitly pending.
 
