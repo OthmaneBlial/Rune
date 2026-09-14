@@ -838,6 +838,13 @@ impl Session {
         self.terminal_screen.snapshot()
     }
 
+    /// Returns the zero-based cursor position in the bounded Rust-owned
+    /// terminal screen.
+    #[must_use]
+    pub fn terminal_cursor_position(&self) -> (usize, usize) {
+        self.terminal_screen.cursor_position()
+    }
+
     /// Returns the current registry metadata for UI completion/help.
     #[must_use]
     pub fn commands(&self) -> &[CommandDefinition] {

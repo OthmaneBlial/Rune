@@ -206,6 +206,7 @@ erase-line controls are normalized for progress-style output. Rust now also
 maintains a bounded cursor grid with split-chunk CSI/OSC parsing, cursor
 addressing, scrolling, character insertion/deletion, and `J`/`K` erasure;
 the native bridge exposes its visible snapshot. Swift still uses its
+visible snapshot and zero-based cursor position. Swift still uses its
 line-oriented styled transcript, so full xterm/terminal emulation remains
 intentionally deferred.
 Interactive `export`, `setenv`, and assignment lines are replaced by a

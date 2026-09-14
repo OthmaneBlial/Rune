@@ -26,6 +26,11 @@ typedef struct {
     const char *current_directory;
 } RuneEvent;
 
+typedef struct {
+    size_t row;
+    size_t column;
+} RuneTerminalCursor;
+
 typedef void (*RuneEventCallback)(const RuneEvent *event, void *user_data);
 
 #define RUNE_EVENT_OUTPUT 1
@@ -213,6 +218,8 @@ RuneOutput rune_session_execute_script_with_events(
 char *rune_session_current_directory(const void *handle);
 // Return the bounded Rust-owned terminal screen as visible UTF-8 text.
 char *rune_session_terminal_snapshot(const void *handle);
+// Return the zero-based cursor position for the bounded Rust-owned screen.
+RuneTerminalCursor rune_session_terminal_cursor(const void *handle);
 char *rune_session_history(const void *handle);
 // Return newest-first history matches; null means invalid/oversized query.
 char *rune_session_history_search(const void *handle, const char *query);

@@ -79,9 +79,11 @@ files stored in the sandbox.
 
 The Rust session additionally maintains a bounded cursor-grid snapshot with
 split-chunk CSI/OSC parsing, cursor addressing, scrolling, and character
-erasure. `RuneFFISession.terminalSnapshot` exposes its visible text through
-the C ABI; the current Swift transcript remains the active line-oriented
-presentation until an Apple-rendered terminal surface can be validated.
+erasure. `RuneFFISession.terminalSnapshot` and
+`RuneFFISession.terminalCursorPosition` expose the visible text and caret
+position through the C ABI; the current Swift transcript remains the active
+line-oriented presentation until an Apple-rendered terminal surface can be
+validated.
 
 `RuneFFISession.cancel()` forwards a cooperative cancellation request to Rust;
 the next command boundary returns status 130. It is a cancellation signal, not

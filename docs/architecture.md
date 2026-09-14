@@ -263,7 +263,8 @@ Apple frame-time and device-memory measurements remain unverified.
 
 In parallel, `rune-core` maintains a bounded cursor grid with streaming
 CSI/OSC parsing, cursor addressing, scrolling, and character/line erasure;
-`rune_session_terminal_snapshot` exposes its visible text through the C ABI.
+`rune_session_terminal_snapshot` and `rune_session_terminal_cursor` expose
+its visible text and zero-based caret position through the C ABI.
 The existing Swift transcript remains the active presentation until a native
 terminal surface can be validated on Apple.
 

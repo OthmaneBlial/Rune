@@ -188,6 +188,16 @@ public final class RuneFFISession: @unchecked Sendable {
         }
     }
 
+    /// Returns the current zero-based cursor position for the Rust-owned
+    /// terminal screen. Swift can use this to draw a caret without owning a
+    /// second cursor state machine.
+    public var terminalCursorPosition: (row: Int, column: Int) {
+        withLock {
+            let cursor = rune_session_terminal_cursor(handle.map(UnsafeRawPointer.init))
+            return (row: Int(cursor.row), column: Int(cursor.column))
+        }
+    }
+
     public func execute(_ command: String) -> RuneCommandResult {
         withLock {
             let raw = command.withCString { rune_session_execute(handle, $0) }
