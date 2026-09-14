@@ -3,7 +3,7 @@
 //! This crate owns the runtime request/output boundary and the embedded
 //! Python, Lua, and JavaScript providers. WASM remains in its dedicated crate.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -57,6 +57,25 @@ const PYTHON_MAX_ARGUMENTS: usize = 64;
 const PYTHON_MAX_STDIN_BYTES: usize = 1024 * 1024;
 const PYTHON_MAX_ENVIRONMENT_BYTES: usize = 1024 * 1024;
 const PYTHON_MAX_RECURSION_DEPTH: usize = 64;
+
+/// Maximum source size accepted by a future C, C++, or TeX toolchain
+/// provider. The limit applies before a provider receives the source bytes.
+pub const MAX_TOOLCHAIN_SOURCE_BYTES: usize = 8 * 1024 * 1024;
+/// Maximum UTF-8 stdin accepted by a toolchain provider.
+pub const MAX_TOOLCHAIN_STDIN_BYTES: usize = 1024 * 1024;
+/// Maximum number of compiler or TeX arguments in one request.
+pub const MAX_TOOLCHAIN_ARGUMENTS: usize = 64;
+/// Maximum total UTF-8 environment bytes copied into a toolchain provider.
+pub const MAX_TOOLCHAIN_ENVIRONMENT_BYTES: usize = 1024 * 1024;
+/// Maximum captured output stream returned by a toolchain provider.
+pub const MAX_TOOLCHAIN_OUTPUT_BYTES: usize = 1024 * 1024;
+/// Maximum number of generated files returned by one toolchain invocation.
+pub const MAX_TOOLCHAIN_ARTIFACTS: usize = 128;
+/// Maximum size of one generated toolchain artifact.
+pub const MAX_TOOLCHAIN_ARTIFACT_BYTES: usize = 64 * 1024 * 1024;
+const MAX_TOOLCHAIN_PROGRAM_NAME_BYTES: usize = 256;
+const MAX_TOOLCHAIN_ARGUMENT_BYTES: usize = 64 * 1024;
+const MAX_TOOLCHAIN_MEDIA_TYPE_BYTES: usize = 128;
 
 /// A runtime family Rune may eventually host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -243,6 +262,319 @@ pub trait Runtime {
     /// Returns [`RuntimeError`] when the provider rejects the requested kind,
     /// the input boundary is invalid, or guest execution cannot start.
     fn execute(&self, request: &RuntimeRequest<'_>) -> Result<RuntimeOutput, RuntimeError>;
+}
+
+/// A source toolchain family that can be supplied by a bounded provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ToolchainKind {
+    /// C source compiled to a Rune-approved artifact, normally WASM.
+    C,
+    /// C++ source compiled to a Rune-approved artifact, normally WASM.
+    Cpp,
+    /// TeX source rendered to a Rune-approved document artifact.
+    Tex,
+}
+
+impl ToolchainKind {
+    /// Returns the stable lower-case name used in diagnostics and metadata.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::C => "c",
+            Self::Cpp => "c++",
+            Self::Tex => "tex",
+        }
+    }
+}
+
+impl Display for ToolchainKind {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.name())
+    }
+}
+
+/// Errors raised at the bounded source-toolchain boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolchainError {
+    /// The provider serves a different toolchain family.
+    UnsupportedKind {
+        requested: ToolchainKind,
+        provider: ToolchainKind,
+    },
+    /// The request or a provider-produced artifact violates a limit.
+    InvalidRequest(String),
+    /// The provider is unavailable or could not finish the request.
+    Execution(String),
+}
+
+impl Display for ToolchainError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedKind {
+                requested,
+                provider,
+            } => write!(
+                formatter,
+                "toolchain provider {provider} cannot execute {requested}"
+            ),
+            Self::InvalidRequest(message) => {
+                write!(formatter, "invalid toolchain request: {message}")
+            }
+            Self::Execution(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for ToolchainError {}
+
+/// Immutable source and capability input for one toolchain invocation.
+#[derive(Debug, Clone, Copy)]
+pub struct ToolchainRequest<'a> {
+    kind: ToolchainKind,
+    /// Source or project entry name shown in diagnostics.
+    pub program_name: &'a str,
+    /// Source bytes supplied by the confined caller.
+    pub source: &'a [u8],
+    /// Explicit compiler or TeX arguments after the program name.
+    pub args: &'a [String],
+    /// Session environment copied into the provider boundary.
+    pub environment: &'a BTreeMap<String, String>,
+    /// Input connected to the toolchain's standard input.
+    pub stdin: &'a str,
+    /// Optional cooperative cancellation flag checked by the provider.
+    pub cancellation: Option<&'a AtomicBool>,
+}
+
+impl<'a> ToolchainRequest<'a> {
+    /// Builds a request for a specific C, C++, or TeX provider.
+    #[must_use]
+    pub const fn new(
+        kind: ToolchainKind,
+        program_name: &'a str,
+        source: &'a [u8],
+        args: &'a [String],
+        environment: &'a BTreeMap<String, String>,
+        stdin: &'a str,
+    ) -> Self {
+        Self {
+            kind,
+            program_name,
+            source,
+            args,
+            environment,
+            stdin,
+            cancellation: None,
+        }
+    }
+
+    /// Adds the cooperative cancellation flag for this invocation.
+    #[must_use]
+    pub const fn with_cancellation(mut self, cancellation: Option<&'a AtomicBool>) -> Self {
+        self.cancellation = cancellation;
+        self
+    }
+
+    /// Returns the requested toolchain family.
+    #[must_use]
+    pub const fn kind(&self) -> ToolchainKind {
+        self.kind
+    }
+
+    /// Validates all input bounds before a provider is called.
+    ///
+    /// # Errors
+    ///
+    /// Returns an explicit error when source, arguments, environment, or stdin
+    /// exceed the stable toolchain boundary.
+    pub fn validate(&self) -> Result<(), ToolchainError> {
+        if self.program_name.is_empty()
+            || self.program_name.len() > MAX_TOOLCHAIN_PROGRAM_NAME_BYTES
+        {
+            return Err(ToolchainError::InvalidRequest(format!(
+                "program name must contain 1-{MAX_TOOLCHAIN_PROGRAM_NAME_BYTES} bytes"
+            )));
+        }
+        if self.source.len() > MAX_TOOLCHAIN_SOURCE_BYTES {
+            return Err(ToolchainError::InvalidRequest(format!(
+                "source exceeds {MAX_TOOLCHAIN_SOURCE_BYTES} bytes"
+            )));
+        }
+        if self.args.len() > MAX_TOOLCHAIN_ARGUMENTS {
+            return Err(ToolchainError::InvalidRequest(format!(
+                "arguments exceed the {MAX_TOOLCHAIN_ARGUMENTS}-argument limit"
+            )));
+        }
+        let mut argument_bytes = 0_usize;
+        for argument in self.args {
+            if argument.len() > MAX_TOOLCHAIN_ARGUMENT_BYTES {
+                return Err(ToolchainError::InvalidRequest(format!(
+                    "one argument exceeds {MAX_TOOLCHAIN_ARGUMENT_BYTES} bytes"
+                )));
+            }
+            argument_bytes = argument_bytes
+                .checked_add(argument.len())
+                .ok_or_else(|| ToolchainError::InvalidRequest("argument size overflow".into()))?;
+        }
+        if argument_bytes > MAX_TOOLCHAIN_ENVIRONMENT_BYTES {
+            return Err(ToolchainError::InvalidRequest(format!(
+                "arguments exceed {MAX_TOOLCHAIN_ENVIRONMENT_BYTES} bytes"
+            )));
+        }
+        let environment_bytes =
+            self.environment
+                .iter()
+                .try_fold(0_usize, |total, (key, value)| {
+                    total
+                        .checked_add(key.len())
+                        .and_then(|total| total.checked_add(value.len()))
+                        .ok_or_else(|| {
+                            ToolchainError::InvalidRequest("environment size overflow".into())
+                        })
+                })?;
+        if environment_bytes > MAX_TOOLCHAIN_ENVIRONMENT_BYTES {
+            return Err(ToolchainError::InvalidRequest(format!(
+                "environment exceeds {MAX_TOOLCHAIN_ENVIRONMENT_BYTES} bytes"
+            )));
+        }
+        if self.stdin.len() > MAX_TOOLCHAIN_STDIN_BYTES {
+            return Err(ToolchainError::InvalidRequest(format!(
+                "stdin exceeds {MAX_TOOLCHAIN_STDIN_BYTES} bytes"
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// One generated file returned by a C/C++ or TeX provider.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolchainArtifact {
+    /// Relative path at which the caller may materialize the artifact.
+    pub path: String,
+    /// Bounded media type used by the caller to select execution or display.
+    pub media_type: String,
+    /// Artifact bytes owned by the provider result.
+    pub bytes: Vec<u8>,
+}
+
+/// Captured output and generated files returned by a toolchain provider.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolchainOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub status: i32,
+    pub artifacts: Vec<ToolchainArtifact>,
+}
+
+impl ToolchainOutput {
+    /// Validates provider output before the caller writes any artifact.
+    ///
+    /// # Errors
+    ///
+    /// Returns an explicit error for oversized streams, duplicate or unsafe
+    /// paths, unsupported media metadata, or oversized artifacts.
+    pub fn validate(&self) -> Result<(), ToolchainError> {
+        if self.stdout.len() > MAX_TOOLCHAIN_OUTPUT_BYTES {
+            return Err(ToolchainError::InvalidRequest(format!(
+                "stdout exceeds {MAX_TOOLCHAIN_OUTPUT_BYTES} bytes"
+            )));
+        }
+        if self.stderr.len() > MAX_TOOLCHAIN_OUTPUT_BYTES {
+            return Err(ToolchainError::InvalidRequest(format!(
+                "stderr exceeds {MAX_TOOLCHAIN_OUTPUT_BYTES} bytes"
+            )));
+        }
+        if self.artifacts.len() > MAX_TOOLCHAIN_ARTIFACTS {
+            return Err(ToolchainError::InvalidRequest(format!(
+                "artifacts exceed the {MAX_TOOLCHAIN_ARTIFACTS}-file limit"
+            )));
+        }
+        let mut paths = BTreeSet::new();
+        for artifact in &self.artifacts {
+            if artifact.path.is_empty()
+                || artifact.path.starts_with('/')
+                || artifact.path.contains('\\')
+                || artifact
+                    .path
+                    .split('/')
+                    .any(|component| component.is_empty() || matches!(component, "." | ".."))
+                || !paths.insert(&artifact.path)
+            {
+                return Err(ToolchainError::InvalidRequest(format!(
+                    "artifact path is unsafe or duplicated: {}",
+                    artifact.path
+                )));
+            }
+            if artifact.media_type.is_empty()
+                || artifact.media_type.len() > MAX_TOOLCHAIN_MEDIA_TYPE_BYTES
+                || artifact.media_type.chars().any(char::is_control)
+            {
+                return Err(ToolchainError::InvalidRequest(format!(
+                    "artifact media type is invalid: {}",
+                    artifact.media_type
+                )));
+            }
+            if artifact.bytes.len() > MAX_TOOLCHAIN_ARTIFACT_BYTES {
+                return Err(ToolchainError::InvalidRequest(format!(
+                    "artifact {} exceeds {MAX_TOOLCHAIN_ARTIFACT_BYTES} bytes",
+                    artifact.path
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Provider boundary for C, C++, and TeX toolchains.
+pub trait ToolchainProvider {
+    /// Identifies the one toolchain family served by this provider.
+    fn kind(&self) -> ToolchainKind;
+
+    /// Processes one bounded request without inheriting ambient host access.
+    ///
+    /// A provider returns generated artifacts instead of writing arbitrary
+    /// host paths. The caller remains responsible for validating and
+    /// materializing those artifacts inside Rune's VFS.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ToolchainError`] when the kind, input boundary, provider, or
+    /// generated artifact set is invalid.
+    fn execute(&self, request: &ToolchainRequest<'_>) -> Result<ToolchainOutput, ToolchainError>;
+}
+
+/// Explicit unavailable-provider implementation used until a real compiler
+/// or TeX engine is installed through a reviewed capability boundary.
+#[derive(Debug, Clone, Copy)]
+pub struct DisabledToolchainProvider {
+    kind: ToolchainKind,
+}
+
+impl DisabledToolchainProvider {
+    /// Creates an unavailable provider for one toolchain family.
+    #[must_use]
+    pub const fn new(kind: ToolchainKind) -> Self {
+        Self { kind }
+    }
+}
+
+impl ToolchainProvider for DisabledToolchainProvider {
+    fn kind(&self) -> ToolchainKind {
+        self.kind
+    }
+
+    fn execute(&self, request: &ToolchainRequest<'_>) -> Result<ToolchainOutput, ToolchainError> {
+        if request.kind() != self.kind() {
+            return Err(ToolchainError::UnsupportedKind {
+                requested: request.kind(),
+                provider: self.kind(),
+            });
+        }
+        request.validate()?;
+        Err(ToolchainError::Execution(format!(
+            "{kind} toolchain provider is unavailable",
+            kind = self.kind
+        )))
+    }
 }
 
 /// A bounded Python provider backed by `RustPython` without its host standard
@@ -1173,10 +1505,13 @@ fn lua_execution_error(error: &mlua::Error) -> RuntimeError {
 #[cfg(test)]
 mod tests {
     use super::{
-        JavaScriptRunner, LuaRunner, PythonRunner, Runtime, RuntimeError, RuntimeKind,
-        RuntimeOutput, RuntimePreopen, RuntimeRequest,
+        DisabledToolchainProvider, JavaScriptRunner, LuaRunner, PythonRunner, Runtime,
+        RuntimeError, RuntimeKind, RuntimeOutput, RuntimePreopen, RuntimeRequest,
+        ToolchainArtifact, ToolchainError, ToolchainKind, ToolchainOutput, ToolchainProvider,
+        ToolchainRequest, MAX_TOOLCHAIN_SOURCE_BYTES,
     };
     use std::collections::BTreeMap;
+    use std::sync::atomic::AtomicBool;
 
     struct EchoRuntime;
 
@@ -1226,6 +1561,130 @@ mod tests {
         assert_eq!(RuntimeKind::Wasm.name(), "wasm");
         assert_eq!(RuntimeKind::JavaScript.to_string(), "javascript");
         assert_eq!(RuntimeKind::Lua.to_string(), "lua");
+    }
+
+    #[test]
+    fn toolchain_kind_names_are_stable() {
+        assert_eq!(ToolchainKind::C.name(), "c");
+        assert_eq!(ToolchainKind::Cpp.to_string(), "c++");
+        assert_eq!(ToolchainKind::Tex.to_string(), "tex");
+    }
+
+    #[test]
+    fn toolchain_request_preserves_explicit_inputs_and_cancellation() {
+        let args = vec!["--target=wasm32-wasi".to_string()];
+        let mut environment = BTreeMap::new();
+        environment.insert("RUNE_TOOLCHAIN".to_string(), "test".to_string());
+        let cancellation = AtomicBool::new(false);
+        let request = ToolchainRequest::new(
+            ToolchainKind::C,
+            "hello.c",
+            b"int main(void) { return 0; }",
+            &args,
+            &environment,
+            "",
+        )
+        .with_cancellation(Some(&cancellation));
+
+        request.validate().expect("request should remain bounded");
+        assert_eq!(request.kind(), ToolchainKind::C);
+        assert_eq!(request.program_name, "hello.c");
+        assert_eq!(request.source, b"int main(void) { return 0; }");
+        assert_eq!(request.args, ["--target=wasm32-wasi"]);
+        assert_eq!(request.environment["RUNE_TOOLCHAIN"], "test");
+        assert!(request.cancellation.is_some());
+    }
+
+    #[test]
+    fn disabled_toolchain_provider_is_explicit_and_kind_checked() {
+        let provider = DisabledToolchainProvider::new(ToolchainKind::Tex);
+        let environment = BTreeMap::new();
+        let request = ToolchainRequest::new(
+            ToolchainKind::C,
+            "hello.c",
+            b"int main(void) { return 0; }",
+            &[],
+            &environment,
+            "",
+        );
+        assert!(matches!(
+            provider.execute(&request),
+            Err(ToolchainError::UnsupportedKind {
+                requested: ToolchainKind::C,
+                provider: ToolchainKind::Tex,
+            })
+        ));
+
+        let tex_request = ToolchainRequest::new(
+            ToolchainKind::Tex,
+            "document.tex",
+            br"\\documentclass{article}\\begin{document}Rune\\end{document}",
+            &[],
+            &environment,
+            "",
+        );
+        assert!(matches!(
+            provider.execute(&tex_request),
+            Err(ToolchainError::Execution(message)) if message.contains("unavailable")
+        ));
+    }
+
+    #[test]
+    fn toolchain_request_rejects_oversized_source_before_provider_execution() {
+        let source = vec![b'x'; MAX_TOOLCHAIN_SOURCE_BYTES + 1];
+        let environment = BTreeMap::new();
+        let request = ToolchainRequest::new(
+            ToolchainKind::Cpp,
+            "large.cpp",
+            &source,
+            &[],
+            &environment,
+            "",
+        );
+        assert!(matches!(
+            request.validate(),
+            Err(ToolchainError::InvalidRequest(message)) if message.contains("source exceeds")
+        ));
+    }
+
+    #[test]
+    fn toolchain_output_rejects_unsafe_or_oversized_artifacts() {
+        let unsafe_output = ToolchainOutput {
+            stdout: String::new(),
+            stderr: String::new(),
+            status: 1,
+            artifacts: vec![ToolchainArtifact {
+                path: "../outside.wasm".to_string(),
+                media_type: "application/wasm".to_string(),
+                bytes: Vec::new(),
+            }],
+        };
+        assert!(matches!(
+            unsafe_output.validate(),
+            Err(ToolchainError::InvalidRequest(message)) if message.contains("unsafe")
+        ));
+
+        let duplicate_output = ToolchainOutput {
+            stdout: String::new(),
+            stderr: String::new(),
+            status: 0,
+            artifacts: vec![
+                ToolchainArtifact {
+                    path: "out.pdf".to_string(),
+                    media_type: "application/pdf".to_string(),
+                    bytes: Vec::new(),
+                },
+                ToolchainArtifact {
+                    path: "out.pdf".to_string(),
+                    media_type: "application/pdf".to_string(),
+                    bytes: Vec::new(),
+                },
+            ],
+        };
+        assert!(matches!(
+            duplicate_output.validate(),
+            Err(ToolchainError::InvalidRequest(message)) if message.contains("unsafe or duplicated")
+        ));
     }
 
     #[test]

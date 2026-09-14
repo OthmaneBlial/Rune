@@ -377,6 +377,12 @@ Runtime providers use a small Rust-owned request/output contract. WASM, the
 bounded Python subset, the bounded Lua 5.4 provider, and the bounded JavaScript
 provider are implemented in Rust. Python package imports and the Apple runtime
 boundary remain unverified.
+The Rust runtime crate also defines a bounded `ToolchainProvider` contract for
+C, C++, and TeX: source input, arguments, environment, stdin, cancellation,
+captured diagnostics, and relative generated artifacts are validated before
+materialization. The default providers are explicitly unavailable; no clang,
+C++ compiler, TeX engine, or large toolchain payload is installed or claimed
+yet.
 
 No a-Shell compatibility area is marked `supported` without behavior and test
 evidence. See [`compat/a-shell-compatibility.json`](compat/a-shell-compatibility.json).
@@ -506,6 +512,7 @@ result.
 - [x] Bounded Python subset runtime evaluation
 - [x] Bounded JavaScript runtime evaluation
 - [x] Bounded Lua 5.4 runtime evaluation
+- [x] Bounded C/C++/TeX toolchain provider contract (providers still planned)
 - [x] Rust-owned command/path completion and help metadata
 - [x] Versioned isolated differential scenarios (direct a-Shell comparison pending)
 

@@ -398,6 +398,15 @@ it before execution or when a fuel stop is observed and returns status 130 with
 a diagnostic. A call that finishes before an observation may complete
 normally, matching the cooperative contract.
 
+The runtime crate exposes a separate `ToolchainProvider` contract for the
+longer-term C, C++, and TeX path. A request carries bounded source bytes,
+explicit arguments/environment/stdin, and cooperative cancellation. A provider
+returns captured diagnostics plus relative, typed artifacts; the caller must
+validate those artifacts before materializing them through the VFS. The
+default provider is an explicit unavailable implementation. This contract is
+not a compiler, linker, TeX engine, or compatibility claim, and no toolchain
+payload is installed in the current disk-constrained workspace.
+
 The VFS exposes its host root to this boundary only as an optional borrowed
 capability. Sandboxed host VFS instances return their canonical root; other
 VFS implementations return no root and therefore keep WASI filesystem access
