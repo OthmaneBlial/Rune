@@ -10,7 +10,7 @@ for a-Shell.
 
 ## Development Progress
 
-**Overall progress: 44%**
+**Overall progress: 45%**
 
 This is an engineering estimate of the product path toward a validated iPhone
 and iPad terminal, not a percentage of lines of code. Portable Rust behavior is
@@ -24,7 +24,7 @@ this disk-constrained workspace.
 | Built-in command surface | 52% |
 | Confined filesystem and security policy | 62% |
 | Persistence and command history | 55% |
-| Terminal state and ANSI handling | 45% |
+| Terminal state and ANSI handling | 47% |
 | Rust/Swift FFI contracts | 55% |
 | SwiftUI/UIKit source boundary | 38% |
 | WASM, scripting, and toolchain runtimes | 28% |
