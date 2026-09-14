@@ -15,9 +15,12 @@ use std::sync::Arc;
 
 use rune_core::{
     ClipboardError, ClipboardProvider, CommandEvent, CommandOutput, DisabledClipboardProvider,
-    DisabledNetworkProvider, DisabledOpenProvider, EventSink, NetworkError, NetworkProvider,
-    NetworkRequest, NetworkResponse, OpenError, OpenProvider, OpenRequest, Session,
-    MAX_CLIPBOARD_BYTES, MAX_FILE_TRANSFER_BYTES, MAX_NETWORK_BODY_BYTES,
+    DisabledNetworkProvider, DisabledOpenProvider, DisabledToolchainProvider, EventSink,
+    NetworkError, NetworkProvider, NetworkRequest, NetworkResponse, OpenError, OpenProvider,
+    OpenRequest, Session, ToolchainArtifact, ToolchainError, ToolchainKind, ToolchainOutput,
+    ToolchainProvider, ToolchainRequest, MAX_CLIPBOARD_BYTES, MAX_FILE_TRANSFER_BYTES,
+    MAX_NETWORK_BODY_BYTES, MAX_TOOLCHAIN_ARTIFACTS, MAX_TOOLCHAIN_ARTIFACT_BYTES,
+    MAX_TOOLCHAIN_ARTIFACT_PATH_BYTES, MAX_TOOLCHAIN_MEDIA_TYPE_BYTES, MAX_TOOLCHAIN_OUTPUT_BYTES,
 };
 use rune_fs::{FsError, SandboxedFileSystem};
 
@@ -82,6 +85,88 @@ pub type RuneNetworkRequestCallback = Option<
     ) -> bool,
 >;
 
+/// A bounded byte slice borrowed by a synchronous toolchain callback.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct RuneToolchainSlice {
+    pub data: *const u8,
+    pub length: usize,
+}
+
+/// One environment entry borrowed by a synchronous toolchain callback.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct RuneToolchainEnvironmentEntry {
+    pub key: RuneToolchainSlice,
+    pub value: RuneToolchainSlice,
+}
+
+/// One generated artifact slot supplied to a synchronous toolchain callback.
+///
+/// The callback writes path/media bytes into the per-slot buffers passed to it
+/// and writes artifact bytes into the shared data arena using `data_offset`.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct RuneToolchainArtifactBuffer {
+    pub path_length: usize,
+    pub media_type_length: usize,
+    pub data_offset: usize,
+    pub data_length: usize,
+}
+
+/// Response storage filled by a native C, C++, or TeX provider.
+///
+/// Output buffers and artifact slots are owned by Rune for the duration of the
+/// callback, so the provider never returns pointers whose lifetime must outlive
+/// the callback. Rune copies and validates every filled field before it
+/// materializes an artifact in the confined VFS.
+#[repr(C)]
+pub struct RuneToolchainResponse {
+    pub stdout_length: usize,
+    pub stderr_length: usize,
+    pub status: i32,
+    pub artifact_count: usize,
+    pub error: i32,
+}
+
+/// Native callback for one explicit C, C++, or TeX capability.
+///
+/// All request and output pointers are valid only during the callback. The
+/// callback must not retain them, write host paths, or start an ambient shell.
+/// `kind` uses [`RUNE_TOOLCHAIN_C`], [`RUNE_TOOLCHAIN_CPP`], or
+/// [`RUNE_TOOLCHAIN_TEX`]. Artifact bytes share a bounded Rune-owned arena;
+/// every slot's `data_offset + data_length` must stay inside that arena.
+pub type RuneToolchainCallbackFn = unsafe extern "C" fn(
+    user_data: *mut c_void,
+    kind: i32,
+    program_name: *const c_char,
+    source: RuneToolchainSlice,
+    args: *const RuneToolchainSlice,
+    argument_count: usize,
+    environment: *const RuneToolchainEnvironmentEntry,
+    environment_count: usize,
+    stdin: RuneToolchainSlice,
+    stdout_buffer: *mut u8,
+    stdout_capacity: usize,
+    stderr_buffer: *mut u8,
+    stderr_capacity: usize,
+    artifact_buffers: *mut RuneToolchainArtifactBuffer,
+    artifact_capacity: usize,
+    artifact_path_buffers: *mut u8,
+    artifact_path_capacity: usize,
+    artifact_media_type_buffers: *mut u8,
+    artifact_media_type_capacity: usize,
+    artifact_data_buffer: *mut u8,
+    artifact_data_capacity: usize,
+    response: *mut RuneToolchainResponse,
+) -> bool;
+
+pub type RuneToolchainRequestCallback = Option<RuneToolchainCallbackFn>;
+
+pub const RUNE_TOOLCHAIN_C: i32 = 1;
+pub const RUNE_TOOLCHAIN_CPP: i32 = 2;
+pub const RUNE_TOOLCHAIN_TEX: i32 = 3;
+
 /// Result storage exchanged with a native clipboard read callback.
 #[repr(C)]
 pub struct RuneClipboardResponse {
@@ -124,6 +209,12 @@ struct CallbackNetworkProvider {
         response_capacity: usize,
         response: *mut RuneNetworkResponse,
     ) -> bool,
+    user_data: *mut c_void,
+}
+
+struct CallbackToolchainProvider {
+    kind: ToolchainKind,
+    callback: RuneToolchainCallbackFn,
     user_data: *mut c_void,
 }
 
@@ -269,6 +360,258 @@ impl NetworkProvider for CallbackNetworkProvider {
         };
         response.validate()?;
         Ok(response)
+    }
+}
+
+struct ToolchainCallbackBuffers {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    artifacts: Vec<RuneToolchainArtifactBuffer>,
+    artifact_paths: Vec<u8>,
+    artifact_media_types: Vec<u8>,
+    artifact_data: Vec<u8>,
+    response: RuneToolchainResponse,
+}
+
+impl ToolchainCallbackBuffers {
+    fn new() -> Self {
+        Self {
+            stdout: vec![0_u8; MAX_TOOLCHAIN_OUTPUT_BYTES],
+            stderr: vec![0_u8; MAX_TOOLCHAIN_OUTPUT_BYTES],
+            artifacts: vec![RuneToolchainArtifactBuffer::default(); MAX_TOOLCHAIN_ARTIFACTS],
+            artifact_paths: vec![0_u8; MAX_TOOLCHAIN_ARTIFACTS * MAX_TOOLCHAIN_ARTIFACT_PATH_BYTES],
+            artifact_media_types: vec![
+                0_u8;
+                MAX_TOOLCHAIN_ARTIFACTS * MAX_TOOLCHAIN_MEDIA_TYPE_BYTES
+            ],
+            artifact_data: vec![0_u8; MAX_TOOLCHAIN_ARTIFACT_BYTES],
+            response: RuneToolchainResponse {
+                stdout_length: 0,
+                stderr_length: 0,
+                status: 1,
+                artifact_count: 0,
+                error: 0,
+            },
+        }
+    }
+
+    fn invoke(
+        &mut self,
+        provider: &CallbackToolchainProvider,
+        request: &ToolchainRequest<'_>,
+        program_name: &CString,
+        arguments: &[RuneToolchainSlice],
+        environment: &[RuneToolchainEnvironmentEntry],
+    ) -> bool {
+        catch_unwind(AssertUnwindSafe(|| unsafe {
+            (provider.callback)(
+                provider.user_data,
+                toolchain_kind_code(provider.kind),
+                program_name.as_ptr(),
+                RuneToolchainSlice {
+                    data: request.source.as_ptr(),
+                    length: request.source.len(),
+                },
+                arguments.as_ptr(),
+                arguments.len(),
+                environment.as_ptr(),
+                environment.len(),
+                RuneToolchainSlice {
+                    data: request.stdin.as_ptr(),
+                    length: request.stdin.len(),
+                },
+                self.stdout.as_mut_ptr(),
+                self.stdout.len(),
+                self.stderr.as_mut_ptr(),
+                self.stderr.len(),
+                self.artifacts.as_mut_ptr(),
+                self.artifacts.len(),
+                self.artifact_paths.as_mut_ptr(),
+                MAX_TOOLCHAIN_ARTIFACT_PATH_BYTES,
+                self.artifact_media_types.as_mut_ptr(),
+                MAX_TOOLCHAIN_MEDIA_TYPE_BYTES,
+                self.artifact_data.as_mut_ptr(),
+                self.artifact_data.len(),
+                std::ptr::addr_of_mut!(self.response),
+            )
+        }))
+        .unwrap_or(false)
+    }
+
+    fn into_output(self) -> Result<ToolchainOutput, ToolchainError> {
+        let Self {
+            stdout,
+            stderr,
+            artifacts,
+            artifact_paths,
+            artifact_media_types,
+            artifact_data,
+            response,
+        } = self;
+        if response.stdout_length > stdout.len() {
+            return Err(ToolchainError::InvalidRequest(format!(
+                "provider stdout exceeds {} bytes",
+                stdout.len()
+            )));
+        }
+        if response.stderr_length > stderr.len() {
+            return Err(ToolchainError::InvalidRequest(format!(
+                "provider stderr exceeds {} bytes",
+                stderr.len()
+            )));
+        }
+        let stdout = utf8_buffer(&stdout, response.stdout_length, "stdout")?;
+        let stderr = utf8_buffer(&stderr, response.stderr_length, "stderr")?;
+        let artifacts = collect_toolchain_artifacts(
+            &artifacts,
+            response.artifact_count,
+            &artifact_paths,
+            &artifact_media_types,
+            &artifact_data,
+        )?;
+        let output = ToolchainOutput {
+            stdout,
+            stderr,
+            status: response.status,
+            artifacts,
+        };
+        output.validate()?;
+        Ok(output)
+    }
+}
+
+impl ToolchainProvider for CallbackToolchainProvider {
+    fn kind(&self) -> ToolchainKind {
+        self.kind
+    }
+
+    fn execute(&self, request: &ToolchainRequest<'_>) -> Result<ToolchainOutput, ToolchainError> {
+        if request.kind() != self.kind {
+            return Err(ToolchainError::UnsupportedKind {
+                requested: request.kind(),
+                provider: self.kind,
+            });
+        }
+        request.validate()?;
+        let program_name = CString::new(request.program_name).map_err(|_| {
+            ToolchainError::InvalidRequest("program name contains an invalid byte".to_string())
+        })?;
+        let arguments = request
+            .args
+            .iter()
+            .map(|argument| RuneToolchainSlice {
+                data: argument.as_ptr(),
+                length: argument.len(),
+            })
+            .collect::<Vec<_>>();
+        let environment = request
+            .environment
+            .iter()
+            .map(|(key, value)| RuneToolchainEnvironmentEntry {
+                key: RuneToolchainSlice {
+                    data: key.as_ptr(),
+                    length: key.len(),
+                },
+                value: RuneToolchainSlice {
+                    data: value.as_ptr(),
+                    length: value.len(),
+                },
+            })
+            .collect::<Vec<_>>();
+        let mut buffers = ToolchainCallbackBuffers::new();
+        if !buffers.invoke(self, request, &program_name, &arguments, &environment)
+            || buffers.response.error != 0
+        {
+            return Err(ToolchainError::Execution(format!(
+                "native {} toolchain provider rejected the request",
+                self.kind
+            )));
+        }
+        buffers.into_output()
+    }
+}
+
+fn utf8_buffer(buffer: &[u8], length: usize, label: &str) -> Result<String, ToolchainError> {
+    String::from_utf8(buffer[..length].to_vec())
+        .map_err(|_| ToolchainError::InvalidRequest(format!("provider returned non-UTF-8 {label}")))
+}
+
+fn collect_toolchain_artifacts(
+    buffers: &[RuneToolchainArtifactBuffer],
+    count: usize,
+    path_storage: &[u8],
+    media_type_storage: &[u8],
+    data_storage: &[u8],
+) -> Result<Vec<ToolchainArtifact>, ToolchainError> {
+    if count > buffers.len() {
+        return Err(ToolchainError::InvalidRequest(format!(
+            "provider returned more than {} artifacts",
+            buffers.len()
+        )));
+    }
+    buffers[..count]
+        .iter()
+        .enumerate()
+        .map(|(index, artifact)| {
+            if artifact.path_length > MAX_TOOLCHAIN_ARTIFACT_PATH_BYTES {
+                return Err(ToolchainError::InvalidRequest(
+                    "provider artifact path exceeds its buffer".to_string(),
+                ));
+            }
+            if artifact.media_type_length > MAX_TOOLCHAIN_MEDIA_TYPE_BYTES {
+                return Err(ToolchainError::InvalidRequest(
+                    "provider artifact media type exceeds its buffer".to_string(),
+                ));
+            }
+            let data_end = artifact
+                .data_offset
+                .checked_add(artifact.data_length)
+                .ok_or_else(|| {
+                    ToolchainError::InvalidRequest(
+                        "provider artifact data range overflows".to_string(),
+                    )
+                })?;
+            if data_end > data_storage.len() {
+                return Err(ToolchainError::InvalidRequest(
+                    "provider artifact data exceeds its arena".to_string(),
+                ));
+            }
+            let path_start = index * MAX_TOOLCHAIN_ARTIFACT_PATH_BYTES;
+            let media_type_start = index * MAX_TOOLCHAIN_MEDIA_TYPE_BYTES;
+            let path = utf8_buffer(
+                &path_storage[path_start..path_start + MAX_TOOLCHAIN_ARTIFACT_PATH_BYTES],
+                artifact.path_length,
+                "artifact path",
+            )?;
+            let media_type = utf8_buffer(
+                &media_type_storage
+                    [media_type_start..media_type_start + MAX_TOOLCHAIN_MEDIA_TYPE_BYTES],
+                artifact.media_type_length,
+                "artifact media type",
+            )?;
+            Ok(ToolchainArtifact {
+                path,
+                media_type,
+                bytes: data_storage[artifact.data_offset..data_end].to_vec(),
+            })
+        })
+        .collect()
+}
+
+fn toolchain_kind_code(kind: ToolchainKind) -> i32 {
+    match kind {
+        ToolchainKind::C => RUNE_TOOLCHAIN_C,
+        ToolchainKind::Cpp => RUNE_TOOLCHAIN_CPP,
+        ToolchainKind::Tex => RUNE_TOOLCHAIN_TEX,
+    }
+}
+
+fn toolchain_kind_from_code(code: i32) -> Option<ToolchainKind> {
+    match code {
+        RUNE_TOOLCHAIN_C => Some(ToolchainKind::C),
+        RUNE_TOOLCHAIN_CPP => Some(ToolchainKind::Cpp),
+        RUNE_TOOLCHAIN_TEX => Some(ToolchainKind::Tex),
+        _ => None,
     }
 }
 
@@ -601,6 +944,40 @@ pub extern "C" fn rune_session_set_open_callback(
         }));
     } else {
         core.set_open_provider(Box::new(DisabledOpenProvider));
+    }
+    0
+}
+
+/// Installs or clears one explicit C, C++, or TeX provider.
+///
+/// The callback is synchronous and must keep all request and response memory
+/// borrowed. Passing `None` restores the unavailable provider for that kind.
+/// The callback must not start an ambient host shell or write outside the
+/// artifacts returned in its response.
+#[no_mangle]
+pub extern "C" fn rune_session_set_toolchain_callback(
+    handle: *mut c_void,
+    kind: i32,
+    callback: RuneToolchainRequestCallback,
+    user_data: *mut c_void,
+) -> i32 {
+    if handle.is_null() {
+        return 1;
+    }
+    let Some(kind) = toolchain_kind_from_code(kind) else {
+        return 2;
+    };
+    // SAFETY: Swift serializes access to the opaque session handle and keeps
+    // it alive while configuring the callback.
+    let core = unsafe { &mut (*handle.cast::<RuneSession>()).core };
+    if let Some(callback) = callback {
+        core.set_toolchain_provider(Box::new(CallbackToolchainProvider {
+            kind,
+            callback,
+            user_data,
+        }));
+    } else {
+        core.set_toolchain_provider(Box::new(DisabledToolchainProvider::new(kind)));
     }
     0
 }
@@ -1011,8 +1388,10 @@ mod tests {
         rune_session_new_with_layout, rune_session_put_file, rune_session_reset_configuration,
         rune_session_set_clipboard_callbacks, rune_session_set_configuration,
         rune_session_set_network_callback, rune_session_set_open_callback,
-        rune_session_startup_output, rune_string_free, RuneClipboardResponse, RuneEvent,
-        RuneNetworkResponse, RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS, RUNE_OPEN_FILE, RUNE_OPEN_URL,
+        rune_session_set_toolchain_callback, rune_session_startup_output, rune_string_free,
+        RuneClipboardResponse, RuneEvent, RuneNetworkResponse, RuneToolchainArtifactBuffer,
+        RuneToolchainEnvironmentEntry, RuneToolchainResponse, RuneToolchainSlice,
+        RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS, RUNE_OPEN_FILE, RUNE_OPEN_URL, RUNE_TOOLCHAIN_C,
     };
     use std::ffi::{c_void, CStr, CString};
     use std::os::raw::c_char;
@@ -1065,6 +1444,133 @@ mod tests {
             std::ptr::copy_nonoverlapping(b"ffi-body".as_ptr(), response_buffer, 8);
             (*response).status_code = 201;
             (*response).body_length = 8;
+            (*response).error = 0;
+        }
+        true
+    }
+
+    unsafe extern "C" fn test_toolchain_callback(
+        user_data: *mut c_void,
+        kind: i32,
+        program_name: *const c_char,
+        source: RuneToolchainSlice,
+        args: *const RuneToolchainSlice,
+        argument_count: usize,
+        environment: *const RuneToolchainEnvironmentEntry,
+        environment_count: usize,
+        stdin: RuneToolchainSlice,
+        stdout_buffer: *mut u8,
+        stdout_capacity: usize,
+        stderr_buffer: *mut u8,
+        stderr_capacity: usize,
+        artifact_buffers: *mut RuneToolchainArtifactBuffer,
+        artifact_capacity: usize,
+        artifact_path_buffers: *mut u8,
+        artifact_path_capacity: usize,
+        artifact_media_type_buffers: *mut u8,
+        artifact_media_type_capacity: usize,
+        artifact_data_buffer: *mut u8,
+        artifact_data_capacity: usize,
+        response: *mut RuneToolchainResponse,
+    ) -> bool {
+        static STDOUT: &[u8] = b"compiled\n";
+        static PATH: &[u8] = b"build/app.wasm";
+        static MEDIA_TYPE: &[u8] = b"application/wasm";
+        static ARTIFACT_DATA: &[u8] = b"wasm-artifact";
+        if user_data.is_null()
+            || program_name.is_null()
+            || source.data.is_null()
+            || response.is_null()
+            || args.is_null()
+            || environment.is_null()
+            || stdout_buffer.is_null()
+            || stderr_buffer.is_null()
+            || artifact_buffers.is_null()
+            || artifact_path_buffers.is_null()
+            || artifact_media_type_buffers.is_null()
+            || artifact_data_buffer.is_null()
+        {
+            return false;
+        }
+        // SAFETY: the callback is invoked synchronously with borrowed request
+        // data prepared by CallbackToolchainProvider.
+        let calls = unsafe { &mut *user_data.cast::<usize>() };
+        *calls += 1;
+        let program_name = unsafe { CStr::from_ptr(program_name) }
+            .to_str()
+            .unwrap_or_default();
+        if kind != RUNE_TOOLCHAIN_C || program_name != "main.c" {
+            return false;
+        }
+        let source = unsafe { std::slice::from_raw_parts(source.data, source.length) };
+        if source != b"int main(void) { return 0; }\n" || argument_count != 2 {
+            return false;
+        }
+        let args = unsafe { std::slice::from_raw_parts(args, argument_count) };
+        let argument = |slice: RuneToolchainSlice| {
+            if slice.data.is_null() {
+                return None;
+            }
+            Some(unsafe { std::slice::from_raw_parts(slice.data, slice.length) })
+        };
+        if argument(args[0]) != Some(b"-o".as_slice())
+            || argument(args[1]) != Some(b"app.wasm".as_slice())
+            || stdin.length != 0
+        {
+            return false;
+        }
+        let environment = unsafe { std::slice::from_raw_parts(environment, environment_count) };
+        if environment.is_empty() || environment.iter().any(|entry| entry.key.data.is_null()) {
+            return false;
+        }
+        if stdout_capacity < STDOUT.len()
+            || stderr_capacity == 0
+            || artifact_capacity == 0
+            || artifact_path_capacity < PATH.len()
+            || artifact_media_type_capacity < MEDIA_TYPE.len()
+            || artifact_data_capacity < ARTIFACT_DATA.len()
+        {
+            return false;
+        }
+        // SAFETY: the provider callback receives writable Rune-owned buffers
+        // for the duration of this call.
+        let artifact_buffers = unsafe { std::slice::from_raw_parts_mut(artifact_buffers, 1) };
+        let path_buffer = unsafe {
+            std::slice::from_raw_parts_mut(artifact_path_buffers, artifact_path_capacity)
+        };
+        let media_type_buffer = unsafe {
+            std::slice::from_raw_parts_mut(
+                artifact_media_type_buffers,
+                artifact_media_type_capacity,
+            )
+        };
+        let data_buffer =
+            unsafe { std::slice::from_raw_parts_mut(artifact_data_buffer, artifact_data_capacity) };
+        unsafe {
+            std::ptr::copy_nonoverlapping(STDOUT.as_ptr(), stdout_buffer, STDOUT.len());
+            std::ptr::copy_nonoverlapping(PATH.as_ptr(), path_buffer.as_mut_ptr(), PATH.len());
+            std::ptr::copy_nonoverlapping(
+                MEDIA_TYPE.as_ptr(),
+                media_type_buffer.as_mut_ptr(),
+                MEDIA_TYPE.len(),
+            );
+            std::ptr::copy_nonoverlapping(
+                ARTIFACT_DATA.as_ptr(),
+                data_buffer.as_mut_ptr(),
+                ARTIFACT_DATA.len(),
+            );
+        }
+        artifact_buffers[0] = RuneToolchainArtifactBuffer {
+            path_length: PATH.len(),
+            media_type_length: MEDIA_TYPE.len(),
+            data_offset: 0,
+            data_length: ARTIFACT_DATA.len(),
+        };
+        unsafe {
+            (*response).stdout_length = STDOUT.len();
+            (*response).stderr_length = 0;
+            (*response).status = 0;
+            (*response).artifact_count = 1;
             (*response).error = 0;
         }
         true
@@ -1742,6 +2248,92 @@ mod tests {
             rune_string_free(disabled.stdout);
             rune_string_free(disabled.stderr);
         }
+        rune_session_destroy(handle);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn c_abi_routes_toolchain_through_bounded_callback_and_vfs() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rune-ffi-toolchain-test-{suffix}"));
+        std::fs::create_dir_all(&root).expect("test root created");
+        let root_string = CString::new(root.to_string_lossy().as_bytes()).expect("valid root");
+        let handle = rune_session_new(root_string.as_ptr());
+        assert!(!handle.is_null());
+        let source_path = CString::new("main.c").expect("valid source path");
+        let source = b"int main(void) { return 0; }\n";
+        let source_output = unsafe {
+            rune_session_put_file(handle, source_path.as_ptr(), source.as_ptr(), source.len())
+        };
+        assert_eq!(source_output.status, 0);
+        unsafe {
+            rune_string_free(source_output.stdout);
+            rune_string_free(source_output.stderr);
+        }
+
+        let mut calls = 0_usize;
+        assert_eq!(
+            rune_session_set_toolchain_callback(
+                handle,
+                RUNE_TOOLCHAIN_C,
+                Some(test_toolchain_callback),
+                std::ptr::addr_of_mut!(calls).cast(),
+            ),
+            0
+        );
+        let command = CString::new("cc main.c -o app.wasm").expect("valid command");
+        let output = rune_session_execute(handle, command.as_ptr());
+        assert_eq!(
+            output.status,
+            0,
+            "stdout={:?} stderr={:?} calls={calls}",
+            c_string(output.stdout),
+            c_string(output.stderr)
+        );
+        assert_eq!(c_string(output.stdout), "compiled\n");
+        assert!(c_string(output.stderr).is_empty());
+        assert_eq!(calls, 1);
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+
+        let artifact_path = CString::new("build/app.wasm").expect("valid artifact path");
+        let artifact = rune_session_get_file(handle, artifact_path.as_ptr());
+        assert_eq!(artifact.status, 0);
+        assert_eq!(artifact.length, b"wasm-artifact".len());
+        assert_eq!(
+            unsafe { std::slice::from_raw_parts(artifact.data, artifact.length) },
+            b"wasm-artifact"
+        );
+        unsafe {
+            rune_file_bytes_free(artifact.data, artifact.length);
+            rune_string_free(artifact.message);
+        }
+
+        assert_eq!(
+            rune_session_set_toolchain_callback(
+                handle,
+                RUNE_TOOLCHAIN_C,
+                None,
+                std::ptr::null_mut(),
+            ),
+            0
+        );
+        let disabled = rune_session_execute(handle, command.as_ptr());
+        assert_eq!(disabled.status, 126);
+        assert!(c_string(disabled.stderr).contains("toolchain provider is unavailable"));
+        unsafe {
+            rune_string_free(disabled.stdout);
+            rune_string_free(disabled.stderr);
+        }
+        assert_eq!(
+            rune_session_set_toolchain_callback(handle, 99, None, std::ptr::null_mut()),
+            2
+        );
         rune_session_destroy(handle);
         std::fs::remove_dir_all(root).expect("test root removed");
     }

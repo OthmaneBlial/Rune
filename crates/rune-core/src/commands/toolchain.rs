@@ -77,7 +77,7 @@ fn run(context: &mut CommandContext<'_>, kind: ToolchainKind, command: &str) -> 
     };
     if output.status == 0 {
         for artifact in execution.artifacts {
-            if let Err(error) = context.fs.write(&artifact.path, &artifact.bytes, false) {
+            if let Err(error) = materialize_artifact(context, &artifact.path, &artifact.bytes) {
                 output.status = 1;
                 let _ = writeln!(
                     output.stderr,
@@ -89,4 +89,15 @@ fn run(context: &mut CommandContext<'_>, kind: ToolchainKind, command: &str) -> 
         }
     }
     output
+}
+
+fn materialize_artifact(
+    context: &mut CommandContext<'_>,
+    path: &str,
+    bytes: &[u8],
+) -> Result<(), rune_fs::FsError> {
+    if let Some((parent, _)) = path.rsplit_once('/') {
+        context.fs.make_directory(parent, true)?;
+    }
+    context.fs.write(path, bytes, false)
 }

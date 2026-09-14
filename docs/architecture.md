@@ -411,6 +411,12 @@ validate those artifacts before materializing them through the VFS. The
 default provider is an explicit unavailable implementation. This contract is
 not a compiler, linker, TeX engine, or compatibility claim, and no toolchain
 payload is installed in the current disk-constrained workspace.
+`rune-ffi` exposes an equivalent synchronous callback. Rune owns the stdout,
+stderr, path/media metadata, and aggregate artifact buffers for the callback;
+the native provider fills lengths and offsets, after which Rust copies and
+validates the result. This avoids an outliving-pointer ABI and preserves the
+same confined materialization rule. The callback is an integration boundary,
+not evidence that a C/C++ compiler or TeX engine exists.
 
 The VFS exposes its host root to this boundary only as an optional borrowed
 capability. Sandboxed host VFS instances return their canonical root; other

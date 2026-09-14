@@ -26,6 +26,31 @@ private struct RuneFFIFile {
     let message: UnsafeMutablePointer<CChar>?
 }
 
+private struct RuneToolchainSlice {
+    let data: UnsafePointer<UInt8>?
+    let length: Int
+}
+
+private struct RuneToolchainEnvironmentEntry {
+    let key: RuneToolchainSlice
+    let value: RuneToolchainSlice
+}
+
+private struct RuneToolchainArtifactBuffer {
+    var pathLength: Int
+    var mediaTypeLength: Int
+    var dataOffset: Int
+    var dataLength: Int
+}
+
+private struct RuneToolchainResponse {
+    var stdoutLength: Int
+    var stderrLength: Int
+    var status: Int32
+    var artifactCount: Int
+    var error: Int32
+}
+
 private struct RuneClipboardResponse {
     var textLength: Int
     var error: Int32
@@ -42,6 +67,31 @@ private typealias RuneClipboardWriteCallback = @convention(c) (
     UnsafeMutableRawPointer?,
     UnsafePointer<UInt8>?,
     Int
+) -> Bool
+
+private typealias RuneToolchainRequestCallback = @convention(c) (
+    UnsafeMutableRawPointer?,
+    Int32,
+    UnsafePointer<CChar>?,
+    RuneToolchainSlice,
+    UnsafePointer<RuneToolchainSlice>?,
+    Int,
+    UnsafePointer<RuneToolchainEnvironmentEntry>?,
+    Int,
+    RuneToolchainSlice,
+    UnsafeMutablePointer<UInt8>?,
+    Int,
+    UnsafeMutablePointer<UInt8>?,
+    Int,
+    UnsafeMutablePointer<RuneToolchainArtifactBuffer>?,
+    Int,
+    UnsafeMutablePointer<UInt8>?,
+    Int,
+    UnsafeMutablePointer<UInt8>?,
+    Int,
+    UnsafeMutablePointer<UInt8>?,
+    Int,
+    UnsafeMutablePointer<RuneToolchainResponse>?
 ) -> Bool
 
 public enum RuneExecutionEventKind: Int32, Sendable {
@@ -142,6 +192,14 @@ private func rune_session_set_clipboard_callbacks(
 private func rune_session_set_open_callback(
     _ handle: OpaquePointer?,
     _ callback: RuneOpenCallback?,
+    _ userData: UnsafeMutableRawPointer?
+) -> Int32
+
+@_silgen_name("rune_session_set_toolchain_callback")
+private func rune_session_set_toolchain_callback(
+    _ handle: OpaquePointer?,
+    _ kind: Int32,
+    _ callback: RuneToolchainRequestCallback?,
     _ userData: UnsafeMutableRawPointer?
 ) -> Int32
 

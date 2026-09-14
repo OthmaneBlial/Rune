@@ -73,9 +73,12 @@ pub const MAX_TOOLCHAIN_OUTPUT_BYTES: usize = 1024 * 1024;
 pub const MAX_TOOLCHAIN_ARTIFACTS: usize = 128;
 /// Maximum size of one generated toolchain artifact.
 pub const MAX_TOOLCHAIN_ARTIFACT_BYTES: usize = 64 * 1024 * 1024;
+/// Maximum UTF-8 relative path length for one generated artifact.
+pub const MAX_TOOLCHAIN_ARTIFACT_PATH_BYTES: usize = 64 * 1024;
+/// Maximum UTF-8 media-type length for one generated artifact.
+pub const MAX_TOOLCHAIN_MEDIA_TYPE_BYTES: usize = 128;
 const MAX_TOOLCHAIN_PROGRAM_NAME_BYTES: usize = 256;
 const MAX_TOOLCHAIN_ARGUMENT_BYTES: usize = 64 * 1024;
-const MAX_TOOLCHAIN_MEDIA_TYPE_BYTES: usize = 128;
 
 /// A runtime family Rune may eventually host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -491,6 +494,7 @@ impl ToolchainOutput {
         let mut paths = BTreeSet::new();
         for artifact in &self.artifacts {
             if artifact.path.is_empty()
+                || artifact.path.len() > MAX_TOOLCHAIN_ARTIFACT_PATH_BYTES
                 || artifact.path.starts_with('/')
                 || artifact.path.contains('\\')
                 || artifact

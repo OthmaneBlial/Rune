@@ -85,6 +85,12 @@ approved URL schemes and confined file targets; RuneOpenBridge.swift hands
 those accepted targets to UIKit on the main queue. The callback is an
 asynchronous host acceptance boundary, so URL routing and document opening
 remain unverified without an Apple runtime.
+`RuneFFI.h` and `RuneCoreBridge.swift` also describe the explicit C/C++/TeX
+toolchain callback. It provides Rune-owned output buffers and an aggregate
+artifact arena, so a future provider can return copied, validated artifacts
+without exposing arbitrary host paths or dangling pointers. No compiler, linker,
+or TeX engine is included; toolchain execution remains unavailable until a
+reviewed provider exists.
 The same callback can serve Rust-owned package registry search and exact-version
 package fetches; the registry index, manifest, artifact mapping, origin policy,
 and SHA-256 checks remain in Rust. No registry URL or package bytes are stored
@@ -142,6 +148,8 @@ open/openurl capability; the portable CLI remains launcher-disabled by default.
 - `Package.swift` is a source/package boundary.
 - `RuneFFI.h` documents the C ABI layout.
 - `RuneCoreBridge.swift` owns and frees Rust session handles/strings.
+- `RuneFFI.h` and `RuneCoreBridge.swift` expose the bounded toolchain callback
+  boundary; they do not bundle a compiler or TeX engine.
 - `RuneExternalFolderAccess.swift` owns bounded security-scoped bookmark
   storage and keeps approved folder access alive for a Rust session.
 - `RuneShortcuts.swift` declares Rust-backed command, named-session command,

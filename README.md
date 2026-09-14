@@ -26,7 +26,7 @@ working iOS application or a feature-parity claim.
 | Configuration | 66% |
 | WASM | 52% |
 | Native iOS UI | 72% |
-| Swift/Rust bridge | 62% |
+| Swift/Rust bridge | 64% |
 | Package manager | 66% |
 | Compatibility evidence | 3% |
 
@@ -386,6 +386,11 @@ yet. The `cc`, `c++`, `clang`, `clang++`, and `tex` entry points therefore
 return an explicit provider-unavailable status until a real provider is
 installed and reviewed; they are not counted as supported compilation or
 document-rendering commands above.
+The C/Swift boundary now exposes the same contract through a synchronous
+callback with Rune-owned output buffers and an aggregate artifact arena; a
+native provider can be added later without returning unmanaged pointers or
+writing arbitrary host paths. This is ABI/source evidence only and does not
+make a compiler or TeX engine available.
 
 No a-Shell compatibility area is marked `supported` without behavior and test
 evidence. See [`compat/a-shell-compatibility.json`](compat/a-shell-compatibility.json).

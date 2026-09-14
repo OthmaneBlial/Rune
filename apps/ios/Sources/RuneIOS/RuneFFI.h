@@ -50,6 +50,60 @@ typedef bool (*RuneNetworkRequestCallback)(
 );
 
 typedef struct {
+    const uint8_t *data;
+    size_t length;
+} RuneToolchainSlice;
+
+typedef struct {
+    RuneToolchainSlice key;
+    RuneToolchainSlice value;
+} RuneToolchainEnvironmentEntry;
+
+typedef struct {
+    size_t path_length;
+    size_t media_type_length;
+    size_t data_offset;
+    size_t data_length;
+} RuneToolchainArtifactBuffer;
+
+typedef struct {
+    size_t stdout_length;
+    size_t stderr_length;
+    int32_t status;
+    size_t artifact_count;
+    int32_t error;
+} RuneToolchainResponse;
+
+typedef bool (*RuneToolchainRequestCallback)(
+    void *user_data,
+    int32_t kind,
+    const char *program_name,
+    RuneToolchainSlice source,
+    const RuneToolchainSlice *args,
+    size_t argument_count,
+    const RuneToolchainEnvironmentEntry *environment,
+    size_t environment_count,
+    RuneToolchainSlice stdin_data,
+    uint8_t *stdout_buffer,
+    size_t stdout_capacity,
+    uint8_t *stderr_buffer,
+    size_t stderr_capacity,
+    RuneToolchainArtifactBuffer *artifact_buffers,
+    size_t artifact_capacity,
+    uint8_t *artifact_path_buffers,
+    size_t artifact_path_capacity,
+    uint8_t *artifact_media_type_buffers,
+    size_t artifact_media_type_capacity,
+    uint8_t *artifact_data_buffer,
+    size_t artifact_data_capacity,
+    RuneToolchainResponse *response
+);
+
+#define RUNE_TOOLCHAIN_C 1
+#define RUNE_TOOLCHAIN_CPP 2
+#define RUNE_TOOLCHAIN_TEX 3
+
+typedef struct {
     size_t text_length;
     int32_t error;
 } RuneClipboardResponse;
@@ -99,6 +153,13 @@ int32_t rune_session_set_clipboard_callbacks(
 int32_t rune_session_set_open_callback(
     void *handle,
     RuneOpenCallback callback,
+    void *user_data
+);
+// Install or clear one explicit C, C++, or TeX provider.
+int32_t rune_session_set_toolchain_callback(
+    void *handle,
+    int32_t kind,
+    RuneToolchainRequestCallback callback,
     void *user_data
 );
 // Update one validated Rust-owned configuration value without history entry.
