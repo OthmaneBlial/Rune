@@ -182,7 +182,10 @@ variable in the session environment. Multiline `if/elif/else/fi` branches use
 the same planner for their conditions and selected body, with control-flow
 nesting capped at 16 levels. Multiline `while` and `until` loops use the same
 condition/body path and stop after 1,024 body iterations. `case`, functions,
-and one-line loop bodies remain outside the subset.
+and one-line loop bodies remain outside the subset. Multiline `case WORD in`
+branches support exact patterns, `*`/`?`, and simple `|` alternatives through a
+Rust-owned matcher; character classes and other POSIX pattern forms remain
+outside the profile.
 
 The Apple source layer declares command, script, and named-session command App
 Intents that construct a normal `RuneFFISession` rooted at the app Documents

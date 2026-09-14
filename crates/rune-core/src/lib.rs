@@ -63,6 +63,7 @@ const MAX_SOURCE_ARGUMENTS: usize = 64;
 const MAX_COMMAND_SUBSTITUTION_DEPTH: usize = 16;
 const MAX_FOR_VALUES: usize = 256;
 const MAX_WHILE_ITERATIONS: usize = 1_024;
+const MAX_CASE_PATTERNS: usize = 64;
 pub(crate) const CANCELLED_STATUS: i32 = 130;
 const MAX_BOOKMARKS: usize = 256;
 const MAX_BOOKMARK_NAME_CHARS: usize = 64;
@@ -1042,6 +1043,16 @@ impl Session {
             let output = self.execute_while_loop(&header, &body, context);
             return Ok(Some((body_end + 1, output)));
         }
+        if is_case_header_line(line) {
+            let header =
+                parse_case_header(line)?.ok_or_else(|| "invalid `case` header".to_string())?;
+            let block = parse_case_block(lines, line_index, &header)?;
+            if context.record_history {
+                self.record_history_line(line.trim());
+            }
+            let output = self.execute_case_block(&block, context);
+            return Ok(Some((block.end + 1, output)));
+        }
         Ok(None)
     }
 
@@ -1200,6 +1211,43 @@ impl Session {
             if output.status == CANCELLED_STATUS {
                 break;
             }
+        }
+        limit_output(&mut output);
+        self.last_status = output.status;
+        output
+    }
+
+    fn execute_case_block(
+        &mut self,
+        block: &CaseBlock,
+        context: &mut ScriptExecutionContext<'_>,
+    ) -> CommandOutput {
+        let expanded = match self.expand_word(&block.word, context.source_depth) {
+            Ok(expanded) => expanded,
+            Err(error) => {
+                self.last_status = error.status;
+                return error;
+            }
+        };
+        let mut output = CommandOutput::success("");
+        output.stderr.push_str(&expanded.stderr);
+        if let Some(clause) = block.clauses.iter().find(|clause| {
+            clause
+                .patterns
+                .iter()
+                .any(|pattern| case_pattern_matches(pattern, &expanded.value))
+        }) {
+            let mut body_context = ScriptExecutionContext {
+                record_history: context.record_history,
+                source_depth: context.source_depth,
+                external_stdin: context.external_stdin,
+                control_depth: context.control_depth + 1,
+                sink: &mut *context.sink,
+            };
+            let body_output = self.execute_script_body(&clause.body, &mut body_context);
+            output.stdout.push_str(&body_output.stdout);
+            output.stderr.push_str(&body_output.stderr);
+            output.status = body_output.status;
         }
         limit_output(&mut output);
         self.last_status = output.status;
@@ -2487,10 +2535,41 @@ struct WhileHeader {
     until: bool,
 }
 
+#[derive(Debug)]
+struct CaseHeader {
+    word: Word,
+}
+
+#[derive(Debug)]
+struct CaseClause {
+    patterns: Vec<CasePattern>,
+    body: String,
+}
+
+#[derive(Debug)]
+struct CaseBlock {
+    word: Word,
+    clauses: Vec<CaseClause>,
+    end: usize,
+}
+
+#[derive(Debug)]
+struct CasePattern {
+    tokens: Vec<CasePatternToken>,
+}
+
+#[derive(Debug)]
+enum CasePatternToken {
+    Literal(char),
+    AnySequence,
+    AnyCharacter,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ControlBlock {
     Loop,
     If,
+    Case,
 }
 
 fn is_for_header_line(line: &str) -> bool {
@@ -2504,6 +2583,19 @@ fn is_if_header_line(line: &str) -> bool {
 fn is_loop_header_line(line: &str) -> bool {
     let trimmed = line.trim_start();
     trimmed.starts_with("while ") || trimmed.starts_with("until ")
+}
+
+fn is_case_header_line(line: &str) -> bool {
+    line.trim_start().starts_with("case ")
+}
+
+fn is_case_clause_header(line: &str) -> bool {
+    let trimmed = line.trim();
+    !trimmed.is_empty()
+        && trimmed.ends_with(')')
+        && trimmed != ")"
+        && trimmed != "esac"
+        && trimmed != ";;"
 }
 
 fn is_elif_header_line(line: &str) -> bool {
@@ -2585,6 +2677,37 @@ fn parse_while_header(line: &str) -> Result<Option<WhileHeader>, String> {
     }))
 }
 
+fn parse_case_header(line: &str) -> Result<Option<CaseHeader>, String> {
+    let trimmed = line.trim();
+    if !trimmed.starts_with("case ") {
+        return Ok(None);
+    }
+    let plan = parse(trimmed).map_err(|error| format!("invalid case header: {error}"))?;
+    let Some(pipeline) = plan.pipelines.first() else {
+        return Err("case header is empty".to_string());
+    };
+    let Some(command) = pipeline.commands.first() else {
+        return Err("case header has no command".to_string());
+    };
+    if plan.pipelines.len() != 1
+        || !plan.connectors.is_empty()
+        || pipeline.commands.len() != 1
+        || !command.assignments.is_empty()
+        || !command.redirections.is_empty()
+        || command.program.literal_value().as_deref() != Some("case")
+        || command.arguments.len() != 2
+        || command.arguments[1].literal_value().as_deref() != Some("in")
+    {
+        return Err("use: case WORD in".to_string());
+    }
+    let word = command
+        .arguments
+        .first()
+        .cloned()
+        .ok_or_else(|| "case word is missing".to_string())?;
+    Ok(Some(CaseHeader { word }))
+}
+
 fn parse_if_header(line: &str, keyword: &str) -> Result<Option<IfHeader>, String> {
     let trimmed = line.trim();
     let Some(rest) = trimmed.strip_prefix(&format!("{keyword} ")) else {
@@ -2630,6 +2753,8 @@ fn loop_body_range(
             blocks.push(ControlBlock::Loop);
         } else if is_if_header_line(line) {
             blocks.push(ControlBlock::If);
+        } else if is_case_header_line(line) {
+            blocks.push(ControlBlock::Case);
         } else {
             match line.trim() {
                 "done" => match blocks.pop() {
@@ -2642,11 +2767,247 @@ fn loop_body_range(
                 "fi" if blocks.pop() != Some(ControlBlock::If) => {
                     return Err("for loop has mismatched `done`/`fi`".to_string());
                 }
+                "esac" if blocks.pop() != Some(ControlBlock::Case) => {
+                    return Err("for loop has mismatched `esac`".to_string());
+                }
                 _ => {}
             }
         }
     }
     Err("for loop is missing `done`".to_string())
+}
+
+fn parse_case_block(
+    lines: &[&str],
+    header_index: usize,
+    header: &CaseHeader,
+) -> Result<CaseBlock, String> {
+    let mut clauses = Vec::new();
+    let mut current_patterns = None;
+    let mut current_start = 0;
+    let mut index = header_index + 1;
+    while index < lines.len() {
+        let line = lines[index];
+        if is_for_header_line(line) {
+            let nested =
+                parse_for_header(line)?.ok_or_else(|| "invalid nested `for` header".to_string())?;
+            let (_, body_end) = loop_body_range(lines, index, nested.inline_do)?;
+            index = body_end + 1;
+            continue;
+        }
+        if is_loop_header_line(line) {
+            let nested = parse_while_header(line)?
+                .ok_or_else(|| "invalid nested loop header".to_string())?;
+            let (_, body_end) = loop_body_range(lines, index, nested.inline_do)?;
+            index = body_end + 1;
+            continue;
+        }
+        if is_if_header_line(line) {
+            let nested = parse_if_header(line, "if")?
+                .ok_or_else(|| "invalid nested `if` header".to_string())?;
+            let nested_block = parse_if_block(lines, index, &nested)?;
+            index = nested_block.end + 1;
+            continue;
+        }
+        if is_case_header_line(line) {
+            let nested = parse_case_header(line)?
+                .ok_or_else(|| "invalid nested `case` header".to_string())?;
+            let nested_block = parse_case_block(lines, index, &nested)?;
+            index = nested_block.end + 1;
+            continue;
+        }
+        if is_case_clause_header(line) {
+            if current_patterns.is_some() {
+                return Err("case clause is missing `;;`".to_string());
+            }
+            let raw = line
+                .trim()
+                .strip_suffix(')')
+                .expect("case clause header was checked")
+                .trim();
+            let patterns = parse_case_patterns(raw)?;
+            if patterns.len() > MAX_CASE_PATTERNS {
+                return Err(format!(
+                    "case pattern list exceeds the {MAX_CASE_PATTERNS}-pattern limit"
+                ));
+            }
+            current_patterns = Some(patterns);
+            current_start = index + 1;
+            index += 1;
+            continue;
+        }
+        match line.trim() {
+            ";;" => {
+                let Some(patterns) = current_patterns.take() else {
+                    return Err("case clause terminator has no clause".to_string());
+                };
+                clauses.push(CaseClause {
+                    patterns,
+                    body: lines[current_start..index].join("\n"),
+                });
+            }
+            "esac" => {
+                if let Some(patterns) = current_patterns.take() {
+                    clauses.push(CaseClause {
+                        patterns,
+                        body: lines[current_start..index].join("\n"),
+                    });
+                }
+                if clauses.is_empty() {
+                    return Err("case statement has no clauses".to_string());
+                }
+                return Ok(CaseBlock {
+                    word: header.word.clone(),
+                    clauses,
+                    end: index,
+                });
+            }
+            "done" | "fi" => {
+                return Err("case statement has mismatched control marker".to_string());
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    Err("case statement is missing `esac`".to_string())
+}
+
+fn parse_case_patterns(raw: &str) -> Result<Vec<CasePattern>, String> {
+    let alternatives = split_case_pattern_alternatives(raw)?;
+    if alternatives.is_empty() {
+        return Err("case clause has no pattern".to_string());
+    }
+    alternatives
+        .into_iter()
+        .map(|alternative| {
+            let plan = parse(&format!("echo {alternative}"))
+                .map_err(|error| format!("invalid case pattern: {error}"))?;
+            let Some(pipeline) = plan.pipelines.first() else {
+                return Err("case pattern is empty".to_string());
+            };
+            let Some(command) = pipeline.commands.first() else {
+                return Err("case pattern has no value".to_string());
+            };
+            if plan.pipelines.len() != 1
+                || !plan.connectors.is_empty()
+                || pipeline.commands.len() != 1
+                || !command.assignments.is_empty()
+                || !command.redirections.is_empty()
+                || command.program.literal_value().as_deref() != Some("echo")
+                || command.arguments.len() != 1
+            {
+                return Err(
+                    "case patterns support one quoted/literal word with `*`, `?`, or `|`"
+                        .to_string(),
+                );
+            }
+            let word = &command.arguments[0];
+            let mut tokens = Vec::new();
+            for part in word.parts() {
+                match part {
+                    WordPart::Literal(text) => {
+                        tokens.extend(text.chars().map(CasePatternToken::Literal));
+                    }
+                    WordPart::Wildcard('*') => tokens.push(CasePatternToken::AnySequence),
+                    WordPart::Wildcard('?') => tokens.push(CasePatternToken::AnyCharacter),
+                    WordPart::Wildcard(other) => {
+                        return Err(format!("unsupported case wildcard: {other}"));
+                    }
+                    WordPart::Variable(_) | WordPart::CommandSubstitution(_) => {
+                        return Err(
+                            "case patterns do not support variable or command substitution"
+                                .to_string(),
+                        );
+                    }
+                }
+            }
+            Ok(CasePattern { tokens })
+        })
+        .collect()
+}
+
+fn split_case_pattern_alternatives(raw: &str) -> Result<Vec<String>, String> {
+    let mut alternatives = Vec::new();
+    let mut current = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    for character in raw.chars() {
+        if escaped {
+            current.push(character);
+            escaped = false;
+            continue;
+        }
+        match quote {
+            Some('\'') => {
+                current.push(character);
+                if character == '\'' {
+                    quote = None;
+                }
+            }
+            Some('"') => {
+                current.push(character);
+                if character == '"' {
+                    quote = None;
+                } else if character == '\\' {
+                    escaped = true;
+                }
+            }
+            None => match character {
+                '\\' => {
+                    current.push(character);
+                    escaped = true;
+                }
+                '\'' | '"' => {
+                    current.push(character);
+                    quote = Some(character);
+                }
+                '|' => {
+                    if current.trim().is_empty() {
+                        return Err("case pattern alternative is empty".to_string());
+                    }
+                    alternatives.push(current.trim().to_string());
+                    current.clear();
+                }
+                _ => current.push(character),
+            },
+            _ => unreachable!("case pattern quote is one of the supported modes"),
+        }
+    }
+    if escaped || quote.is_some() {
+        return Err("case pattern has an unclosed quote or escape".to_string());
+    }
+    if current.trim().is_empty() {
+        return Err("case pattern alternative is empty".to_string());
+    }
+    alternatives.push(current.trim().to_string());
+    Ok(alternatives)
+}
+
+fn case_pattern_matches(pattern: &CasePattern, value: &str) -> bool {
+    let value = value.chars().collect::<Vec<_>>();
+    let mut previous = vec![false; value.len() + 1];
+    previous[0] = true;
+    for token in &pattern.tokens {
+        let mut current = vec![false; value.len() + 1];
+        match token {
+            CasePatternToken::AnySequence => {
+                current[0] = previous[0];
+                for index in 1..=value.len() {
+                    current[index] = previous[index] || current[index - 1];
+                }
+            }
+            CasePatternToken::AnyCharacter => {
+                current[1..].copy_from_slice(&previous[..value.len()]);
+            }
+            CasePatternToken::Literal(expected) => {
+                for index in 1..=value.len() {
+                    current[index] = previous[index - 1] && value[index - 1] == *expected;
+                }
+            }
+        }
+        previous = current;
+    }
+    previous[value.len()]
 }
 
 fn parse_if_block(
@@ -2722,6 +3083,8 @@ fn parse_if_block(
             blocks.push(ControlBlock::Loop);
         } else if is_if_header_line(line) {
             blocks.push(ControlBlock::If);
+        } else if is_case_header_line(line) {
+            blocks.push(ControlBlock::Case);
         } else {
             match line.trim() {
                 "done" => match blocks.pop() {
@@ -2730,6 +3093,9 @@ fn parse_if_block(
                 },
                 "fi" if blocks.pop() != Some(ControlBlock::If) => {
                     return Err("if statement has mismatched `done`/`fi`".to_string());
+                }
+                "esac" if blocks.pop() != Some(ControlBlock::Case) => {
+                    return Err("if statement has mismatched `esac`".to_string());
                 }
                 _ => {}
             }
@@ -4947,6 +5313,32 @@ mod tests {
         assert!(infinite.stderr.contains(&format!(
             "loop exceeds the {MAX_WHILE_ITERATIONS}-iteration limit"
         )));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn executes_bounded_case_branches_through_the_rust_planner() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let selected = session.execute_script(
+            "choice=beta\ncase \"$choice\" in\nalpha)\necho alpha\n;;\nbeta|gamma)\necho selected-$choice\n;;\n*)\necho fallback\n;;\nesac",
+        );
+        assert_eq!(selected.status, 0, "{selected:?}");
+        assert_eq!(selected.stdout, "selected-beta\n");
+
+        let wildcard = session.execute_script(
+            "case report.txt in\n*.txt)\nif true; then\necho text\nfi\n;;\n*)\necho other\n;;\nesac",
+        );
+        assert_eq!(wildcard.status, 0, "{wildcard:?}");
+        assert_eq!(wildcard.stdout, "text\n");
+
+        let unmatched = session.execute_script("case image.png in\n*.txt)\necho wrong\n;;\nesac");
+        assert_eq!(unmatched.status, 0, "{unmatched:?}");
+        assert!(unmatched.stdout.is_empty());
+
+        let missing_esac = session.execute_script("case value in\n*)\necho incomplete\n;;");
+        assert_eq!(missing_esac.status, 2);
+        assert!(missing_esac.stderr.contains("missing `esac`"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

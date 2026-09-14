@@ -18,9 +18,9 @@ folder as its root and does not inherit the app's sibling directories.
 The bridge also exposes a bounded newline-delimited Rust automation script entry
 point for a future Shortcuts adapter. Rust rejects inputs above 256 KiB or 1,024
 lines, then runs ordinary lines and the bounded multiline `for`, `if`, `while`,
-and `until` constructs through the same planner and registry while preserving
-combined stdout, stderr, and the last status. Native Shortcuts registration
-remains unverified and is not included here.
+`until`, and `case` constructs through the same planner and registry while
+preserving combined stdout, stderr, and the last status. Native Shortcuts
+registration remains unverified and is not included here.
 
 `RuneShortcuts.swift` now declares source-only `AppIntent` actions for command
 and script execution, including execution in a named persisted Rust session.

@@ -112,8 +112,9 @@ tests cover multiline `for` loops, nested loops, variable expansion, bounded
 value lists, multiline `if`/`elif`/`else` branches, nested conditions, and
 missing closing markers. Multiline `while`/`until` tests cover state changes,
 body status, and the 1,024-iteration limit; control-flow depth is bounded,
-while `case`, functions, and one-line loop bodies remain outside the bounded
-grammar.
+and case tests cover exact patterns, wildcards, alternatives, and unmatched
+selectors. Functions and one-line control-flow bodies remain outside the
+bounded grammar.
 Shell parser tests cover quoted and nested `$(...)` forms and unclosed
 substitution rejection. The core integration test covers stdout capture,
 trailing-newline removal, nested substitutions, redirection targets, and
