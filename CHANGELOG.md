@@ -6,6 +6,10 @@ iOS runtime release.
 
 ## [Unreleased]
 
+No unreleased changes are documented yet.
+
+## [0.1.0-alpha.10] - 2026-09-14
+
 ### Added
 
 - One-line `if ...; then ...; elif ...; else ...; fi` branches use the same
