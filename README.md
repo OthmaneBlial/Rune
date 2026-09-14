@@ -1,690 +1,256 @@
 # Rune
 
-Rune is a Rust-native Unix-like terminal environment for iPhone and iPad, with
-a first-class native Apple frontend planned around Swift and SwiftUI. It is an
-independent implementation, designed from first principles for iOS sandbox
-constraints, reliable command execution, and portable core behavior.
+**A Rust-native Unix-like terminal core for iPhone and iPad.**
 
-The local `base/a-shell/` checkout is a behavioral and product reference. It is
-excluded from Git and no a-Shell source is part of Rune.
+Rune brings a bounded, local-first shell workflow to Apple platforms: Rust owns
+command execution, the confined virtual filesystem, persistence, runtimes, and
+the FFI boundary; SwiftUI provides the native presentation layer. It is an
+independent implementation, not a web terminal and not a feature-parity claim
+for a-Shell.
 
-## Development Progress
+<p align="center">
+  <a href="https://othmaneblial.github.io/Rune/"><img src="https://img.shields.io/badge/project_site-Rune-e85d2a?style=flat-square" alt="Rune project site"></a>
+  <a href="https://github.com/OthmaneBlial/Rune/releases"><img src="https://img.shields.io/github/v/release/OthmaneBlial/Rune?include_prereleases&style=flat-square&color=0ea5a8" alt="Latest Rune release"></a>
+  <a href="https://github.com/OthmaneBlial/Rune/blob/main/LICENSE"><img src="https://img.shields.io/github/license/OthmaneBlial/Rune?style=flat-square&color=f2b84b" alt="MIT license"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/core-Rust_1.78%2B-orange?style=flat-square&logo=rust" alt="Rust 1.78 or newer"></a>
+</p>
 
-**Overall progress: 69%**
+<p align="center">
+  <a href="https://othmaneblial.github.io/Rune/">Website</a> ·
+  <a href="https://othmaneblial.github.io/Rune/media/rune-cli-demo.mp4">Watch the real CLI demo</a> ·
+  <a href="https://othmaneblial.github.io/Rune/docs.html">Documentation</a> ·
+  <a href="ROADMAP.md">Roadmap</a> ·
+  <a href="https://github.com/OthmaneBlial/Rune/issues">Issues</a>
+</p>
 
-This is an intentionally conservative engineering estimate. The repository
-foundation and first Rust shell slice are locally verified; the estimate also
-accounts for the remaining Apple runtime, release, and compatibility gates.
-There is not yet a working iOS application or a feature-parity claim.
+<p align="center">
+  <a href="https://othmaneblial.github.io/Rune/media/rune-cli-demo.mp4">
+    <img src="https://raw.githubusercontent.com/OthmaneBlial/Rune/main/site/media/rune-cli-demo-poster.png" alt="Rune CLI demo showing a confined project tree, a Rust source search, persisted working directory, and frequency-ranked directory jumping" width="900">
+  </a>
+</p>
 
-| Area | Progress |
-|---|---:|
-| Rust workspace | 80% |
-| Shell tokenizer/parser | 78% |
-| Command runtime | 99% |
-| Sandboxed filesystem | 70% |
-| Archives | 83% |
-| Sessions/history | 72% |
-| Configuration | 75% |
-| WASM | 52% |
-| Native iOS UI | 77% |
-| Swift/Rust bridge | 75% |
-| Package manager | 66% |
-| Compatibility evidence | 3% |
+> The preview above is a designed presentation built from real Rust CLI output
+> captured against a temporary confined filesystem. It demonstrates the portable core; an iOS
+> build, simulator, and device runtime remain unverified in this
+> disk-constrained workspace.
+
+## Why Rune exists
+
+Mobile terminals have to balance familiar Unix workflows with strict platform
+boundaries. A useful iPhone or iPad terminal cannot quietly depend on a host
+shell, arbitrary filesystem paths, unbounded output, or ambient network and
+process access.
+
+Rune makes those boundaries explicit. The core is useful on its own, while the
+native layer can add Apple capabilities through narrow, typed providers. That
+keeps the shell testable on a developer machine and keeps platform behavior
+honest when an Apple runtime is not available.
+
+## What you get
+
+### A real Rust shell workflow
+
+- Rust tokenization and planning for quotes, variables, pipes, redirections,
+  command substitution, sequencing, &&/||, scripts, loops, functions, and
+  bounded positional arguments.
+- A growing Unix-like built-in surface including filesystem commands, text
+  filters, archives, checksums, awk, sed, grep, sort, wc, tar, gzip,
+  wasm, python3, lua, and jsc.
+- Session-local history, bookmarks, frequency-ranked z navigation, aliases,
+  configuration, terminal state, and named-session persistence.
+
+### A confined filesystem and explicit capabilities
+
+- Virtual ~, ~/Library, and ~/tmp mounts backed by approved roots.
+- Canonical-path checks, symlink containment, bounded reads/writes/traversals,
+  and no host-shell fallback.
+- Network, clipboard, external URL/file opening, media preview, folder import,
+  and toolchain execution exposed only through explicit providers. The default
+  CLI providers are disabled.
+
+### A native Apple boundary
+
+- rune-ffi exposes opaque session handles, owned buffers, command events,
+  cancellation, terminal snapshots, folder actions, and host-provider
+  callbacks.
+- apps/ios contains the SwiftUI/UIKit source boundary, settings surface,
+  keyboard actions, App Intents declarations, external-folder access, and
+  terminal presentation.
+- The Swift package and source-only swiftc -typecheck checks are available
+  without installing Xcode, an iOS SDK, or a simulator.
+
+## Demo
+
+The 54-second demo is built from actual rune-cli runs and shows:
+
+1. Creating a project inside a temporary confined root.
+2. Rendering the bounded virtual tree and finding Rust files.
+3. Running a real text pipeline through grep.
+4. Restoring state in a new process and using z directory navigation.
+5. Inspecting the Rust-owned command/configuration surface.
+6. The boundary between verified portable code and the still-unverified Apple
+   runtime.
+
+<p align="center">
+  <a href="https://othmaneblial.github.io/Rune/media/rune-cli-demo.mp4"><strong>▶ Watch the full MP4 demo</strong></a>
+</p>
+
+This is intentionally a CLI proof, not a fabricated iPhone recording or a
+claim that the source-only Swift layer has been launched. The
+repository has no existing iOS capture and this workspace does not contain the
+Apple build footprint needed to produce one.
 
 ## Current status
 
-The first Rust vertical slice is implemented and locally verified. It executes
-the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum`, `curl`, `nslookup`, `host`, `whois`, `date`, `echo`, `expr`, `jsc`, `lua`, `python3`, `md5`, `mkdir`,
-`touch`, `mktemp`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
-`setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `file`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`, `unlink`, `tee`, `tr`, `tree`, `xxd`,
-`alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
-`true`, `false`, `ar`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`, `type`, `command`,
-`bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
-`apropos`, `help`, `history`, `hideToolbar`, `showToolbar`, `sleep`, `uname`, `which`, `whoami`, `xargs`, `pbcopy`, `pbpaste`,
-`test`, `[`, `source`, `.`, `sh`, `dash`, `return`, `local`, `shift`, `set`, `exit`,
-`newWindow`, `new-window`, `pickFolder`, `open`, `openurl`, `play`, `view`, `z`, and the short bookmark aliases `s`,
-`g`, `l`, `p`, `r`, and `d` against a
-bounded filesystem,
-including basic `*`/`?` pathname
-expansion with quote and hidden-file rules,
-with quotes, variables, bounded `$(...)` command substitutions, leading `NAME=value` assignments, pipes, redirections,
-word-boundary comments, sequencing, `&&`/`||` short-circuiting, separate
-stdout/stderr, and exit status.
-`ls` also provides a bounded metadata view with `-l`, human-readable sizes with
-`-h`, hidden-entry selection with `-a`/`-A`, and `--` path termination; it only
-prints metadata exposed by the VFS and does not invent POSIX permissions or
-timestamps.
-Assignments are expanded left-to-right, remain session-local, and can also be
-issued without a command.
-The text pipeline also supports bounded regular-expression `sed` substitutions:
-one or more `s///` scripts supplied positionally or with `-e`, applied in order,
-with optional `g`/`p` flags and `-n`, plus `&`, `$1`, and `\1` replacement
-references. Addresses and full BSD/POSIX compatibility are not implemented yet.
-The text pipeline also includes bounded `cut` field/character selection
-(`-f`, `-c`, `-d`, and `-s`) over stdin or sandbox files. Its text filters
-accept `-` as an explicit stdin path when file operands are present.
-`head` and `tail` support bounded line selection with `-n`/`--lines`, the
-short numeric form, `+N` from a one-based starting line, and the signed
-`head -n -N` form that omits the final N lines; `--` terminates options.
-`grep` supports bounded Rust regular expressions with `-i`, `-v`, `-n`, `-c`,
-`-E`, and `-e`; `-F` and the `fgrep` alias select literal matching, while
-`egrep` selects the regular-expression mode. Invalid patterns and patterns
-above 16 KiB fail before input traversal;
-its status remains 0 for a match, 1 for no match, and 2 for invalid usage.
-`diff [-u|--unified] FILE1 FILE2` compares two bounded UTF-8 VFS files with a
-whole-file unified view, returning status 0 when equal, 1 when different, and
-2 when input, comparison size, or usage bounds are rejected.
-`sort` supports bounded lexical or integer-prefix ordering with `-n`, reverse
-ordering with `-r`, and adjacent-result deduplication with `-u`.
-`wc` reports bounded line, word, byte, character, and maximum-line-length
-counts with `-l`, `-w`, `-c`, `-m`, and `-L`; long option names, explicit stdin
-with `-`, multiple confined files, totals, and `--` termination are supported.
-`file` identifies bounded VFS entries and stdin using a small Rust-owned magic
-surface for directories, empty/text/binary data, ELF, WebAssembly, gzip, ZIP,
-and USTAR; `-b` omits the input label and `--mime-type` returns the bounded MIME
-classification. It is not a `libmagic` replacement.
-`tree` renders a bounded Unicode directory view through the VFS, with hidden
-entry selection via `-a`, directory-only output via `-d`, and depth control via
-`-L`; it never follows symlink entries.
-`find` supports a bounded start path with `-name`, `-type f|d|l`, `-mindepth`,
-and `-maxdepth`; it reports symlink entries without following them.
-`awk` provides a Rust-owned bounded text-processing subset: `-F` field
-separators, `$0`/`$1...`, `NF`/`NR`/`FNR`, `print`, `FS`/`OFS` assignments,
-`BEGIN`/`END`, regular-expression `/.../` filters, simple equality, and
-regex-aware `~`/`!~` predicates. It accepts UTF-8 stdin or confined files and
-does not execute arbitrary awk code.
-Command substitutions execute through the same Rust planner with a bounded
-nesting depth; their stdout loses trailing newlines, shell state is isolated,
-and filesystem writes remain real VFS writes.
-Redirections also support bounded stream duplication with `2>&1`, `1>&2`,
-`>&2`, and `&>`/`&>>`; the Rust plan preserves their left-to-right target
-semantics for pipelines and captured stdout/stderr.
-`base64` encodes stdin or one confined file and decodes strict standard Base64
-back to UTF-8, with a 768 KiB input bound and explicit errors for malformed or
-non-text decoded data.
-`date` prints the current local or UTC time using a bounded Rust-owned format
-surface; clock-setting and platform-specific date parsing are intentionally not
-exposed. `cksum` computes the POSIX CRC checksum for one bounded VFS file or stdin,
-including the input length in its stable two-field output.
-`sum` computes bounded BSD-style checksums by default and the bounded System V
-variant with `-s`; it is a compatibility utility, not a cryptographic digest.
-`bc` evaluates bounded integer expressions from stdin or one confined file,
-including parentheses, unary signs, arithmetic operators, comments, and
-statement separators. The standard math library, decimal scale, variables,
-and arbitrary precision remain outside this subset.
-`md5` computes the standard MD5 digest for one bounded VFS file or stdin for
-legacy compatibility workflows; it is not a security primitive.
-`expr` evaluates bounded integer arithmetic and comparisons, plus `length`,
-`index`, and `substr` text operations; regular-expression expressions and
-floating-point arithmetic remain outside this subset.
-A synchronous command response and each intermediate pipeline channel are
-capped at 1 MiB per output channel; a truncation marker is emitted rather
-than allowing unbounded terminal output.
-Individual command lines are capped at 64 KiB before parsing, and automation
-scripts have their separate 256 KiB/1,024-line input boundary.
-`source FILE [ARG ...]` and `. FILE [ARG ...]` execute bounded UTF-8 script files
-through the same Rust parser, session environment, VFS, status, and history
-path. Scripts receive bounded positional values as `$0`, `$1...`, `$#`, and
-`$@`; stdin from an enclosing pipeline is preserved for the script's first
-command. Nested sourcing is capped at 16 levels and accepts at most 64
-arguments.
-`sh -c SCRIPT` and `dash -c SCRIPT` execute an inline bounded script through
-that same Rust planner, with an optional `$0` name and up to 64 positional
-arguments; they never start a host shell.
-Automation scripts also support bounded `for NAME in VALUE ...; do`
-loops, including nested loops; each loop accepts at most 256 expanded values
-and keeps the loop variable in the Rust session. They also support multiline
-`if/elif/else/fi` branches whose conditions run through the same Rust planner;
-control-flow nesting is capped at 16 levels. Multiline `case WORD in` branches
-support exact patterns, `*`/`?`, and simple `|` alternatives. Multiline
-`NAME() { ... }` function definitions support multiline and bounded inline
-bodies, bounded positional arguments, and shared session state; at most 256
-functions, 64 arguments per call, and 16 recursive calls are allowed. POSIX
-character classes and one-line loop/control-flow bodies remain outside this
-subset. `while` and `until` stop after
-at most 1,024 body iterations and
-return a bounded status-2 error if the limit is reached. Loop bodies can use
-argument-free `break` and `continue`; they are rejected outside a Rust-planned
-loop and do not leak through `sh -c` command substitutions. Functions can use
-`return [STATUS]` to stop their current body; the status is limited to 0–255,
-and an omitted status reuses the preceding command status. Functions can also
-use `local NAME[=VALUE]` for scoped variables; each call accepts at most 64
-local declarations and restores those bindings on return. `shift [COUNT]` can
-consume the current script/function positional arguments, preserving `$0` and
-rejecting shifts beyond the available bounded arguments.
-`set -- [ARG ...]` replaces the current bounded positional arguments while
-preserving `$0`; it accepts at most 64 values.
-`type` complements `which` by describing aliases, Rust built-ins, installed
-package commands, and missing names without exposing host executables.
-`command -v` and `command -V` provide the same bounded discovery for scripts;
-the execution form (`command PROGRAM [ARG ...]`) bypasses aliases and dispatches
-through Rune's Rust registry or verified package manifests, without probing
-host executables.
-`apropos KEYWORD ...` searches Rust-owned command names and summaries with
-bounded case-insensitive substring matching; it returns status 1 when no
-description matches and never consults host manuals.
-The Rust-owned `test` and `[` built-ins evaluate bounded file predicates
-(`-e`, `-f`, `-d`, `-L`, `-h`, `-s`), string predicates, integer comparisons,
-negation, and `-a`/`-o` composition so scripts can branch without a host shell.
-The Rust session and C/Swift bridge also expose cooperative cancellation at
-command, pipeline, script, and bounded traversal boundaries, returning status
-130; `sleep` polls that same cancellation flag in bounded 25 ms intervals, while
-an unrelated synchronous operation is allowed to finish.
-The event-aware Rust/FFI execution path delivers bounded UTF-8 output chunks
-(16 KiB maximum) after each completed pipeline and status/directory events at
-command boundaries. Swift copies those borrowed callback strings into an
-`AsyncStream` consumed by the main-actor terminal model, so large completed
-pipeline output can render incrementally while the command is still running.
-This remains boundary-level event delivery, not byte-level WASM streaming.
-Environment changes are not serialized by default. On restore, Rune selects a
-bounded startup profile in this order: `~/.rune_profile`, `~/.profile`, then
-`~/.bashrc`. Rune filters blank and full-line comment entries, joins the
-remaining content into one bounded script, and runs it through the Rust parser
-and registry; multiline control flow and function definitions are therefore
-available at startup. The script is limited to 256 KiB and 1,024 lines. Its
-supported Rust built-ins can update the session environment and define aliases,
-with output surfaced to the CLI/native boundary without polluting history.
-Alias expansion is bounded and currently accepts one command per alias value;
-compound alias values are rejected explicitly. The
-native source UI now asks Rust for bounded command and sandbox-path completion;
-the registry, session aliases, recent command names, and filesystem lookup
-remain Rust-owned; the bridge exposes replacement tokens and delegates their
-application back to Rust. Simple
-separated `<`/`>` redirection targets use the same confined path completion,
-and simple command/path completion after one `|` is supported. Session-local
-bookmark prefixes (`~name/`) resolve through the same confined VFS lookup;
-quoted, escaped, option, and other compound-shell fragments remain deferred.
-Repeated Tab presses cycle through the candidates while preserving the
-original replacement token, and Escape dismisses the completion state without
-injecting a control byte into the command line.
-It also has a focused command bar, keyboard-aware history controls (including
-hardware-keyboard Up/Down routing), an
-ink/cyan/ember console palette, accessible completion controls, native handling
-for the Rust `clear` screen-control sequence, and source-only ANSI rendering
-for common SGR foreground/background colors, 256-color/RGB colors, bold,
-underline, and inverse output. Common carriage-return, backspace, and
-erase-line controls are normalized for progress-style output. Rust now also
-maintains a bounded cursor grid with split-chunk CSI/OSC parsing, cursor
-addressing, scrolling (including bounded `CSI r` regions), character and line
-insertion/deletion, region scrolling, and `J`/`K` erasure;
-the native bridge exposes its visible snapshot and zero-based cursor position.
-Swift defaults to its
-line-oriented styled transcript and also offers a source-only Rust screen view
-with a caret. The source-only Rust screen adapts its bounded grid to the
-available viewport while retaining the most relevant rows across a resize;
-full xterm/terminal emulation remains intentionally deferred.
-The Rust session also keeps a bounded, non-persistent diagnostic buffer for
-development and support tooling. It records only safe execution metadata such
-as status and byte counts; command text, file contents, environment values,
-and private paths are excluded by policy. The native bridge can read or clear
-that buffer without exposing it as a shell command or writing it to disk.
-Interactive `export`, `setenv`, and assignment lines are replaced by a
-redaction marker in history before persistence when the Rust-owned
-`history-redaction` setting is enabled. It is enabled by default and remains a
-narrow detector, not a complete secret management policy; setting it to false
-is an explicit opt-out that may persist command secrets.
-The iOS app is represented by
-source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
-and runtime gates remain unverified. Bounded directory enumeration and
-current-directory/history persistence now exist in Rust; bounded
-`history-limit`, `history-redaction`, `environment-persistence`, `font`, `font-size`, `scrollback-limit`, `toolbar-visible`, `theme`,
-`cursor-color`, `cursor-shape`, `background`, and `foreground` configuration
-is available, and the native source UI consumes the font size, bounded
-scrollback window, three named palettes, the Rust-owned font design, cursor color,
-and independent background/foreground overrides. The native source-only command
-editor applies the configured bar, block, or underline caret when UIKit is
-available. Environment restoration is opt-in: `environment-persistence` is
-false by default, and enabling it persists only bounded user-defined variables;
-`HOME`, `PATH`, `RUNE_VERSION`, `TERM`, `PWD`, and `OLDPWD` are never restored
-from session state. The explicit opt-in can still store exported values, so it
-must not be enabled for secrets. A separate bounded `terminal.state` stores
-the recent visible text window and zero-based cursor position for the default
-session or its named-session equivalent; it intentionally excludes styles,
-scroll margins, and incomplete control sequences. Broader terminal-state and
-scene recovery remain planned.
-The bounded Python, Lua 5.4, and JavaScript providers are implemented in Rust.
-Python supports sandbox files plus `python3 -c CODE` and `python3 -` stdin
-entry points. It intentionally starts with a finite, tested subset: host
-imports and dynamic code are denied, and loops/functions are rejected until a
-public instruction budget is available in the embedded VM.
+| Area | Evidence-backed status |
+| --- | --- |
+| Rust workspace and CLI | **Working locally** — formatted, linted, tested, and built |
+| Shell, VFS, persistence, archives, text filters, and bounded runtimes | **Working locally** — Rust regression coverage exists |
+| C FFI and host capability contracts | **Working locally** — callback and ownership boundaries are tested |
+| SwiftUI/UIKit source boundary | **Source-only** — package manifest, C header target, and host swiftc typecheck pass |
+| iOS application build, linking, simulator, and device behavior | **Unverified** — no Xcode/SDK/simulator installed |
+| Direct a-Shell behavior comparison | **Pending** — the checkout is reference-only and no Apple harness is available |
+| Release | **v0.1.0-alpha** — source preview, not a stable iOS application |
 
-The Rust package boundary now validates bounded, versioned JSON manifests and
-registry indexes, and checks declared file bytes with SHA-256. Local installation
-and update are available without network access. An explicit HTTPS registry can
-also serve bounded search results and exact-version package installation/update
-through the injected host network capability; the downloaded manifest and every
-artifact must match, stay on the registry origin, and pass digest verification.
-There is no implicit `latest` selection, publisher signature system, or ambient
-network access.
+The compatibility matrix in
+[compat/a-Shell-compatibility.json](compat/a-shell-compatibility.json)
+keeps bounded implementation status separate from direct reference evidence.
+partial means a tested Rune subset; it does not mean parity.
 
-The `wasm MODULE [arg ...]` built-in loads a module through the bounded virtual
-filesystem and executes WASI preview1 `_start` in Rust. It exposes
-stdin/stdout/stderr, arguments, and the session environment, plus explicit
-WASI preopens mapped to Rune's approved sandbox roots. Capability-based
-opening keeps guest filesystem calls inside those roots; arguments, environment
-entries, and stdin are bounded before WASI setup. No host process or network
-capability is inherited. Session executions consume cancellation at runtime
-boundaries and return status 130 when it is observed. A WASM call may
-finish before a cancellation callback is observed. Module bytes,
-interpreter fuel, linear memory, tables, and captured output are bounded.
-For the three-root Apple layout, WASI receives `/` for Documents/home and
-explicit `/Library` and `/tmp` preopens; single-root and external-folder
-sessions receive only `/`. No arbitrary guest preopen is inherited.
-ZIP64 and broader WASI resource policy, and the broader Python stdlib/package
-surface remain planned; `.gz` and `.Z` file transforms are
-implemented as separate bounded Rust command layers.
+## Quick start
 
-The package flow supports `pkg info MANIFEST|NAME [VERSION]`, `pkg verify
-MANIFEST`, `pkg install MANIFEST`, `pkg update MANIFEST`, `pkg list`, `pkg search
-QUERY`, `pkg search --registry INDEX_URL QUERY`, `pkg install --registry INDEX_URL
-NAME VERSION`, `pkg update --registry INDEX_URL NAME VERSION`, and `pkg remove NAME
-[VERSION]`. Once installed, `pkg info NAME` resolves the sole
-installed version; an explicit version is required when multiple versions are
-present. Install
-copies only SHA-256-verified files into `~/.rune/packages`; declared `.wasm`
-commands, `.py`, `.js` and `.lua` scripts, and `.rune` scripts can then run through Rust, and `which` discovers
-their installed command names from the local package manifests. Installed
-WASM commands receive no filesystem preopen by default; a manifest must
-explicitly declare `permissions.filesystem: true` to request the approved Rune
-sandbox as `/`. `pkg update MANIFEST` verifies and materializes a different
-local version before retiring the currently installed version; a failed
-verification or write keeps the old version. Remote updates require an explicit
-registry URL and target version; a failed fetch, identity check, digest check,
-or materialization keeps the old version. The `--remote` flag is accepted as a
-compatibility alias for `--registry`.
+### Run the portable CLI
 
-The bounded `curl` command owns HTTP request parsing in Rust and accepts GET,
-HEAD, POST, PUT, and DELETE through explicit method selection, bounded headers,
-bounded text data, HTTP failure handling, and raw response output to a confined
-VFS file. The Rust CLI has no network grant by default. The source-only Apple
-bridge supplies a synchronous, size-limited `URLSession` callback for an
-eventual native target; URLSession, ATS, transport, and device behavior remain
-unverified without an Apple runtime. `nslookup HOST` adds a deliberately
-non-interactive DNS-over-HTTPS subset with bounded A, AAAA, CAA, CNAME, MX, NS,
-PTR, SOA, SRV, and TXT queries. `--server` selects an explicit HTTPS DoH
-endpoint, and the resolver response is reduced to validated answer data; the
-core never opens DNS sockets or exposes resolver JSON in command output. `host`
-provides the same bounded query surface under the conventional Unix command
-name.
-`whois DOMAIN` uses the same explicit network capability with a bounded HTTPS
-RDAP request and safe UTF-8 text output. It is intentionally not a port-43
-WHOIS socket implementation; live RDAP routing and server behavior remain
-runtime/provider gates.
-The open and openurl commands validate approved URL schemes or existing
-confined VFS files/directories, then call an explicit host-open capability.
-`play FILE` and `view FILE` use the same confined-file validation but select
-explicit playback and preview target kinds for the host. The default CLI has
-no launcher, and the source-only Apple adapter schedules UIKit opening,
-AVPlayer playback, or Quick Look preview on the main queue when those Apple
-frameworks are available; it does not expose arbitrary host paths or claim
-completion before Apple runtime validation.
+Requirements: Rust 1.78 or newer. No Xcode or Apple SDK is needed for this
+path.
 
-The Rust core also provides bounded `ar -rcs`/`ar t`/`ar x` member archives,
-zip -r ARCHIVE FILE ..., unzip ARCHIVE [DESTINATION], unzip -l ARCHIVE
-[MEMBER ...], or unzip ARCHIVE -d DESTINATION [MEMBER ...], tar -cf/-tf/-xf ARCHIVE,
-gzip FILE ..., gunzip FILE.gz ..., compress FILE ..., and uncompress FILE.Z ...
-commands. `ar` stores regular files with bounded member names up to 255 bytes,
-encodes longer names with BSD extended records, and reads common external
-symbol-index and GNU long-name records without emitting symbol tables. ZIP uses
-stored or Deflate ZIP32 entries through the VFS, verifies
-CRC32, accepts validated data descriptors before extraction, and supports
-bounded member listing with `-l` plus member filters with `-d`. Tar uses UTF-8
-USTAR entries with long names split across the standard name/prefix fields;
-`tar -z` adds bounded gzip compression for create, list, and extract flows.
-Tar list/extract also accept exact member filters, including directory
-prefixes, and reject missing filters without writing partial output.
-Gzip and `.Z` LZW are file-to-file Rust backends: they keep the source, refuse
-binary stdin/stdout mode and refuse to overwrite destinations, and cap both
-input and decompressed output at 64 MiB. These commands reject absolute or
-parent-traversal archive names, links, unsupported entry types, and archives
-above 64 MiB or 10,000 entries. ZIP64, PAX extensions, encrypted archives, and
-compatibility with every external producer remain unsupported until separately
-tested.
+~~~bash
+git clone https://github.com/OthmaneBlial/Rune.git
+cd Rune
+cargo run -p rune-cli -- --root /tmp/rune-root \
+  -c "mkdir -p project/src; echo 'fn main() {}' > project/src/main.rs; tree project"
+~~~
 
-The bounded `xargs` command consumes whitespace- or NUL-delimited stdin and
-invokes the normal Rust command planner in batches. `-n` limits each batch,
-`-r` skips an empty input, and generated arguments are quoted before parsing;
-there is no shell interpolation or host-process execution.
+The root passed to rune-cli is the only filesystem exposed to that session.
+For a clean repeatable example and a persistence round trip:
 
-The host-backed VFS also rejects regular-file reads, appends, and copies over
-64 MiB before allocating or copying their contents. This limit is independent
-of the smaller 16 MiB native file-transfer boundary and the 1 MiB terminal
-output boundary. Directory listing and wildcard enumeration are capped at
-10,000 entries to keep large trees bounded before terminal rendering.
-`mktemp` creates files with an exclusive VFS operation, replaces a bounded
-`X` template using the platform entropy source, retries collisions, and can
-create directories with `-d`; the insecure name-only `-u` mode is rejected.
+~~~bash
+./scripts/demo.sh
+~~~
 
-The default Apple session mounts the platform's Documents directory as `~` and
-passes the app's Library and temporary directories as confined `~/Library` and
-`~/tmp` roots. Relative navigation across a mounted root returns to `~`, root
-operations are rejected, and symlink validation accepts only the explicitly
-approved three roots. A user-selected external folder intentionally uses a
-single root instead of borrowing the app's sibling directories.
+### Check the source-only iOS boundary
 
-The portable core also supports session-local virtual directory bookmarks with
-`bookmark`, `showmarks`, `jump`, `cd ~NAME`, `renamemark`, and `deletemark`.
-For the same workflow, the Rust registry also provides the concise `s`, `g`,
-`l`, `p`, `r`, and `d` aliases for save, jump, list, rename, and delete. They
-are intentionally always available in Rune; unlike a-Shell's preference-gated
-shortcuts, they use the same bounded Rust bookmark validation and persistence.
-They persist with the session state and remain confined to the configured VFS;
-the source-only Apple layer also handles user-selected external folders through
-bounded security-scoped bookmarks. Full entitlement, picker, and device/runtime
-behavior remain unverified without the Apple toolchain.
-Bookmark names are limited to 64 characters, a session holds at most 256
-bookmarks, and serialized bookmark data is limited to 256 KiB.
-`z KEYWORD ...` provides bounded frequency-ranked directory jumping from the
-same confined VFS. It prefers previously visited directories, falls back to
-matching direct child directories, ignores directories that no longer exist,
-and persists at most 1,024 usage records (256 KiB) per session.
-`hideToolbar` and `showToolbar` are argument-free convenience commands backed
-by the Rust-owned `toolbar-visible` setting. The native source UI picks up the
-new value through its normal configuration refresh; actual UIKit rendering
-remains an Apple-runtime gate.
+The repository deliberately does not install Apple tooling. If the existing
+machine already has the host Swift tools, the local CI performs:
 
-Named Rust sessions keep their virtual working directory, history, and
-bookmarks independent under `~/.rune/sessions/{id}/session.state`. When the
-explicit `environment-persistence` setting is enabled, bounded user-defined
-environment entries are stored in the same namespace. IDs are
-validated as bounded opaque names (up to 64 ASCII characters from `A-Z`,
-`a-z`, `0-9`, `_`, `-`, and `.`); they are never interpreted as shell paths.
-The source-only Swift workspace uses this FFI boundary for independent
-terminal tabs. Rust persists each named session's state, while Swift persists
-only bounded tab metadata and does not store external paths or bookmark bytes;
-the named WindowGroup routes additional windows to independent Rust session
-namespaces and separate tab metadata; each window also restores its selected
-tab from a bounded route-specific key. SwiftUI rendering, scene restoration,
-iPad runtime behavior, and Apple runtime behavior remain unverified without an
-Apple build toolchain.
+~~~bash
+cd apps/ios
+swift package dump-package
+swift build --target RuneFFIHeaders
+~~~
 
-The same Rust session exposes a versioned, bounded metadata snapshot through
-the FFI. It reports the opaque session id, working directory, history,
-bookmark and environment counts, last status, and terminal geometry/cursor;
-it deliberately excludes environment values and terminal text so native hosts
-do not need a second session-state model or a secret-bearing status API.
+These commands validate package and C-header structure only. They do not build
+or launch an iOS application.
 
-The Rust shell also exposes `exit`, `newWindow`, and `pickFolder` as one-shot
-host-session actions. The FFI transfers those actions separately from
-stdout/stderr/status; the source-only Swift workspace closes the current
-tab/window for `exit`, opens an independent window route for `newWindow`, and
-opens its existing confined folder importer for `pickFolder`. The CLI consumes
-`exit` to leave its REPL and has no window or folder-picker host for the other
-actions. Action routing is source-level evidence until an Apple runtime is
-available.
+## Build and validate from source
 
-Directory changes update the Rust-owned `PWD` and `OLDPWD` values. `cd -`
-returns to the previous directory and prints the resulting virtual path, while
-bookmark jumps and aliases that change directories use the same state update.
+Run the project gate from the repository root:
 
-The FFI and Swift source boundary exposes bounded command and newline-delimited
-script execution for Shortcuts, including named persisted session namespaces.
-Source-only App Intent declarations cover command and script execution in both
-the default and named sessions, call that real Rust-backed API, and return
-stdout/stderr/status as text; Rust rejects
-scripts larger than 256 KiB or 1,024 lines and caps accumulated output per
-channel. App Intent registration, entitlements, and runtime behavior remain
-unverified without an Apple build/runtime.
-
-The same boundary exposes bounded binary file transfer through the confined VFS:
-`put` replaces one file and `get` returns an explicitly freed byte buffer, with
-a 16 MiB payload limit and no implicit parent-directory creation. The
-source-only Shortcuts layer provides UTF-8 text Put/Get actions on top of that
-real API; arbitrary binary automation remains an FFI capability until an
-Apple-native file parameter contract is validated.
-
-The portable core also exposes `pbcopy` and `pbpaste` through an explicit
-bounded text clipboard capability. The CLI keeps this capability disabled by
-default, while the source-only Apple bridge maps it to `UIPasteboard`; payloads
-are limited to 1 MiB and clipboard access occurs only when one of those
-commands is invoked.
-
-The source-only terminal now dispatches command execution away from the SwiftUI
-main actor behind a lock-protected FFI session, keeps the UI responsive, and
-offers a stop control that sends Rust's cooperative cancellation request. Its
-optional input toolbar routes Tab/completion cycling, Escape dismissal, Ctrl-C, display-clear,
-and paste actions through the native model; the UIKit command editor also
-routes hardware Tab, Escape, and Ctrl-C through those same Rust-backed
-actions. Display-clear resets and persists
-the Rust terminal grid without creating a history entry. The workspace also exposes Cmd-N
-for a new independent window. Command execution, shell state, and one-shot
-host-session actions cross the Rust boundary. A currently running synchronous Rust operation
-may still finish before its next boundary; inactive scenes and disappearing
-terminal views request cancellation, but background execution, cancellation,
-and Apple runtime behavior are not device-validated here.
-
-The SwiftUI terminal source also provides VoiceOver labels, values, hints, and
-stable accessibility identifiers for the session status, transcript entries,
-command input, execution controls, completion actions, settings, and workspace
-tabs. This is source-level accessibility structure; VoiceOver traversal,
-Dynamic Type, contrast, and iPad interaction still require Apple runtime
-validation.
-
-The Swift transcript also applies a separate bounded scrollback window
-(4,096 entries by default, configurable up to 8,192) and an 8 MiB in-memory
-byte cap, dropping the oldest rendered events when either limit is exceeded.
-This protects the UI from unbounded replay growth while Rust retains its own
-bounded per-command output and persisted history policies.
-
-The portable configuration boundary currently supports bounded `history-limit`,
-`environment-persistence`,
-`font`, `font-size`, `scrollback-limit`, `toolbar-visible`, `theme`,
-`cursor-color`, `cursor-shape`, `background`, and `foreground` settings through `config get`,
-`config set`, and `config reset`. The scrollback setting accepts 128–8,192
-rendered entries and remains subject to the UI's 8 MiB byte cap. It persists in
-`~/.rune/config.state`. Environment persistence is disabled by default and
-excludes the core `HOME`, `PATH`, `RUNE_VERSION`, `TERM`, `PWD`, and `OLDPWD`
-variables; turning it on is an explicit choice that may store exported values.
-The FFI also exposes validated Rust-native set/reset
-calls that do not create history entries; the source-only SwiftUI settings
-sheet uses those calls for font, font size, scrollback, theme, cursor color,
-cursor shape, background, foreground, reset, and toolbar visibility. A separate source-only input toolbar provides bounded
-Tab/completion, Escape, Ctrl-C, display-clear, and paste controls; its
-visibility, cursor color, and cursor shape are persisted by the Rust configuration
-boundary. The UIKit caret implementation is source-only evidence; Apple
-compilation and runtime rendering remain unverified.
-
-The `history` built-in also supports `history N` for a bounded recent view,
-`history search QUERY ...` for a case-insensitive substring search that keeps
-original history numbers, and `history -c` to clear the current session
-history. The native SwiftUI command bar adds a Rust-backed reverse-search panel
-that returns newest-first matches without recording a synthetic search command.
-History records are limited by the configured count and a 4 MiB total
-serialized-history budget, so a large count cannot create unbounded session
-state. Consecutive duplicate entries are suppressed, while the same command
-after another command remains a distinct history record.
-
-Runtime providers use a small Rust-owned request/output contract. WASM, the
-bounded Python subset, the bounded Lua 5.4 provider, and the bounded JavaScript
-provider are implemented in Rust. Python package imports and the Apple runtime
-boundary remain unverified.
-The Rust runtime crate also defines a bounded `ToolchainProvider` contract for
-C, C++, and TeX: source input, arguments, environment, stdin, cancellation,
-captured diagnostics, and relative generated artifacts are validated before
-materialization. The default providers are explicitly unavailable; no clang,
-C++ compiler, TeX engine, or large toolchain payload is installed or claimed
-yet. The `cc`, `c++`, `clang`, `clang++`, and `tex` entry points therefore
-return an explicit provider-unavailable status until a real provider is
-installed and reviewed; they are not counted as supported compilation or
-document-rendering commands above.
-The C/Swift boundary now exposes the same contract through a synchronous
-callback with Rune-owned output buffers and an aggregate artifact arena; a
-native provider can be added later without returning unmanaged pointers or
-writing arbitrary host paths. This is ABI/source evidence only and does not
-make a compiler or TeX engine available.
-
-No a-Shell compatibility area is marked `supported` without behavior and test
-evidence. See [`compat/a-shell-compatibility.json`](compat/a-shell-compatibility.json).
-The versioned scenarios in [`compat/scenarios/core.json`](compat/scenarios/core.json)
-define a small, bounded differential surface for quoting, pipelines,
-substitution, conditionals, confined files, status, and aliases. The local
-runner executes each scenario in a fresh temporary Rune filesystem and can
-compare separately captured a-Shell observations; it never executes the
-reference checkout and keeps direct comparison pending until Apple-runtime
-evidence exists.
-
-## Architecture
-
-```text
-Swift / SwiftUI app (source-only; Apple link unverified)
-            │ narrow C ABI via rune-ffi
-            ▼
-      rune-core  ─── command registry and session orchestration
-        │   │
-        │   └──── rune-fs   bounded filesystem abstraction
-        ├──────── rune-wasm WASI preview1 interpreter boundary
-        ├──────── rune-package manifest and integrity boundary
-        ├──────── rune-shell tokenizer, parser, execution plan
-        └──────── rune-ffi   owned C ABI handles and output buffers
-```
-
-The portable crates own shell semantics and platform-independent policy. An
-Apple adapter will supply sandbox paths, document-picker access, and
-security-scoped bookmark behavior without moving core command logic into
-Swift.
-
-## Local validation
-
-There is deliberately no GitHub Actions workflow. Run the local quality gate:
-
-```bash
+~~~bash
 ./scripts/ci.sh
-```
+~~~
 
-When `swiftc` is already available, the gate builds the header-only
-`RuneFFIHeaders` target and typechecks the native Swift sources against the
-imported C ABI. This is host-toolchain source evidence only; it is not iOS
-SDK, simulator, device, linking, or App Store evidence.
+The local gate validates the compatibility documents, shell script syntax,
+Rust formatting/Clippy/tests/build, the Swift package boundary, and a
+source-only Swift typecheck when swiftc is already present. It does not
+contact a live a-Shell instance, start an iOS simulator, or claim Apple
+runtime behavior.
 
-The reference checkout is intentionally ignored and can be checked with:
+Useful focused commands:
 
-```bash
-git check-ignore -v base/a-shell
-```
+~~~bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace
+cargo build --workspace
+python3 scripts/validate_compatibility.py
+python3 scripts/compatibility_runner.py --validate-only
+~~~
 
-For local timing samples of the warm CLI startup, a confined filesystem
-pipeline, and bounded tree rendering, run `./scripts/bench.sh`. It reports
-`real`, `user`, and `sys` durations for the current machine; these samples are
-engineering measurements, not release or device-performance claims.
+## How it works
 
-Validate the compatibility scenario document with
-`python3 scripts/compatibility_runner.py --validate-only`. After
-`cargo build -p rune-cli`, run the isolated Rune side with
-`python3 scripts/compatibility_runner.py`; provide a directory of separately
-captured a-Shell observations with `--reference-dir` to perform a bounded
-comparison. A green scenario run alone is not a direct a-Shell compatibility
-result.
+~~~text
+SwiftUI / UIKit source-only frontend
+              │
+              ▼
+       RuneCoreBridge.swift
+              │ narrow C ABI
+              ▼
+          rune-ffi
+              │
+              ▼
+          rune-core ───── explicit host providers
+          │   │   │       (network / open / clipboard / tools)
+          │   │   └─────── disabled by default in the CLI
+          │   ├────────── rune-fs
+          │   ├────────── rune-shell
+          │   ├────────── rune-runtime
+          │   ├────────── rune-wasm
+          │   └────────── rune-package
+          ▼
+   bounded command result:
+   stdout + stderr + status + events
+~~~
+
+Rust owns the command registry, session state, path policy, limits, output
+semantics, and persistence. Swift owns presentation and copies data across the
+ABI; it does not maintain a second shell or filesystem implementation.
+
+## Security and privacy boundaries
+
+- No command is delegated to a host shell, and the virtual filesystem rejects
+  canonical paths outside approved roots.
+- Output, command input, script size, archive traversal, runtime execution, and
+  persisted state are bounded before untrusted growth can reach the UI.
+- Network and external-application actions require an injected provider;
+  disabled providers fail visibly instead of silently using ambient access.
+- History redaction is enabled by default for environment assignments, network
+  requests, and direct phone/SMS commands. Environment persistence is opt-in and
+  is not a secret store.
+- Development diagnostics contain safe execution metadata only. Do not place
+  passwords, private keys, tokens, personal host inventories, or real captures
+  in issues, fixtures, or pull requests.
+- base/a-shell/ is a local behavioral reference, ignored by Git, and never
+  part of the Rune source tree or release.
+
+Read [docs/architecture.md](docs/architecture.md) for the capability model
+and [SECURITY.md](SECURITY.md) for reporting guidance.
 
 ## Roadmap
 
-### Phase 1 — Foundation
+The short public roadmap is in [ROADMAP.md](ROADMAP.md). The next meaningful
+gates are:
 
-- [x] Repository and Rust workspace
-- [x] Local-only quality workflow
-- [x] First command execution slice
-- [x] Source-only SwiftUI iOS frontend boundary
-- [x] Source-only C/Swift bridge
-- [ ] Apple target and runtime validation
+- validate the native SwiftUI app with a real Apple build, simulator, and
+  device;
+- complete direct, scenario-based a-Shell observations without changing the
+  conservative compatibility policy;
+- connect reviewed Apple providers for network, open, clipboard, and toolchain
+  capabilities;
+- expand terminal rendering and iPad multi-window behavior with runtime
+  evidence;
+- produce a signed, installable iOS artifact only after the target environment
+  is available.
 
-### Phase 2 — Core shell
+## Contributing
 
-- [x] Tokenizer and parser
-- [x] Environment and path expansion
-- [x] Bounded virtual filesystem
-- [x] Built-in file commands
-- [x] Bounded session/history persistence and multiline startup profile
-- [x] Rust-owned reverse history search through the native bridge
-- [x] Pipes and redirections
-- [x] Basic bounded pathname expansion
-- [x] Leading environment assignments
-- [x] Bounded session-local command aliases
-- [x] Bounded script-file sourcing with positional arguments and nested execution limits
-- [x] Bounded `sh -c`/`dash -c` inline scripts with positional arguments
-- [x] Bounded multiline `for` loops in Rust-planned scripts
-- [x] Bounded multiline `if`/`elif`/`else` branches in Rust-planned scripts
-- [x] Bounded multiline `while`/`until` loops in Rust-planned scripts
-- [x] Bounded multiline `case` branches in Rust-planned scripts
-- [x] Bounded multiline/inline shell function definitions and calls in Rust-planned scripts
-- [x] Bounded function `return [STATUS]` in Rust-planned scripts
-- [x] Bounded function-local `local NAME[=VALUE]` variables
-- [x] Bounded script/function positional `shift [COUNT]`
-- [x] Bounded script/function positional `set -- [ARG ...]`
-- [x] Bounded `break`/`continue` loop controls in Rust-planned scripts
-- [x] Cooperative command cancellation boundary, including cancellable `sleep`
-- [x] `&&` and `||` conditional chaining
-- [x] Bounded recursive `find` traversal with type/depth filters
-- [x] Bounded regular-expression `sed` substitutions
-- [x] Bounded terminal output channels
-- [x] Rust-owned bounded terminal cursor grid and ANSI screen snapshot
-- [x] Bounded text-only terminal screen persistence
-- [x] Session-local virtual directory bookmarks
-- [x] Rust bookmark shortcuts `s`, `g`, `l`, `p`, `r`, and `d`
-- [x] Bounded frequency-ranked `z` directory navigation
-- [x] Bounded portable utility commands
-- [x] Bounded long-format and human-readable `ls` metadata
-- [x] Bounded virtual filesystem metadata and usage commands
-- [x] Confined canonical-path and SHA-256 utility commands
-- [x] Bounded Base64 encode/decode utility
-- [x] Bounded POSIX `cksum` utility
-- [x] Bounded MD5 compatibility utility
-- [x] Bounded exclusive `mktemp` file/directory creation
-- [x] Bounded `expr` arithmetic and text utility
-- [x] Bounded `pbcopy`/`pbpaste` through an explicit host clipboard capability
-- [x] Bounded UTF-8 `diff` with unified output and comparison limits
-- [x] Bounded Rust-owned `awk` field processing subset
-- [x] Bounded Rust-owned `xargs` batching over stdin
-- [x] Bounded `$(...)` command substitution with isolated shell state
-- [x] Bounded regular-expression and fixed-string `grep` modes
-- [x] Bounded numeric, reverse, and unique `sort` options
-- [x] Bounded `type` command discovery
-- [x] Bounded `command -v`/`-V` discovery for scripts
-- [x] Bounded `apropos` command-description search
-- [x] Bounded Rust-owned `file` identification utility
-- [x] Bounded VFS `tree` directory rendering
-- [x] Bounded `test` and `[` predicates for script conditionals
+Start with [CONTRIBUTING.md](CONTRIBUTING.md), then run ./scripts/ci.sh
+before opening a pull request. Focused Rust tests, VFS/security reviews,
+compatibility observations, Swift source improvements, and documentation are
+all useful contributions. Please keep claims scoped to the evidence in the
+repository and do not add GitHub Actions or toolchain downloads to work around
+the local source-only policy.
 
-### Phase 3 — Developer environment
+## License
 
-- [x] Bounded WASI preview1 runtime boundary and resource limits
-- [x] Bounded package metadata, integrity, local WASM installation, and local update
-- [x] Portable runtime request/output contract
-- [x] Bounded Rust-owned history, history-redaction, opt-in environment persistence, font, font-size, scrollback, toolbar-visible, theme, cursor-color, cursor-shape, background, and foreground configuration
-- [x] Bounded `ar` member archives plus stored/Deflate ZIP, USTAR tar, and gzip/.Z file transforms
-- [x] Explicit host HTTP capability and bounded `curl` transport boundary
-- [x] Bounded non-interactive `nslookup`/`host` through an explicit HTTPS DoH provider
-- [x] Bounded HTTPS RDAP `whois` query through the explicit network provider
-- [x] Bounded HTTPS registry index, remote search, and explicit-version update policy
-- [x] Bounded Python subset runtime evaluation
-- [x] Bounded JavaScript runtime evaluation
-- [x] Bounded Lua 5.4 runtime evaluation
-- [x] Bounded C/C++/TeX toolchain provider contract (providers still planned)
-- [x] Rust-owned command/path completion and help metadata
-- [x] Versioned isolated differential scenarios (direct a-Shell comparison pending)
-
-### Phase 4 — Apple integration
-
-- [x] Source-level lazy terminal transcript with cached ANSI spans
-- [x] Source-only Rust terminal screen view with Rust-owned caret position
-- [x] Source-only terminal viewport sizing through Rust
-- [x] Source-only external folders and bounded security-scoped bookmarks
-- [x] Explicit host URL/file opening capability with bounded open/openurl
-- [x] Source-only host media playback and file preview boundary (`play`/`view`)
-- [x] Rust-namespaced sessions and source-only terminal tabs
-- [x] Versioned non-secret Rust session snapshot through the FFI
-- [x] Source-only typed iPad window routing
-- [x] Source-only Rust `exit`/`newWindow` host-action routing
-- [x] Source-only Rust `pickFolder` host-action routing
-- [x] Source-only native keyboard shortcuts
-- [ ] iPad multi-window behavior
-- [x] Source-only command/script/file and named-session App Intent declarations
-- [x] Source-only settings sheet and bounded input toolbar
-- [ ] Apple Shortcuts registration and runtime validation
-- [ ] Accessibility and VoiceOver validation
-
-## Non-goals for the current milestone
-
-- claiming a-Shell parity
-- copying a-Shell implementation or UI
-- executing arbitrary host processes from the shell
-- pretending an iOS app exists before it is built and tested
+Rune is released under the [MIT License](LICENSE).

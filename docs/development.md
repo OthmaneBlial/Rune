@@ -278,6 +278,10 @@ canonicalization, approved URL schemes, disabled-provider behavior, rejected
 targets before callback invocation, and the C callback target-kind boundary.
 They also verify that `play` and `view` select their distinct target kinds and
 reject missing files or directories before invoking the provider. The
+`call` and `text` tests verify direct-number normalization, bounded phone
+validation, percent-encoded SMS bodies, private-command history redaction, and
+disabled-provider behavior. They intentionally do not claim Contacts lookup or
+an Apple phone/messaging runtime.
 source-only Apple adapter schedules UIKit opening, AVPlayer playback, or Quick
 Look preview on the main queue, but does not prove URL routing, document/media
 handling, or completion on an Apple runtime.

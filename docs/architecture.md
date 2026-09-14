@@ -669,6 +669,12 @@ target kinds after resolving one existing confined regular file. The source-only
 Apple adapter maps them to AVPlayer and Quick Look when those frameworks are
 available; the portable CLI keeps the capability disabled and no Apple media
 runtime behavior is claimed.
+The direct `call PHONE` and `text PHONE [MESSAGE ...]` commands use the same
+validated URL path for explicit `tel` and `sms` targets. Phone numbers are
+normalized from a small ASCII formatting set, SMS bodies are percent-encoded,
+and default history redaction replaces these private commands before storage.
+Contact-name lookup is intentionally outside the portable core and remains
+unclaimed.
 
 The native configuration query is also Rust-owned: its FFI serialization now
 includes every persisted key consumed by Swift, including cursor shape, while Swift applies only values

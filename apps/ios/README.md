@@ -207,7 +207,7 @@ source-only session labeling.
 ## Current evidence
 
 RuneOpenBridge.swift provides the source-only UIKit/AVPlayer/Quick Look adapter
-for the Rust open/openurl/play/view capability; the portable CLI remains
+for the Rust open/openurl/call/text/play/view capability; the portable CLI remains
 launcher-disabled by default.
 
 - `Package.swift` is a source/package boundary.
