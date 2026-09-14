@@ -30,6 +30,8 @@ typedef void (*RuneEventCallback)(const RuneEvent *event, void *user_data);
 
 #define RUNE_EVENT_OUTPUT 1
 #define RUNE_EVENT_STATUS 2
+// Maximum UTF-8 payload in one output event from the Rust core.
+#define RUNE_EVENT_CHUNK_BYTES 16384
 
 typedef struct {
     int32_t status_code;

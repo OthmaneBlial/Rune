@@ -50,7 +50,8 @@ use rune_wasm::WasmRunner;
 
 const MAX_ALIAS_EXPANSIONS: usize = 32;
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
-const MAX_EVENT_CHUNK_BYTES: usize = 16 * 1024;
+/// Maximum UTF-8 payload in one output event delivered to native consumers.
+pub const MAX_EVENT_CHUNK_BYTES: usize = 16 * 1024;
 const MAX_COMPLETION_CANDIDATES: usize = 8;
 const MAX_COMPLETION_INPUT_BYTES: usize = 64 * 1024;
 const MAX_COMMAND_INPUT_BYTES: usize = 64 * 1024;

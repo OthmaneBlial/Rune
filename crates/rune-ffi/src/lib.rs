@@ -1395,6 +1395,7 @@ mod tests {
         RuneToolchainEnvironmentEntry, RuneToolchainResponse, RuneToolchainSlice,
         RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS, RUNE_OPEN_FILE, RUNE_OPEN_URL, RUNE_TOOLCHAIN_C,
     };
+    use rune_core::MAX_EVENT_CHUNK_BYTES;
     use std::ffi::{c_void, CStr, CString};
     use std::os::raw::c_char;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -2043,6 +2044,52 @@ mod tests {
         unsafe {
             rune_string_free(script_output.stdout);
             rune_string_free(script_output.stderr);
+        }
+        rune_session_destroy(handle);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn c_abi_forwards_utf8_safe_output_chunks() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rune-ffi-chunks-test-{suffix}"));
+        std::fs::create_dir_all(&root).expect("test root created");
+        let expected = "🙂".repeat((MAX_EVENT_CHUNK_BYTES / "🙂".len()) * 2 + 5);
+        std::fs::write(root.join("large.txt"), expected.as_bytes()).expect("large file written");
+        let root_string = CString::new(root.to_string_lossy().as_bytes()).expect("valid root");
+        let handle = rune_session_new(root_string.as_ptr());
+        assert!(!handle.is_null());
+        let command = CString::new("cat large.txt").expect("valid command");
+        let mut records: Vec<EventRecord> = Vec::new();
+        let output = rune_session_execute_with_events(
+            handle,
+            command.as_ptr(),
+            Some(collect_event),
+            std::ptr::addr_of_mut!(records).cast(),
+        );
+        assert_eq!(output.status, 0);
+        let mut emitted = String::new();
+        let mut chunks = 0;
+        for record in &records {
+            if record.kind != RUNE_EVENT_OUTPUT {
+                continue;
+            }
+            assert!(record.stdout.len() <= MAX_EVENT_CHUNK_BYTES);
+            if !record.stdout.is_empty() {
+                assert_eq!(record.stdout.len() % "🙂".len(), 0);
+            }
+            emitted.push_str(&record.stdout);
+            chunks += 1;
+        }
+        assert!(chunks > 1);
+        assert_eq!(emitted, expected);
+        // SAFETY: both pointers came from the event-aware FFI call.
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
         }
         rune_session_destroy(handle);
         std::fs::remove_dir_all(root).expect("test root removed");
