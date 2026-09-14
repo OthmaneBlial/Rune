@@ -4,6 +4,13 @@ All notable public changes to Rune are documented here. The project is
 pre-1.0; entries describe verified repository behavior and do not imply an
 iOS runtime release.
 
+## [Unreleased]
+
+### Added
+
+- Bounded ANSI insert mode (`CSI 4h` / `CSI 4l`) for cursor-positioned text
+  insertion in the Rust terminal grid.
+
 ## [0.1.0-alpha.5] - 2026-09-14
 
 ### Added

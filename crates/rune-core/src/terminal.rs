@@ -35,6 +35,7 @@ struct AlternateScreenBackup {
     last_written: Option<char>,
     cursor_shape: u8,
     cursor_blink: u8,
+    insert_mode: bool,
 }
 
 /// A bounded, text-only terminal state suitable for session persistence.
@@ -58,6 +59,7 @@ pub struct TerminalScreen {
     last_written: Option<char>,
     cursor_shape: u8,
     cursor_blink: u8,
+    insert_mode: bool,
     alternate_backup: Option<AlternateScreenBackup>,
     saved_cursor: (usize, usize),
     scroll_top: usize,
@@ -87,6 +89,7 @@ impl TerminalScreen {
             last_written: None,
             cursor_shape: 0,
             cursor_blink: 0,
+            insert_mode: false,
             alternate_backup: None,
             saved_cursor: (0, 0),
             scroll_top: 0,
@@ -114,6 +117,7 @@ impl TerminalScreen {
         self.last_written = None;
         self.cursor_shape = 0;
         self.cursor_blink = 0;
+        self.insert_mode = false;
         self.saved_cursor = (0, 0);
         self.scroll_top = 0;
         self.scroll_bottom = self.rows - 1;
@@ -136,6 +140,7 @@ impl TerminalScreen {
             last_written: self.last_written,
             cursor_shape: self.cursor_shape,
             cursor_blink: self.cursor_blink,
+            insert_mode: self.insert_mode,
         });
         self.cells = vec![vec![' '; self.columns]; self.rows];
         self.cursor_row = 0;
@@ -146,6 +151,7 @@ impl TerminalScreen {
         self.last_written = None;
         self.cursor_shape = 0;
         self.cursor_blink = 0;
+        self.insert_mode = false;
     }
 
     fn leave_alternate_screen(&mut self) {
@@ -178,6 +184,7 @@ impl TerminalScreen {
         self.last_written = backup.last_written;
         self.cursor_shape = backup.cursor_shape;
         self.cursor_blink = backup.cursor_blink;
+        self.insert_mode = backup.insert_mode;
     }
 
     /// Returns the visible rows through the last non-blank row.
@@ -460,6 +467,8 @@ impl TerminalScreen {
             'l' if values.first() == Some(&25) => self.cursor_visible = false,
             'h' if values.first() == Some(&12) => self.cursor_blink = 1,
             'l' if values.first() == Some(&12) => self.cursor_blink = 2,
+            'h' if values.first() == Some(&4) => self.insert_mode = true,
+            'l' if values.first() == Some(&4) => self.insert_mode = false,
             'h' if values.first() == Some(&1049) => self.enter_alternate_screen(),
             'l' if values.first() == Some(&1049) => self.leave_alternate_screen(),
             'q' => match first(0) {
@@ -501,6 +510,10 @@ impl TerminalScreen {
     fn write(&mut self, character: char) {
         if self.cursor_column >= self.columns {
             self.line_feed();
+        }
+        if self.insert_mode {
+            let row = &mut self.cells[self.cursor_row];
+            row[self.cursor_column..].rotate_right(1);
         }
         self.cells[self.cursor_row][self.cursor_column] = character;
         self.cursor_column += 1;
@@ -823,6 +836,14 @@ mod tests {
         assert_eq!(screen.cursor_blink(), 2);
         screen.feed("\x1b[?12h");
         assert_eq!(screen.cursor_blink(), 1);
+    }
+
+    #[test]
+    fn inserts_text_when_csi_insert_mode_is_enabled() {
+        let mut screen = TerminalScreen::new(8, 2);
+        screen.feed("abcd\x1b[1;2H\x1b[4hX\x1b[4l");
+        assert_eq!(screen.snapshot(), "aXbcd");
+        assert_eq!(screen.cursor_position(), (0, 2));
     }
 
     #[test]
