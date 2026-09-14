@@ -115,6 +115,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: toolchain::cpp,
     },
     CommandDefinition {
+        name: "call",
+        summary: "open a validated phone number through the host",
+        handler: open::call,
+    },
+    CommandDefinition {
         name: "cc",
         summary: "compile bounded C through an explicit toolchain provider",
         handler: toolchain::c,
@@ -523,6 +528,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "tee",
         summary: "copy stdin to files and stdout",
         handler: utilities::tee,
+    },
+    CommandDefinition {
+        name: "text",
+        summary: "open a validated phone number for messaging through the host",
+        handler: open::text,
     },
     CommandDefinition {
         name: "touch",

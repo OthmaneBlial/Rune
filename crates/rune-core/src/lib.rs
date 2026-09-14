@@ -715,7 +715,7 @@ impl Session {
     }
 
     /// Installs the host-owned external application capability used by open
-    /// and openurl. The default session has no launcher provider.
+    /// openurl, call, and text. The default session has no launcher provider.
     pub fn set_open_provider(&mut self, provider: Box<dyn OpenProvider>) {
         self.open_provider = provider;
     }
@@ -4038,8 +4038,12 @@ fn history_entry(line: &str, redact: bool) -> String {
     };
     let contains_environment_setter = plan_contains_environment_setter(&plan, 0);
     let contains_network_request = plan_contains_network_request(&plan, 0);
+    let contains_private_action = plan_contains_private_action(&plan, 0);
     if contains_network_request {
         return "[redacted network command]".to_string();
+    }
+    if contains_private_action {
+        return "[redacted private command]".to_string();
     }
     if contains_environment_setter {
         "[redacted environment assignment]".to_string()
@@ -4079,6 +4083,17 @@ fn plan_contains_network_request(plan: &ExecutionPlan, depth: usize) -> bool {
                     )
                 }))
                 || command_words_contain(command, plan_contains_network_request, depth)
+        })
+    })
+}
+
+fn plan_contains_private_action(plan: &ExecutionPlan, depth: usize) -> bool {
+    plan.pipelines.iter().any(|pipeline| {
+        pipeline.commands.iter().any(|command| {
+            matches!(
+                command.program.literal_value().as_deref(),
+                Some("call" | "text")
+            ) || command_words_contain(command, plan_contains_private_action, depth)
         })
     })
 }
@@ -4899,6 +4914,50 @@ mod tests {
     }
 
     #[test]
+    fn routes_direct_phone_actions_through_the_host_provider() {
+        let root = test_root();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        session.set_open_provider(Box::new(RecordingOpenProvider {
+            requests: Arc::clone(&requests),
+        }));
+
+        let called = session.execute_line(r#"call "+33 (6) 12-34-56-78""#);
+        assert_eq!(called.status, 0, "{called:?}");
+        assert_eq!(
+            session.history().last().map(String::as_str),
+            Some("[redacted private command]")
+        );
+        let texting = session.execute_line(r#"text +33612345678 "hello world&é""#);
+        assert_eq!(texting.status, 0, "{texting:?}");
+
+        let recorded = requests.lock().expect("open request log lock");
+        assert_eq!(recorded.len(), 2);
+        assert_eq!(recorded[0].kind, OpenTargetKind::Url);
+        assert_eq!(recorded[0].target, "tel://+33612345678");
+        assert_eq!(recorded[1].kind, OpenTargetKind::Url);
+        assert_eq!(
+            recorded[1].target,
+            "sms://+33612345678&body=hello%20world%26%C3%A9"
+        );
+        drop(recorded);
+
+        let invalid_characters = session.execute_line("call +336123ABC");
+        assert_eq!(invalid_characters.status, 2);
+        let too_short = session.execute_line("call 12");
+        assert_eq!(too_short.status, 2);
+        let missing_number = session.execute_line("text");
+        assert_eq!(missing_number.status, 2);
+        assert_eq!(requests.lock().expect("open request log lock").len(), 2);
+
+        let disabled = Session::new(SandboxedFileSystem::new(&root).expect("root reopened"))
+            .execute_line("call 123");
+        assert_eq!(disabled.status, 1);
+        assert!(disabled.stderr.contains("provider is unavailable"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn evaluates_bounded_test_and_bracket_predicates_inside_shell_conditionals() {
         let root = test_root();
         std::fs::write(root.join("note.txt"), b"hello\n").expect("file written");
@@ -5655,8 +5714,14 @@ mod tests {
             Some("echo ".to_string())
         );
         assert!(session.completion_candidates("echo ").is_empty());
-        assert_eq!(session.completion_candidates("ec | ca"), vec!["cat"]);
-        assert_eq!(session.completion_candidates("echo | ca"), vec!["cat"]);
+        assert_eq!(
+            session.completion_candidates("ec | ca"),
+            vec!["call", "cat"]
+        );
+        assert_eq!(
+            session.completion_candidates("echo | ca"),
+            vec!["call", "cat"]
+        );
         assert!(session.completion_candidates("echo || ca").is_empty());
         assert!(session.completion_candidates("echo | ca | pu").is_empty());
         assert!(session

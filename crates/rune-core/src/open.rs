@@ -6,7 +6,7 @@
 
 use std::fmt::{Display, Formatter};
 
-/// Maximum UTF-8 target size accepted by `open` and `openurl`.
+/// Maximum UTF-8 target size accepted by `open`, `openurl`, `call`, and `text`.
 pub const MAX_OPEN_TARGET_BYTES: usize = 8 * 1024;
 
 /// Kind of target passed to a host external-interaction provider.
@@ -57,7 +57,7 @@ impl Display for OpenError {
 
 impl std::error::Error for OpenError {}
 
-/// Host capability used by `open`, `openurl`, `play`, and `view`.
+/// Host capability used by `open`, `openurl`, `call`, `text`, `play`, and `view`.
 pub trait OpenProvider {
     /// Handles one already-validated URL or confined host file interaction.
     ///
