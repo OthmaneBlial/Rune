@@ -757,6 +757,14 @@ public struct RuneTerminalView: View {
                             onSubmit: {
                                 model.submit()
                                 inputFocused = true
+                            },
+                            onPreviousHistory: {
+                                model.previousHistory()
+                                inputFocused = true
+                            },
+                            onNextHistory: {
+                                model.nextHistory()
+                                inputFocused = true
                             }
                         )
                         .frame(minHeight: 22, maxHeight: 100)
@@ -906,8 +914,42 @@ public struct RuneTerminalView: View {
 
 #if canImport(UIKit)
 private final class RuneCursorTextView: UITextView {
+    var onPreviousHistory: (() -> Void)?
+    var onNextHistory: (() -> Void)?
+
     var cursorShape = "bar" {
         didSet { setNeedsDisplay() }
+    }
+
+    override var keyCommands: [UIKeyCommand]? {
+        var commands = super.keyCommands ?? []
+        if onPreviousHistory != nil {
+            commands.append(
+                UIKeyCommand(
+                    input: UIKeyCommand.inputUpArrow,
+                    modifierFlags: [],
+                    action: #selector(previousHistoryKeyCommand)
+                )
+            )
+        }
+        if onNextHistory != nil {
+            commands.append(
+                UIKeyCommand(
+                    input: UIKeyCommand.inputDownArrow,
+                    modifierFlags: [],
+                    action: #selector(nextHistoryKeyCommand)
+                )
+            )
+        }
+        return commands.isEmpty ? nil : commands
+    }
+
+    @objc private func previousHistoryKeyCommand() {
+        onPreviousHistory?()
+    }
+
+    @objc private func nextHistoryKeyCommand() {
+        onNextHistory?()
     }
 
     override func caretRect(for position: UITextPosition) -> CGRect {
@@ -937,6 +979,8 @@ private struct RuneUIKitCommandEditor: UIViewRepresentable {
     let cursorColor: String
     let cursorShape: String
     let onSubmit: () -> Void
+    let onPreviousHistory: () -> Void
+    let onNextHistory: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text, onSubmit: onSubmit)
@@ -957,6 +1001,8 @@ private struct RuneUIKitCommandEditor: UIViewRepresentable {
         view.textColor = resolvedForegroundColor()
         view.tintColor = resolvedCursorColor()
         view.cursorShape = cursorShape
+        view.onPreviousHistory = onPreviousHistory
+        view.onNextHistory = onNextHistory
         view.setContentHuggingPriority(.defaultLow, for: .horizontal)
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return view
@@ -970,6 +1016,8 @@ private struct RuneUIKitCommandEditor: UIViewRepresentable {
         view.textColor = resolvedForegroundColor()
         view.tintColor = resolvedCursorColor()
         view.cursorShape = cursorShape
+        view.onPreviousHistory = onPreviousHistory
+        view.onNextHistory = onNextHistory
         view.invalidateIntrinsicContentSize()
         if isFocused, !view.isFirstResponder {
             view.becomeFirstResponder()

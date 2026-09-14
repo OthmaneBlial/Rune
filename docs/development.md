@@ -217,7 +217,10 @@ Its transcript cache has explicit entry and byte bounds in source, but that
 presentation policy cannot be runtime-tested without SwiftUI. The terminal
 and workspace sources also expose explicit accessibility labels, hints, values,
 and identifiers; VoiceOver traversal and Dynamic Type remain runtime gates.
-The source-only renderer also consumes bounded ANSI SGR foreground/background
+The UIKit command editor source also routes bare hardware-keyboard Up/Down
+presses to the Rust-backed history snapshot; this remains a source-level input
+contract until an Apple runtime is available. The source-only renderer also
+consumes bounded ANSI SGR foreground/background
 colors, 256-color/RGB colors, bold, underline, and inverse controls, plus
 carriage-return, backspace, and erase-line normalization for progress output;
 Apple text-layout and terminal-control fidelity remain unverified without the

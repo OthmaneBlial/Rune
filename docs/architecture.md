@@ -260,7 +260,9 @@ Apple frame-time and device-memory measurements remain unverified.
 
 The terminal view also declares native keyboard shortcuts for folder import,
 cooperative cancellation, history navigation, reverse history search, command
-submission, and a source-only settings sheet. An optional bounded input toolbar adds
+submission, and a source-only settings sheet. The UIKit command editor also
+routes bare hardware-keyboard Up/Down presses to the model's history navigation;
+the SwiftUI fallback retains the visible history buttons. An optional bounded input toolbar adds
 Tab/completion cycling, Escape dismissal, Ctrl-C, display-clear, and paste controls. These
 controls dispatch into the existing Swift model and Rust FFI rather than
 maintaining a second command, configuration, or history implementation; the
