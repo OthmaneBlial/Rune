@@ -70,11 +70,6 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: bookmarks::deletemark,
     },
     CommandDefinition {
-        name: "d",
-        summary: "short alias for deleting saved directory bookmarks",
-        handler: bookmarks::deletemark,
-    },
-    CommandDefinition {
         name: "basename",
         summary: "print the final component of a path",
         handler: utilities::basename,
@@ -260,11 +255,6 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: bookmarks::jump,
     },
     CommandDefinition {
-        name: "g",
-        summary: "short alias for jumping to a saved directory bookmark",
-        handler: bookmarks::jump,
-    },
-    CommandDefinition {
         name: "file",
         summary: "identify bounded VFS files without host libmagic",
         handler: utilities::file,
@@ -328,11 +318,6 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "ls",
         summary: "list directory entries",
         handler: filesystem::ls,
-    },
-    CommandDefinition {
-        name: "l",
-        summary: "short alias for listing saved directory bookmarks",
-        handler: bookmarks::showmarks,
     },
     CommandDefinition {
         name: "l",
@@ -410,19 +395,9 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: bookmarks::showmarks,
     },
     CommandDefinition {
-        name: "p",
-        summary: "short alias for listing saved directory bookmarks",
-        handler: bookmarks::showmarks,
-    },
-    CommandDefinition {
         name: "readlink",
         summary: "read a symbolic link target",
         handler: filesystem::readlink,
-    },
-    CommandDefinition {
-        name: "r",
-        summary: "short alias for renaming a directory bookmark",
-        handler: bookmarks::renamemark,
     },
     CommandDefinition {
         name: "r",
@@ -473,11 +448,6 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "sha256",
         summary: "print a SHA-256 digest for bounded input",
         handler: utilities::sha256,
-    },
-    CommandDefinition {
-        name: "s",
-        summary: "short alias for saving the current directory bookmark",
-        handler: bookmarks::bookmark,
     },
     CommandDefinition {
         name: "s",

@@ -6848,6 +6848,21 @@ true
     }
 
     #[test]
+    fn keeps_command_registry_names_unique() {
+        let mut names = super::CommandRegistry::default()
+            .definitions()
+            .iter()
+            .map(|definition| definition.name)
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+
+        assert!(
+            names.windows(2).all(|pair| pair[0] != pair[1]),
+            "duplicate command definition: {names:?}"
+        );
+    }
+
+    #[test]
     fn supports_short_bookmark_aliases_through_the_rust_registry() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
