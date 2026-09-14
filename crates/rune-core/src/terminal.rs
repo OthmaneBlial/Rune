@@ -40,6 +40,7 @@ pub struct TerminalScreen {
     cursor_row: usize,
     cursor_column: usize,
     cursor_visible: bool,
+    last_written: Option<char>,
     saved_cursor: (usize, usize),
     scroll_top: usize,
     scroll_bottom: usize,
@@ -65,6 +66,7 @@ impl TerminalScreen {
             cursor_row: 0,
             cursor_column: 0,
             cursor_visible: true,
+            last_written: None,
             saved_cursor: (0, 0),
             scroll_top: 0,
             scroll_bottom: rows - 1,
@@ -88,6 +90,7 @@ impl TerminalScreen {
         self.cursor_row = 0;
         self.cursor_column = 0;
         self.cursor_visible = true;
+        self.last_written = None;
         self.saved_cursor = (0, 0);
         self.scroll_top = 0;
         self.scroll_bottom = self.rows - 1;
@@ -349,6 +352,13 @@ impl TerminalScreen {
             'S' => self.scroll_region_up_by(count()),
             'T' => self.scroll_region_down_by(count()),
             'X' => self.erase_characters(count()),
+            'b' => {
+                if let Some(character) = self.last_written {
+                    for _ in 0..count() {
+                        self.write(character);
+                    }
+                }
+            }
             'h' if values.first() == Some(&25) => self.cursor_visible = true,
             'l' if values.first() == Some(&25) => self.cursor_visible = false,
             'r' => self.set_scroll_region(&values),
@@ -366,6 +376,7 @@ impl TerminalScreen {
         }
         self.cells[self.cursor_row][self.cursor_column] = character;
         self.cursor_column += 1;
+        self.last_written = Some(character);
     }
 
     fn line_feed(&mut self) {
@@ -609,6 +620,14 @@ mod tests {
 
         screen.feed("\x1b[?25l\x1bc");
         assert!(screen.cursor_visible());
+    }
+
+    #[test]
+    fn repeats_the_last_character_with_a_bounded_count() {
+        let mut screen = TerminalScreen::new(8, 2);
+        screen.feed("x\x1b[3b");
+        assert_eq!(screen.snapshot(), "xxxx");
+        assert_eq!(screen.cursor_position(), (0, 4));
     }
 
     #[test]

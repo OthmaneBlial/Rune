@@ -4,6 +4,13 @@ All notable public changes to Rune are documented here. The project is
 pre-1.0; entries describe verified repository behavior and do not imply an
 iOS runtime release.
 
+## [Unreleased]
+
+### Added
+
+- Bounded terminal last-character repetition through `CSI b`, with regression
+  coverage for cursor advancement and grid limits.
+
 ## [0.1.0-alpha.1] - 2026-09-14
 
 ### Added

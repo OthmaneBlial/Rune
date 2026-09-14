@@ -27,8 +27,8 @@ progress is not mistaken for a shipped application.
 - [x] Bounded archives, text utilities, scripting runtimes, WASM/WASI, and
       verified package metadata/install flows.
 - [x] Rust-owned terminal snapshot, bounded ANSI/CSI handling (including
-      cursor visibility), cancellation, and event-aware C FFI with a host C
-      consumer smoke test.
+      cursor visibility and last-character repetition), cancellation, and
+      event-aware C FFI with a host C consumer smoke test.
 - [x] Source-only SwiftUI/UIKit bridge, native capability callbacks, tabs,
       window routing, accessibility labels, and App Intent declarations.
 - [~] Direct a-Shell behavioral observations; scenarios and normalization rules
