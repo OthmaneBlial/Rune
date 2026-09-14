@@ -995,6 +995,12 @@ impl Session {
         self.terminal_screen.cursor_shape()
     }
 
+    /// Returns the optional terminal-requested cursor blink override.
+    #[must_use]
+    pub fn terminal_cursor_blink(&self) -> u8 {
+        self.terminal_screen.cursor_blink()
+    }
+
     /// Resizes the Rust-owned terminal grid for a native viewport. The
     /// bounded screen keeps the most relevant rows and clamps dimensions;
     /// layout changes are intentionally not persisted as session state.

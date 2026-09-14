@@ -33,6 +33,8 @@ typedef struct {
     bool visible;
     // 0 means no override; 1 block, 2 underline, 3 bar.
     uint8_t shape;
+    // 0 means no override; 1 blinking, 2 steady.
+    uint8_t blink;
 } RuneTerminalCursor;
 
 typedef void (*RuneEventCallback)(const RuneEvent *event, void *user_data);

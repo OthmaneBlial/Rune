@@ -34,6 +34,7 @@ struct AlternateScreenBackup {
     scroll_bottom: usize,
     last_written: Option<char>,
     cursor_shape: u8,
+    cursor_blink: u8,
 }
 
 /// A bounded, text-only terminal state suitable for session persistence.
@@ -56,6 +57,7 @@ pub struct TerminalScreen {
     cursor_visible: bool,
     last_written: Option<char>,
     cursor_shape: u8,
+    cursor_blink: u8,
     alternate_backup: Option<AlternateScreenBackup>,
     saved_cursor: (usize, usize),
     scroll_top: usize,
@@ -84,6 +86,7 @@ impl TerminalScreen {
             cursor_visible: true,
             last_written: None,
             cursor_shape: 0,
+            cursor_blink: 0,
             alternate_backup: None,
             saved_cursor: (0, 0),
             scroll_top: 0,
@@ -110,6 +113,7 @@ impl TerminalScreen {
         self.cursor_visible = true;
         self.last_written = None;
         self.cursor_shape = 0;
+        self.cursor_blink = 0;
         self.saved_cursor = (0, 0);
         self.scroll_top = 0;
         self.scroll_bottom = self.rows - 1;
@@ -131,6 +135,7 @@ impl TerminalScreen {
             scroll_bottom: self.scroll_bottom,
             last_written: self.last_written,
             cursor_shape: self.cursor_shape,
+            cursor_blink: self.cursor_blink,
         });
         self.cells = vec![vec![' '; self.columns]; self.rows];
         self.cursor_row = 0;
@@ -140,6 +145,7 @@ impl TerminalScreen {
         self.scroll_bottom = self.rows - 1;
         self.last_written = None;
         self.cursor_shape = 0;
+        self.cursor_blink = 0;
     }
 
     fn leave_alternate_screen(&mut self) {
@@ -171,6 +177,7 @@ impl TerminalScreen {
         self.scroll_bottom = backup.scroll_bottom.min(self.rows - 1).max(self.scroll_top);
         self.last_written = backup.last_written;
         self.cursor_shape = backup.cursor_shape;
+        self.cursor_blink = backup.cursor_blink;
     }
 
     /// Returns the visible rows through the last non-blank row.
@@ -217,6 +224,13 @@ impl TerminalScreen {
     #[must_use]
     pub fn cursor_shape(&self) -> u8 {
         self.cursor_shape
+    }
+
+    /// Returns the optional DECSCUSR blink override: 0 means no override,
+    /// 1 requests blinking, and 2 requests a steady cursor.
+    #[must_use]
+    pub fn cursor_blink(&self) -> u8 {
+        self.cursor_blink
     }
 
     /// Returns the current bounded grid dimensions as `(columns, rows)`.
@@ -444,13 +458,35 @@ impl TerminalScreen {
             }
             'h' if values.first() == Some(&25) => self.cursor_visible = true,
             'l' if values.first() == Some(&25) => self.cursor_visible = false,
+            'h' if values.first() == Some(&12) => self.cursor_blink = 1,
+            'l' if values.first() == Some(&12) => self.cursor_blink = 2,
             'h' if values.first() == Some(&1049) => self.enter_alternate_screen(),
             'l' if values.first() == Some(&1049) => self.leave_alternate_screen(),
             'q' => match first(0) {
-                0 => self.cursor_shape = 0,
-                1 | 2 => self.cursor_shape = 1,
-                3 | 4 => self.cursor_shape = 2,
-                5 | 6 => self.cursor_shape = 3,
+                0 | 1 => {
+                    self.cursor_shape = 1;
+                    self.cursor_blink = 1;
+                }
+                2 => {
+                    self.cursor_shape = 1;
+                    self.cursor_blink = 2;
+                }
+                3 => {
+                    self.cursor_shape = 2;
+                    self.cursor_blink = 1;
+                }
+                4 => {
+                    self.cursor_shape = 2;
+                    self.cursor_blink = 2;
+                }
+                5 => {
+                    self.cursor_shape = 3;
+                    self.cursor_blink = 1;
+                }
+                6 => {
+                    self.cursor_shape = 3;
+                    self.cursor_blink = 2;
+                }
                 _ => {}
             },
             'r' => self.set_scroll_region(&values),
@@ -781,7 +817,12 @@ mod tests {
         screen.feed("\x1b[6 q");
         assert_eq!(screen.cursor_shape(), 3);
         screen.feed("\x1b[0 q");
-        assert_eq!(screen.cursor_shape(), 0);
+        assert_eq!(screen.cursor_shape(), 1);
+        assert_eq!(screen.cursor_blink(), 1);
+        screen.feed("\x1b[?12l");
+        assert_eq!(screen.cursor_blink(), 2);
+        screen.feed("\x1b[?12h");
+        assert_eq!(screen.cursor_blink(), 1);
     }
 
     #[test]

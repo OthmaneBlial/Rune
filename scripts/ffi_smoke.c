@@ -108,6 +108,17 @@ int main(void) {
     rune_string_free(underline_cursor.stdout_data);
     rune_string_free(underline_cursor.stderr_data);
 
+    RuneOutput steady_cursor = rune_session_execute(session, "printf '\033[?12l'");
+    RuneTerminalCursor steady_state = rune_session_terminal_cursor(session);
+    if (steady_cursor.status != 0 || steady_state.shape != 2 || steady_state.blink != 2) {
+        rune_string_free(steady_cursor.stdout_data);
+        rune_string_free(steady_cursor.stderr_data);
+        rune_session_destroy(session);
+        return fail("DEC cursor blink state did not cross the public ABI");
+    }
+    rune_string_free(steady_cursor.stdout_data);
+    rune_string_free(steady_cursor.stderr_data);
+
     EventObservation observation = {"ffi-event", 0, 0, 0};
     RuneOutput streamed = rune_session_execute_with_events(
         session,

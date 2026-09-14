@@ -64,6 +64,7 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var terminalCursorPosition = (row: 0, column: 0)
     @Published public private(set) var terminalCursorVisible = true
     @Published public private(set) var terminalCursorShape: String?
+    @Published public private(set) var terminalCursorBlinking: Bool?
     @Published public private(set) var sessionSnapshot: RuneSessionSnapshot? = nil
     @Published public private(set) var requestedAction: RuneSessionAction = .none
 
@@ -549,6 +550,7 @@ public final class RuneTerminalModel: ObservableObject {
             terminalCursorPosition = (row: 0, column: 0)
             terminalCursorVisible = true
             terminalCursorShape = nil
+            terminalCursorBlinking = nil
             sessionSnapshot = nil
             return
         }
@@ -556,6 +558,7 @@ public final class RuneTerminalModel: ObservableObject {
         terminalCursorPosition = session.terminalCursorPosition
         terminalCursorVisible = session.terminalCursorVisible
         terminalCursorShape = session.terminalCursorShape
+        terminalCursorBlinking = session.terminalCursorBlinking
         sessionSnapshot = session.sessionSnapshot
     }
 
@@ -814,6 +817,7 @@ public struct RuneTerminalView: View {
                         foreground: palette.foreground,
                         cursorColor: palette.cursorColor(named: model.cursorColor),
                         cursorShape: model.terminalCursorShape ?? model.cursorShape,
+                        cursorBlinking: model.terminalCursorBlinking ?? false,
                         onResize: { size in model.resizeTerminal(for: size) }
                     )
                     .padding(18)
@@ -1103,6 +1107,7 @@ private struct RuneRustTerminalScreen: View {
     let foreground: Color
     let cursorColor: Color
     let cursorShape: String
+    let cursorBlinking: Bool
     let onResize: (CGSize) -> Void
 
     private var characterWidth: CGFloat {
@@ -1153,15 +1158,19 @@ private struct RuneRustTerminalScreen: View {
                         .accessibilityValue(Text(verbatim: snapshot.isEmpty ? "Empty" : snapshot))
 
                     if cursorVisible {
-                        Rectangle()
-                            .fill(cursorColor.opacity(caretOpacity))
-                            .frame(width: caretWidth, height: caretHeight)
-                            .offset(
-                                x: CGFloat(cursorPosition.column) * characterWidth,
-                                y: CGFloat(cursorPosition.row) * lineHeight
-                                    + (cursorShape == "underline" ? lineHeight - 2 : 0)
-                            )
-                            .allowsHitTesting(false)
+                        TimelineView(.animation(minimumInterval: 0.55)) { timeline in
+                            if !cursorBlinking || Int(timeline.date.timeIntervalSinceReferenceDate / 0.55).isMultiple(of: 2) {
+                                Rectangle()
+                                    .fill(cursorColor.opacity(caretOpacity))
+                                    .frame(width: caretWidth, height: caretHeight)
+                                    .offset(
+                                        x: CGFloat(cursorPosition.column) * characterWidth,
+                                        y: CGFloat(cursorPosition.row) * lineHeight
+                                            + (cursorShape == "underline" ? lineHeight - 2 : 0)
+                                    )
+                                    .allowsHitTesting(false)
+                            }
+                        }
                     }
                 }
                 .frame(

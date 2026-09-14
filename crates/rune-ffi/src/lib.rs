@@ -42,6 +42,8 @@ pub struct RuneTerminalCursor {
     pub visible: bool,
     /// 0 means no terminal shape override; 1 block, 2 underline, 3 bar.
     pub shape: u8,
+    /// 0 means no blink override; 1 blinking, 2 steady.
+    pub blink: u8,
 }
 
 impl Default for RuneTerminalCursor {
@@ -51,6 +53,7 @@ impl Default for RuneTerminalCursor {
             column: 0,
             visible: true,
             shape: 0,
+            blink: 0,
         }
     }
 }
@@ -1385,6 +1388,7 @@ pub extern "C" fn rune_session_terminal_cursor(
         column,
         visible: session.core.terminal_cursor_visible(),
         shape: session.core.terminal_cursor_shape(),
+        blink: session.core.terminal_cursor_blink(),
     }
 }
 
@@ -2675,7 +2679,8 @@ mod tests {
                 row: 0,
                 column: 5,
                 visible: true,
-                shape: 0
+                shape: 0,
+                blink: 0
             }
         );
         assert_eq!(rune_session_resize_terminal(handle, 4, 2), 0);
@@ -2688,7 +2693,8 @@ mod tests {
                 row: 0,
                 column: 4,
                 visible: true,
-                shape: 0
+                shape: 0,
+                blink: 0
             }
         );
         assert!(rune_session_terminal_snapshot(std::ptr::null()).is_null());

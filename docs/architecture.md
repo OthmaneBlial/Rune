@@ -296,6 +296,9 @@ state (`CSI ?25l` / `CSI ?25h`) through the C ABI. Visibility is ephemeral and
 returns to visible on a full terminal reset. Bounded DECSCUSR shape requests
 (`CSI Ps q`) are exposed as an optional block, underline, or bar override;
 unsupported shape values leave the native preference unchanged.
+DECSCUSR blink modes are similarly exposed as an optional blinking/steady
+override; the SwiftUI surface uses a timeline only for the requested blinking
+state.
 The source-only native surface measures its viewport and calls
 `rune_session_resize_terminal`; Rust clamps dimensions and retains the most
 relevant rows without persisting ephemeral layout size.

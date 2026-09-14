@@ -319,6 +319,17 @@ public final class RuneFFISession: @unchecked Sendable {
         }
     }
 
+    /// Returns the optional terminal-requested cursor blink override.
+    public var terminalCursorBlinking: Bool? {
+        withLock {
+            switch rune_session_terminal_cursor(handle.map(UnsafeRawPointer.init)).blink {
+            case 1: return true
+            case 2: return false
+            default: return nil
+            }
+        }
+    }
+
     public func execute(_ command: String) -> RuneCommandResult {
         withLock {
             let raw = command.withCString { rune_session_execute(handle, $0) }

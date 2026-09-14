@@ -4,6 +4,13 @@ All notable public changes to Rune are documented here. The project is
 pre-1.0; entries describe verified repository behavior and do not imply an
 iOS runtime release.
 
+## [Unreleased]
+
+### Added
+
+- Bounded DECSCUSR blink modes are now propagated through the public cursor FFI
+  contract and rendered by the source-only SwiftUI timeline surface.
+
 ## [0.1.0-alpha.4] - 2026-09-14
 
 ### Added
