@@ -149,6 +149,18 @@ fn directories_only_for_completion(command: &str) -> bool {
     matches!(command, "cd" | "mkdir" | "rmdir")
 }
 
+fn completion_command_segment(input: &str) -> Option<&str> {
+    if input.matches('|').count() > 1 || input.contains("||") {
+        return None;
+    }
+    Some(
+        input
+            .rsplit_once('|')
+            .map_or(input, |(_, segment)| segment)
+            .trim_start(),
+    )
+}
+
 struct InstalledCommand {
     name: String,
     package: String,
@@ -781,7 +793,7 @@ impl Session {
     /// Candidates are replacement tokens rather than complete command lines.
     /// The native frontend can therefore preserve the already-entered command
     /// and arguments while applying the selected token. Quoted fragments,
-    /// escaped text, and shell operators are left untouched until the
+    /// escaped text, and compound shell operators are left untouched until the
     /// completion grammar can return a structured replacement range.
     #[must_use]
     pub fn completion_candidates(&self, input: &str) -> Vec<String> {
@@ -791,46 +803,53 @@ impl Session {
         if input.is_empty()
             || input
                 .chars()
-                .any(|character| "|;&\\\"'#".contains(character))
+                .any(|character| ";&\\\"'#".contains(character))
         {
             return Vec::new();
         }
 
-        let prefix = input.trim_start();
-        if !prefix.chars().any(char::is_whitespace) {
-            let mut candidates = self
-                .registry
-                .definitions()
-                .iter()
-                .map(|definition| definition.name)
-                .filter(|name| *name != prefix && name.starts_with(prefix))
-                .map(str::to_owned)
-                .collect::<Vec<_>>();
-            if let Ok(installed_commands) =
-                installed_commands_in_filesystem(self.filesystem.as_ref())
-            {
-                candidates.extend(
-                    installed_commands
-                        .into_iter()
-                        .map(|command| command.name)
-                        .filter(|name| *name != prefix && name.starts_with(prefix)),
-                );
-            }
-            candidates.sort_unstable();
-            candidates.dedup();
-            candidates.truncate(MAX_COMPLETION_CANDIDATES);
-            return candidates;
+        let Some(command_segment) = completion_command_segment(input) else {
+            return Vec::new();
+        };
+        if !command_segment.chars().any(char::is_whitespace) {
+            return self.command_completion_candidates(command_segment);
         }
 
         self.path_completion_candidates(input)
     }
 
+    fn command_completion_candidates(&self, prefix: &str) -> Vec<String> {
+        let mut candidates = self
+            .registry
+            .definitions()
+            .iter()
+            .map(|definition| definition.name)
+            .filter(|name| *name != prefix && name.starts_with(prefix))
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        if let Ok(installed_commands) = installed_commands_in_filesystem(self.filesystem.as_ref()) {
+            candidates.extend(
+                installed_commands
+                    .into_iter()
+                    .map(|command| command.name)
+                    .filter(|name| *name != prefix && name.starts_with(prefix)),
+            );
+        }
+        candidates.sort_unstable();
+        candidates.dedup();
+        candidates.truncate(MAX_COMPLETION_CANDIDATES);
+        candidates
+    }
+
     fn path_completion_candidates(&self, input: &str) -> Vec<String> {
-        let leading = input.len() - input.trim_start().len();
-        let command_end = input[leading..]
+        let active_start = input.rfind('|').map_or(0, |index| index + 1);
+        let active = &input[active_start..];
+        let leading = active.len() - active.trim_start().len();
+        let command_start = active_start + leading;
+        let command_end = input[command_start..]
             .find(char::is_whitespace)
-            .map_or(input.len(), |offset| leading + offset);
-        let command = &input[leading..command_end];
+            .map_or(input.len(), |offset| command_start + offset);
+        let command = &input[command_start..command_end];
         let token_start = input
             .char_indices()
             .rev()
@@ -5054,13 +5073,20 @@ mod tests {
             vec!["printenv", "printf"]
         );
         assert!(session.completion_candidates("echo ").is_empty());
-        assert!(session.completion_candidates("ec | ca").is_empty());
+        assert_eq!(session.completion_candidates("ec | ca"), vec!["cat"]);
+        assert_eq!(session.completion_candidates("echo | ca"), vec!["cat"]);
+        assert!(session.completion_candidates("echo || ca").is_empty());
+        assert!(session.completion_candidates("echo | ca | pu").is_empty());
         assert!(session
             .completion_candidates(&"e".repeat(64 * 1024 + 1))
             .is_empty());
         assert_eq!(session.execute_line("mkdir docs").status, 0);
         assert_eq!(session.execute_line("echo notes > docs/notes.md").status, 0);
         assert_eq!(session.completion_candidates("cat do"), vec!["docs/"]);
+        assert_eq!(
+            session.completion_candidates("echo | cat do"),
+            vec!["docs/"]
+        );
         assert_eq!(
             session.completion_candidates("cat docs/n"),
             vec!["docs/notes.md"]

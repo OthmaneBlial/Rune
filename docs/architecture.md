@@ -410,8 +410,10 @@ supported path-oriented
 commands it lists only entries in the bounded VFS, preserves virtual prefixes
 such as `~/` and `../`, marks directories with `/`, and caps results at eight.
 Simple separated `<`/`>` redirection targets use the same confined path list;
-quoted, escaped, option, and other compound-shell fragments are intentionally
-deferred until the completion grammar has structured replacement ranges.
+simple command/path completion after one `|` uses the same Rust registry and
+VFS lookup. Quoted, escaped, option, and other compound-shell fragments are
+intentionally deferred until the completion grammar has structured replacement
+ranges.
 
 The `apropos` builtin searches only the Rust registry's command names and
 summaries, using bounded case-insensitive substring terms. It does not inspect
