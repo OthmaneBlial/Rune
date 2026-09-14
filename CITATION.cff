@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+title: Rune
+message: >-
+  If Rune contributes to your work, please cite the repository or the release
+  you used.
+type: software
+authors:
+  - family-names: Blial
+    given-names: Othmane
+version: 0.1.0-alpha.7
+date-released: 2026-09-14
+repository-code: https://github.com/OthmaneBlial/Rune
+url: https://othmaneblial.github.io/Rune/
+license: MIT
+keywords:
+  - rust
+  - terminal
+  - ios
+  - ipad
+  - swiftui
+  - sandbox
+  - local-first
+  - open-source
+abstract: >-
+  Rune is a Rust-native, sandboxed Unix-like terminal core for iPhone and iPad
+  with a source-first SwiftUI frontend and explicit capability boundaries.

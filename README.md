@@ -323,3 +323,4 @@ the local source-only policy.
 ## License
 
 Rune is released under the [MIT License](LICENSE).
+Citation metadata is available in [CITATION.cff](CITATION.cff).
