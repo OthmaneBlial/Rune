@@ -588,6 +588,14 @@ mod tests {
     }
 
     #[test]
+    fn erases_characters_without_moving_the_cursor() {
+        let mut screen = TerminalScreen::new(8, 2);
+        screen.feed("abcdef\x1b[1;3H\x1b[2X");
+        assert_eq!(screen.snapshot(), "ab  ef");
+        assert_eq!(screen.cursor_position(), (0, 2));
+    }
+
+    #[test]
     fn scrolls_only_inside_a_configured_region_and_resets_on_full_reset() {
         let mut screen = TerminalScreen::new(8, 4);
         screen.feed("a\nb\nc\nd");
