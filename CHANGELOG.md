@@ -4,6 +4,15 @@ All notable public changes to Rune are documented here. The project is
 pre-1.0; entries describe verified repository behavior and do not imply an
 iOS runtime release.
 
+## [Unreleased]
+
+### Added
+
+- Rust terminal cursor visibility state for bounded `CSI ?25l` / `CSI ?25h`
+  controls, exposed through the C ABI and consumed by the source-only SwiftUI
+  terminal surface.
+- Public C FFI smoke coverage for cursor visibility transitions.
+
 ## [0.1.0-alpha] - 2026-09-14
 
 ### Highlights
