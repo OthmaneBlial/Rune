@@ -243,6 +243,11 @@ workspace tab container against the imported C ABI. It does not prove
 security-scoped access, entitlements, AppIntents registration, Shortcuts
 runtime behavior, SwiftUI rendering, tab lifecycle, iPad multi-window
 behavior, or Apple runtime integration.
+
+The Rust terminal suite also covers cursor-preserving character erasure
+(`CSI X`), alongside cursor addressing, insert/delete operations, scroll
+regions, split control sequences, and bounded resize behavior. These checks
+validate the portable screen model; they do not prove text rendering on iOS.
 The source-only UI requests cooperative cancellation when a terminal view
 disappears or its scene becomes inactive; it does not claim background task
 execution. There is no Apple concurrency, device, or runtime validation in
