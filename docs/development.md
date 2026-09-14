@@ -163,6 +163,11 @@ The exposed snapshot is visible text only;
 Swift still owns event-local ANSI style
 rendering and has not yet replaced its line-oriented transcript with a full
 terminal surface.
+The core also records a bounded in-memory diagnostic stream for development:
+execution status and output byte counts are available through the FFI, while
+command text, file contents, environment values, and private paths are not
+recorded. The stream is cleared explicitly and is never written to session
+persistence.
 The Swift transcript stores parsed ANSI spans once per immutable transcript
 entry and renders bounded entries through `LazyVStack`; this is source-level
 rendering architecture evidence, not a measured Apple frame-time or device

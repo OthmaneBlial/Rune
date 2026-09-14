@@ -277,6 +277,12 @@ The Swift terminal view can switch to a source-only screen surface that draws
 that state; the styled line-oriented transcript remains the default until the
 native surface is validated on Apple.
 
+Development diagnostics follow a separate bounded in-memory path. Rust records
+safe execution metadata after command boundaries, and the C ABI exposes read /
+clear operations for support tooling. The records are not part of session
+persistence and do not include command text, file contents, environment
+values, or private paths.
+
 The terminal view also declares native keyboard shortcuts for folder import,
 cooperative cancellation, history navigation, reverse history search, command
 submission, and a source-only settings sheet. The UIKit command editor also

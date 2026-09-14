@@ -7,6 +7,7 @@
 mod clipboard;
 mod commands;
 mod config;
+mod diagnostics;
 mod network;
 mod open;
 mod persistence;
@@ -41,6 +42,7 @@ use std::fmt::Write as _;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use diagnostics::{DiagnosticLevel, DiagnosticLog};
 use rune_fs::{FsError, VirtualFileSystem};
 use rune_package::PackageManifest;
 use rune_runtime::{
@@ -507,6 +509,7 @@ pub struct Session {
     state_session_id: Option<String>,
     script_parameters: Vec<String>,
     terminal_screen: TerminalScreen,
+    diagnostics: DiagnosticLog,
 }
 
 impl Session {
@@ -550,6 +553,7 @@ impl Session {
             state_session_id: None,
             script_parameters: Vec::new(),
             terminal_screen: TerminalScreen::default(),
+            diagnostics: DiagnosticLog::default(),
         };
         session.update_pwd();
         session
@@ -709,7 +713,29 @@ impl Session {
     /// persisted.
     pub fn clear_terminal_screen(&mut self) -> Result<(), FsError> {
         self.terminal_screen.reset();
-        self.persist()
+        self.record_diagnostic(DiagnosticLevel::Info, "terminal", "display cleared");
+        let result = self.persist();
+        if result.is_err() {
+            self.record_diagnostic(
+                DiagnosticLevel::Error,
+                "persistence",
+                "display clear could not be persisted",
+            );
+        }
+        result
+    }
+
+    /// Returns the bounded, non-persistent diagnostic log for development and
+    /// support tooling. It contains safe metadata only; command text, file
+    /// contents, environment values, and private paths are excluded by policy.
+    #[must_use]
+    pub fn diagnostics(&self) -> String {
+        self.diagnostics.snapshot()
+    }
+
+    /// Clears the in-memory diagnostic log without changing session state.
+    pub fn clear_diagnostics(&mut self) {
+        self.diagnostics.clear();
     }
 
     /// Returns the current virtual directory, useful to native frontends.
@@ -868,6 +894,11 @@ impl Session {
     /// layout changes are intentionally not persisted as session state.
     pub fn resize_terminal(&mut self, columns: usize, rows: usize) {
         self.terminal_screen.resize(columns, rows);
+        self.record_diagnostic(
+            DiagnosticLevel::Info,
+            "terminal",
+            format!("viewport resized columns={columns} rows={rows}"),
+        );
     }
 
     /// Returns the current registry metadata for UI completion/help.
@@ -1156,7 +1187,30 @@ impl Session {
             execute(self, &mut terminal_sink)
         };
         self.terminal_screen = screen;
+        self.record_diagnostic(
+            if output.status == 0 {
+                DiagnosticLevel::Info
+            } else {
+                DiagnosticLevel::Warn
+            },
+            "execution",
+            format!(
+                "completed status={} stdout_bytes={} stderr_bytes={}",
+                output.status,
+                output.stdout.len(),
+                output.stderr.len()
+            ),
+        );
         output
+    }
+
+    fn record_diagnostic(
+        &mut self,
+        level: DiagnosticLevel,
+        component: &'static str,
+        message: impl AsRef<str>,
+    ) {
+        self.diagnostics.record(level, component, message);
     }
 
     fn execute_script_internal(

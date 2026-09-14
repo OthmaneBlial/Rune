@@ -206,6 +206,28 @@ public final class RuneFFISession: @unchecked Sendable {
         }
     }
 
+    /// Returns safe, bounded, non-persistent Rust diagnostics for development
+    /// and support tooling. Command text, file contents, environment values,
+    /// and private paths are not recorded by the core policy.
+    public var diagnostics: String {
+        withLock {
+            guard let pointer = rune_session_diagnostics(handle.map(UnsafeRawPointer.init)) else {
+                return ""
+            }
+            defer { rune_string_free(pointer) }
+            return String(cString: pointer)
+        }
+    }
+
+    /// Clears the in-memory Rust diagnostic buffer without changing session
+    /// persistence.
+    @discardableResult
+    public func clearDiagnostics() -> Bool {
+        withLock {
+            rune_session_clear_diagnostics(handle) == 0
+        }
+    }
+
     /// Returns the current zero-based cursor position for the Rust-owned
     /// terminal screen. Swift can use this to draw a caret without owning a
     /// second cursor state machine.

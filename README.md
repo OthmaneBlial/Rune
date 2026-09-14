@@ -212,6 +212,11 @@ line-oriented styled transcript and also offers a source-only Rust screen view
 with a caret. The source-only Rust screen adapts its bounded grid to the
 available viewport while retaining the most relevant rows across a resize;
 full xterm/terminal emulation remains intentionally deferred.
+The Rust session also keeps a bounded, non-persistent diagnostic buffer for
+development and support tooling. It records only safe execution metadata such
+as status and byte counts; command text, file contents, environment values,
+and private paths are excluded by policy. The native bridge can read or clear
+that buffer without exposing it as a shell command or writing it to disk.
 Interactive `export`, `setenv`, and assignment lines are replaced by a
 redaction marker in history before persistence when the Rust-owned
 `history-redaction` setting is enabled. It is enabled by default and remains a

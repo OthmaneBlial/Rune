@@ -88,6 +88,11 @@ still needs validation. The screen surface reports bounded row and column
 dimensions through the C ABI and retains the most relevant rows when the
 available iPhone/iPad space changes.
 
+`RuneFFISession.diagnostics` exposes the Rust-owned bounded development log,
+and `clearDiagnostics()` clears it in memory. The log is not persisted and is
+limited to safe execution metadata rather than command text, file contents,
+environment values, or private paths.
+
 `RuneFFISession.cancel()` forwards a cooperative cancellation request to Rust;
 the next command boundary returns status 130. It is a cancellation signal, not
 an unsafe force-stop of a synchronous operation.

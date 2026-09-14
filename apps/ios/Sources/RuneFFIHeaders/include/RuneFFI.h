@@ -222,6 +222,10 @@ RuneOutput rune_session_execute_script_with_events(
 char *rune_session_current_directory(const void *handle);
 // Return the bounded Rust-owned terminal screen as visible UTF-8 text.
 char *rune_session_terminal_snapshot(const void *handle);
+// Return safe, bounded, non-persistent development diagnostics.
+char *rune_session_diagnostics(const void *handle);
+// Clear non-persistent development diagnostics. Returns zero on success.
+int32_t rune_session_clear_diagnostics(void *handle);
 // Return the zero-based cursor position for the bounded Rust-owned screen.
 RuneTerminalCursor rune_session_terminal_cursor(const void *handle);
 char *rune_session_history(const void *handle);

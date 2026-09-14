@@ -1288,6 +1288,33 @@ pub extern "C" fn rune_session_terminal_snapshot(handle: *const std::ffi::c_void
     into_owned_c_string(&snapshot)
 }
 
+/// Returns the bounded, non-persistent diagnostic log as an owned UTF-8
+/// string. Records contain safe execution metadata only and must be released
+/// with [`rune_string_free`].
+#[no_mangle]
+pub extern "C" fn rune_session_diagnostics(handle: *const std::ffi::c_void) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the pointer is read-only and owned by the Swift session.
+    let session = unsafe { &*handle.cast::<RuneSession>() };
+    into_owned_c_string(&session.core.diagnostics())
+}
+
+/// Clears the in-memory diagnostic log without changing persisted session
+/// state. Returns zero on success and one for a null handle.
+#[no_mangle]
+pub extern "C" fn rune_session_clear_diagnostics(handle: *mut std::ffi::c_void) -> i32 {
+    if handle.is_null() {
+        return 1;
+    }
+    // SAFETY: Swift serializes access to the opaque session handle and does
+    // not call this after rune_session_destroy.
+    let session = unsafe { &mut *handle.cast::<RuneSession>() };
+    session.core.clear_diagnostics();
+    0
+}
+
 /// Returns the zero-based cursor position for the bounded Rust-owned screen.
 #[no_mangle]
 pub extern "C" fn rune_session_terminal_cursor(
@@ -1485,9 +1512,10 @@ pub unsafe extern "C" fn rune_file_bytes_free(data: *mut u8, length: usize) {
 mod tests {
     use super::{
         rune_file_bytes_free, rune_session_apply_completion, rune_session_cancel,
-        rune_session_clear_terminal, rune_session_commands, rune_session_complete,
-        rune_session_configuration, rune_session_current_directory, rune_session_destroy,
-        rune_session_execute, rune_session_execute_script, rune_session_execute_script_with_events,
+        rune_session_clear_diagnostics, rune_session_clear_terminal, rune_session_commands,
+        rune_session_complete, rune_session_configuration, rune_session_current_directory,
+        rune_session_destroy, rune_session_diagnostics, rune_session_execute,
+        rune_session_execute_script, rune_session_execute_script_with_events,
         rune_session_execute_with_events, rune_session_get_file, rune_session_history,
         rune_session_history_search, rune_session_new, rune_session_new_named,
         rune_session_new_with_layout, rune_session_put_file, rune_session_reset_configuration,
@@ -2580,6 +2608,42 @@ mod tests {
             RuneTerminalCursor::default()
         );
         assert_eq!(rune_session_resize_terminal(std::ptr::null_mut(), 4, 2), 1);
+
+        rune_session_destroy(handle);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn c_abi_exposes_safe_bounded_diagnostics_and_can_clear_them() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rune-ffi-diagnostics-test-{suffix}"));
+        std::fs::create_dir_all(&root).expect("test root created");
+        let root_string = CString::new(root.to_string_lossy().as_bytes()).expect("valid root");
+        let handle = rune_session_new(root_string.as_ptr());
+        assert!(!handle.is_null());
+
+        let command = CString::new("echo private-command-value").expect("valid command");
+        let output = rune_session_execute(handle, command.as_ptr());
+        assert_eq!(output.status, 0);
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+        let diagnostics = rune_session_diagnostics(handle);
+        let diagnostics_text = c_string(diagnostics);
+        assert!(diagnostics_text.contains("execution: completed status=0"));
+        assert!(!diagnostics_text.contains("private-command-value"));
+        unsafe { rune_string_free(diagnostics) };
+
+        assert_eq!(rune_session_clear_diagnostics(handle), 0);
+        let empty = rune_session_diagnostics(handle);
+        assert!(c_string(empty).is_empty());
+        unsafe { rune_string_free(empty) };
+        assert!(rune_session_diagnostics(std::ptr::null()).is_null());
+        assert_eq!(rune_session_clear_diagnostics(std::ptr::null_mut()), 1);
 
         rune_session_destroy(handle);
         std::fs::remove_dir_all(root).expect("test root removed");
