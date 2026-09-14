@@ -259,8 +259,8 @@ The Rust core also provides bounded `ar -rcs`/`ar t`/`ar x` member archives,
 zip -r ARCHIVE FILE ..., unzip ARCHIVE [DESTINATION], tar -cf/-tf/-xf ARCHIVE,
 gzip FILE ..., gunzip FILE.gz ..., compress FILE ..., and uncompress FILE.Z ...
 commands. `ar` stores regular files with short member names and does not emit
-symbol tables. ZIP uses stored or Deflate ZIP32 entries through the VFS and
-verifies CRC32 before extraction. Tar uses UTF-8
+symbol tables. ZIP uses stored or Deflate ZIP32 entries through the VFS, verifies
+CRC32, and accepts validated data descriptors before extraction. Tar uses UTF-8
 USTAR entries with long names split across the standard name/prefix fields.
 Gzip and `.Z` LZW are file-to-file Rust backends: they keep the source, refuse
 binary stdin/stdout mode and refuse to overwrite destinations, and cap both

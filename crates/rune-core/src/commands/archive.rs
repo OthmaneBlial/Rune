@@ -9,6 +9,10 @@ use flate2::Compression;
 const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES: usize = 10_000;
 const MAX_ARCHIVE_PATH_BYTES: usize = 1_024;
+const ZIP_DATA_DESCRIPTOR_FLAG: u16 = 0x0008;
+const ZIP_UTF8_FLAG: u16 = 0x0800;
+const ZIP_ALLOWED_FLAGS: u16 = ZIP_DATA_DESCRIPTOR_FLAG | ZIP_UTF8_FLAG;
+const ZIP_DATA_DESCRIPTOR_SIGNATURE: u32 = 0x0807_4b50;
 
 #[derive(Debug)]
 struct ArchiveEntry {
@@ -873,7 +877,7 @@ fn read_central_directory(archive: &[u8]) -> Result<Vec<ArchiveEntry>, String> {
         if !names.insert(name.clone()) {
             return Err(format!("duplicate ZIP entry: {name}"));
         }
-        if flags != 0
+        if flags & !ZIP_ALLOWED_FLAGS != 0
             || !matches!(method, 0 | 8)
             || (method == 0 && compressed_size != uncompressed_size)
         {
@@ -938,6 +942,9 @@ fn read_local_entry(
             "local entry does not match central directory: {name}"
         ));
     }
+    if metadata.flags & ZIP_DATA_DESCRIPTOR_FLAG != 0 {
+        validate_zip_data_descriptor(archive, data_end, metadata, name)?;
+    }
     let compressed = &archive[data_start..data_end];
     let bytes = match metadata.method {
         0 => compressed.to_vec(),
@@ -951,6 +958,47 @@ fn read_local_entry(
         return Err(format!("CRC mismatch: {name}"));
     }
     Ok(bytes)
+}
+
+fn validate_zip_data_descriptor(
+    archive: &[u8],
+    offset: usize,
+    metadata: ZipEntryMetadata,
+    name: &str,
+) -> Result<(), String> {
+    let signature = read_u32(archive, offset)
+        .map_err(|_| format!("ZIP data descriptor is truncated: {name}"))?;
+    let fields = if signature == ZIP_DATA_DESCRIPTOR_SIGNATURE {
+        offset
+            .checked_add(4)
+            .ok_or_else(|| format!("ZIP data descriptor overflows: {name}"))?
+    } else {
+        offset
+    };
+    let descriptor_length = if signature == ZIP_DATA_DESCRIPTOR_SIGNATURE {
+        16
+    } else {
+        12
+    };
+    let descriptor_end = offset
+        .checked_add(descriptor_length)
+        .ok_or_else(|| format!("ZIP data descriptor overflows: {name}"))?;
+    if descriptor_end > archive.len() {
+        return Err(format!("ZIP data descriptor is truncated: {name}"));
+    }
+    let crc = read_u32(archive, fields)
+        .map_err(|_| format!("ZIP data descriptor is truncated: {name}"))?;
+    let compressed_size = usize_from_u32(read_u32(archive, fields + 4)?)?;
+    let uncompressed_size = usize_from_u32(read_u32(archive, fields + 8)?)?;
+    if crc != metadata.crc
+        || compressed_size != metadata.compressed_size
+        || uncompressed_size != metadata.uncompressed_size
+    {
+        return Err(format!(
+            "ZIP data descriptor does not match central directory: {name}"
+        ));
+    }
+    Ok(())
 }
 
 fn decompress_zip_entry(
@@ -1078,8 +1126,9 @@ fn crc32(bytes: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_archive, build_tar_archive, crc32, read_central_directory, read_tar_archive,
-        read_u16, validate_archive_name, ArchiveEntry,
+        build_archive, build_tar_archive, crc32, push_u32, read_central_directory,
+        read_tar_archive, read_u16, read_u32, validate_archive_name, ArchiveEntry,
+        ZIP_DATA_DESCRIPTOR_FLAG, ZIP_DATA_DESCRIPTOR_SIGNATURE,
     };
 
     #[test]
@@ -1116,6 +1165,54 @@ mod tests {
         let entries = read_central_directory(&archive).expect("ZIP archive read");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].bytes, b"repeated content ".repeat(256));
+    }
+
+    #[test]
+    fn reads_zip_entries_with_signature_data_descriptors() {
+        let entry = ArchiveEntry {
+            name: "descriptor.txt".to_string(),
+            bytes: b"descriptor content ".repeat(256),
+            directory: false,
+        };
+        let archive = build_archive(&[entry]).expect("ZIP archive built");
+        let eocd = archive.len() - 22;
+        let central_offset =
+            usize::try_from(read_u32(&archive, eocd + 16).expect("central offset present"))
+                .expect("central offset fits");
+        let name_length = usize::from(read_u16(&archive, 26).expect("local name length present"));
+        let extra_length = usize::from(read_u16(&archive, 28).expect("local extra length present"));
+        let compressed_size =
+            usize::try_from(read_u32(&archive, 18).expect("local compressed size present"))
+                .expect("compressed size fits");
+        let data_end = 30 + name_length + extra_length + compressed_size;
+        let crc = read_u32(&archive, 14).expect("local CRC present");
+        let uncompressed_size = read_u32(&archive, 22).expect("local size present");
+
+        let mut descriptor_archive = archive[..data_end].to_vec();
+        descriptor_archive[6..8].copy_from_slice(&ZIP_DATA_DESCRIPTOR_FLAG.to_le_bytes());
+        descriptor_archive[14..18].fill(0);
+        descriptor_archive[18..22].fill(0);
+        descriptor_archive[22..26].fill(0);
+        push_u32(&mut descriptor_archive, ZIP_DATA_DESCRIPTOR_SIGNATURE);
+        push_u32(&mut descriptor_archive, crc);
+        push_u32(
+            &mut descriptor_archive,
+            u32::try_from(compressed_size).expect("compressed size fits ZIP32"),
+        );
+        push_u32(&mut descriptor_archive, uncompressed_size);
+        let new_central_offset_u32 =
+            u32::try_from(descriptor_archive.len()).expect("central offset fits ZIP32");
+        descriptor_archive.extend_from_slice(&archive[central_offset..]);
+        let new_central_offset = usize::try_from(new_central_offset_u32).expect("offset fits");
+        descriptor_archive[new_central_offset + 8..new_central_offset + 10]
+            .copy_from_slice(&ZIP_DATA_DESCRIPTOR_FLAG.to_le_bytes());
+        let new_eocd = descriptor_archive.len() - 22;
+        descriptor_archive[new_eocd + 16..new_eocd + 20]
+            .copy_from_slice(&new_central_offset_u32.to_le_bytes());
+
+        let entries = read_central_directory(&descriptor_archive).expect("ZIP archive read");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].bytes, b"descriptor content ".repeat(256));
     }
 
     #[test]
