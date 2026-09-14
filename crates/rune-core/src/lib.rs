@@ -57,6 +57,7 @@ const MAX_HISTORY_SEARCH_BYTES: usize = 4 * 1024;
 const MAX_INSTALLED_COMMANDS: usize = 4_096;
 const MAX_SCRIPT_BYTES: usize = 256 * 1024;
 const MAX_SCRIPT_LINES: usize = 1_024;
+const MAX_SCRIPT_CONTROL_DEPTH: usize = 16;
 const MAX_SOURCE_DEPTH: usize = 16;
 const MAX_SOURCE_ARGUMENTS: usize = 64;
 const MAX_COMMAND_SUBSTITUTION_DEPTH: usize = 16;
@@ -301,6 +302,14 @@ impl EventSink for NoopEventSink {
 struct TrackingEventSink<'a> {
     sink: &'a mut dyn EventSink,
     output_emitted: bool,
+}
+
+struct ScriptExecutionContext<'a> {
+    record_history: bool,
+    source_depth: usize,
+    external_stdin: &'a str,
+    control_depth: usize,
+    sink: &'a mut dyn EventSink,
 }
 
 impl<'a> TrackingEventSink<'a> {
@@ -888,13 +897,14 @@ impl Session {
         sink: &mut dyn EventSink,
     ) -> CommandOutput {
         let mut tracking = TrackingEventSink::new(sink);
-        let output = self.execute_script_body(
-            script,
+        let mut context = ScriptExecutionContext {
             record_history,
             source_depth,
             external_stdin,
-            &mut tracking,
-        );
+            control_depth: 0,
+            sink: &mut tracking,
+        };
+        let output = self.execute_script_body(script, &mut context);
         if !tracking.output_emitted && (!output.stdout.is_empty() || !output.stderr.is_empty()) {
             tracking.emit(CommandEvent::Output {
                 stdout: output.stdout.clone(),
@@ -911,11 +921,18 @@ impl Session {
     fn execute_script_body(
         &mut self,
         script: &str,
-        record_history: bool,
-        source_depth: usize,
-        external_stdin: &str,
-        sink: &mut dyn EventSink,
+        context: &mut ScriptExecutionContext<'_>,
     ) -> CommandOutput {
+        if context.control_depth > MAX_SCRIPT_CONTROL_DEPTH {
+            let output = CommandOutput::failure(
+                2,
+                format!(
+                    "rune: script control-flow nesting exceeds the {MAX_SCRIPT_CONTROL_DEPTH}-level limit\n"
+                ),
+            );
+            self.last_status = output.status;
+            return output;
+        }
         if script.len() > MAX_SCRIPT_BYTES {
             let output = CommandOutput::failure(
                 2,
@@ -946,60 +963,35 @@ impl Session {
                 output.status = cancellation.status;
                 break;
             }
-            if is_for_header_line(line) {
-                let header = match parse_for_header(line) {
-                    Ok(Some(header)) => header,
-                    Ok(None) => unreachable!("for header was checked before parsing"),
-                    Err(error) => {
-                        let error_output =
-                            CommandOutput::failure(2, format!("rune: script: {error}\n"));
-                        output.stderr.push_str(&error_output.stderr);
-                        output.status = error_output.status;
-                        limit_output(&mut output);
-                        self.last_status = output.status;
+            match self.execute_script_control(&lines, line_index, context) {
+                Ok(Some((next_line, construct_output))) => {
+                    output.stdout.push_str(&construct_output.stdout);
+                    output.stderr.push_str(&construct_output.stderr);
+                    output.status = construct_output.status;
+                    limit_output(&mut output);
+                    line_index = next_line;
+                    if output.status == CANCELLED_STATUS {
                         break;
                     }
-                };
-                let (body_start, body_end) = match for_body_range(&lines, line_index, &header) {
-                    Ok(range) => range,
-                    Err(error) => {
-                        let error_output =
-                            CommandOutput::failure(2, format!("rune: script: {error}\n"));
-                        output.stderr.push_str(&error_output.stderr);
-                        output.status = error_output.status;
-                        limit_output(&mut output);
-                        self.last_status = output.status;
-                        break;
-                    }
-                };
-                if record_history {
-                    self.record_history_line(line.trim());
+                    continue;
                 }
-                let body = lines[body_start..body_end].join("\n");
-                let loop_output = self.execute_for_loop(
-                    &header,
-                    &body,
-                    record_history,
-                    source_depth,
-                    external_stdin,
-                    sink,
-                );
-                output.stdout.push_str(&loop_output.stdout);
-                output.stderr.push_str(&loop_output.stderr);
-                output.status = loop_output.status;
-                limit_output(&mut output);
-                line_index = body_end + 1;
-                if output.status == CANCELLED_STATUS {
+                Ok(None) => {}
+                Err(error) => {
+                    let error_output =
+                        CommandOutput::failure(2, format!("rune: script: {error}\n"));
+                    output.stderr.push_str(&error_output.stderr);
+                    output.status = error_output.status;
+                    limit_output(&mut output);
+                    self.last_status = output.status;
                     break;
                 }
-                continue;
             }
             let line_output = self.execute_line_internal(
                 line,
-                record_history,
-                source_depth,
-                external_stdin,
-                sink,
+                context.record_history,
+                context.source_depth,
+                context.external_stdin,
+                context.sink,
             );
             output.stdout.push_str(&line_output.stdout);
             output.stderr.push_str(&line_output.stderr);
@@ -1010,19 +1002,47 @@ impl Session {
         output
     }
 
+    fn execute_script_control(
+        &mut self,
+        lines: &[&str],
+        line_index: usize,
+        context: &mut ScriptExecutionContext<'_>,
+    ) -> Result<Option<(usize, CommandOutput)>, String> {
+        let line = lines[line_index];
+        if is_if_header_line(line) {
+            let header =
+                parse_if_header(line, "if")?.ok_or_else(|| "invalid `if` header".to_string())?;
+            let block = parse_if_block(lines, line_index, &header)?;
+            if context.record_history {
+                self.record_history_line(line.trim());
+            }
+            let output = self.execute_if_block(&block, context);
+            return Ok(Some((block.end + 1, output)));
+        }
+        if is_for_header_line(line) {
+            let header =
+                parse_for_header(line)?.ok_or_else(|| "invalid `for` header".to_string())?;
+            let (body_start, body_end) = for_body_range(lines, line_index, &header)?;
+            if context.record_history {
+                self.record_history_line(line.trim());
+            }
+            let body = lines[body_start..body_end].join("\n");
+            let output = self.execute_for_loop(&header, &body, context);
+            return Ok(Some((body_end + 1, output)));
+        }
+        Ok(None)
+    }
+
     fn execute_for_loop(
         &mut self,
         header: &ForHeader,
         body: &str,
-        record_history: bool,
-        source_depth: usize,
-        external_stdin: &str,
-        sink: &mut dyn EventSink,
+        context: &mut ScriptExecutionContext<'_>,
     ) -> CommandOutput {
         let mut values = Vec::new();
         let mut output = CommandOutput::success("");
         for word in &header.values {
-            let expanded = match self.expand_word(word, source_depth) {
+            let expanded = match self.expand_word(word, context.source_depth) {
                 Ok(expanded) => expanded,
                 Err(error) => {
                     output.stdout.push_str(&error.stdout);
@@ -1071,9 +1091,19 @@ impl Session {
                 break;
             }
             self.environment.insert(header.variable.clone(), value);
-            let iteration_stdin = if index == 0 { external_stdin } else { "" };
-            let iteration =
-                self.execute_script_body(body, record_history, source_depth, iteration_stdin, sink);
+            let iteration_stdin = if index == 0 {
+                context.external_stdin
+            } else {
+                ""
+            };
+            let mut iteration_context = ScriptExecutionContext {
+                record_history: context.record_history,
+                source_depth: context.source_depth,
+                external_stdin: iteration_stdin,
+                control_depth: context.control_depth + 1,
+                sink: &mut *context.sink,
+            };
+            let iteration = self.execute_script_body(body, &mut iteration_context);
             output.stdout.push_str(&iteration.stdout);
             output.stderr.push_str(&iteration.stderr);
             output.status = iteration.status;
@@ -1082,6 +1112,50 @@ impl Session {
                 break;
             }
         }
+        self.last_status = output.status;
+        output
+    }
+
+    fn execute_if_block(
+        &mut self,
+        block: &IfBlock,
+        context: &mut ScriptExecutionContext<'_>,
+    ) -> CommandOutput {
+        let mut output = CommandOutput::success("");
+        let mut selected = false;
+        for clause in &block.clauses {
+            if let Some(condition) = &clause.condition {
+                let condition_output = self.execute_line_internal(
+                    condition,
+                    false,
+                    context.source_depth,
+                    context.external_stdin,
+                    &mut *context.sink,
+                );
+                output.stdout.push_str(&condition_output.stdout);
+                output.stderr.push_str(&condition_output.stderr);
+                if condition_output.status != 0 {
+                    continue;
+                }
+            }
+            selected = true;
+            let mut body_context = ScriptExecutionContext {
+                record_history: context.record_history,
+                source_depth: context.source_depth,
+                external_stdin: context.external_stdin,
+                control_depth: context.control_depth + 1,
+                sink: &mut *context.sink,
+            };
+            let body_output = self.execute_script_body(&clause.body, &mut body_context);
+            output.stdout.push_str(&body_output.stdout);
+            output.stderr.push_str(&body_output.stderr);
+            output.status = body_output.status;
+            break;
+        }
+        if !selected {
+            output.status = 0;
+        }
+        limit_output(&mut output);
         self.last_status = output.status;
         output
     }
@@ -2298,8 +2372,40 @@ struct ForHeader {
     inline_do: bool,
 }
 
+#[derive(Debug)]
+struct IfHeader {
+    condition: String,
+    inline_then: bool,
+}
+
+#[derive(Debug)]
+struct IfClause {
+    condition: Option<String>,
+    body: String,
+}
+
+#[derive(Debug)]
+struct IfBlock {
+    clauses: Vec<IfClause>,
+    end: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ControlBlock {
+    For,
+    If,
+}
+
 fn is_for_header_line(line: &str) -> bool {
     line.trim_start().starts_with("for ")
+}
+
+fn is_if_header_line(line: &str) -> bool {
+    line.trim_start().starts_with("if ")
+}
+
+fn is_elif_header_line(line: &str) -> bool {
+    line.trim_start().starts_with("elif ")
 }
 
 fn parse_for_header(line: &str) -> Result<Option<ForHeader>, String> {
@@ -2350,6 +2456,25 @@ fn parse_for_header(line: &str) -> Result<Option<ForHeader>, String> {
     }))
 }
 
+fn parse_if_header(line: &str, keyword: &str) -> Result<Option<IfHeader>, String> {
+    let trimmed = line.trim();
+    let Some(rest) = trimmed.strip_prefix(&format!("{keyword} ")) else {
+        return Ok(None);
+    };
+    let rest = rest.trim_end();
+    let (condition, inline_then) = rest
+        .strip_suffix("; then")
+        .map_or((rest, false), |condition| (condition.trim_end(), true));
+    if condition.is_empty() {
+        return Err(format!("{keyword} condition is empty"));
+    }
+    parse(condition).map_err(|error| format!("invalid {keyword} condition: {error}"))?;
+    Ok(Some(IfHeader {
+        condition: condition.to_string(),
+        inline_then,
+    }))
+}
+
 fn is_valid_script_variable(name: &str) -> bool {
     let mut characters = name.chars();
     matches!(
@@ -2370,18 +2495,119 @@ fn for_body_range(
         }
         body_start += 1;
     }
-    let mut depth = 1;
+    let mut blocks = vec![ControlBlock::For];
     for (index, line) in lines.iter().enumerate().skip(body_start) {
         if is_for_header_line(line) {
-            depth += 1;
-        } else if line.trim() == "done" {
-            depth -= 1;
-            if depth == 0 {
-                return Ok((body_start, index));
+            blocks.push(ControlBlock::For);
+        } else if is_if_header_line(line) {
+            blocks.push(ControlBlock::If);
+        } else {
+            match line.trim() {
+                "done" => {
+                    if blocks.pop() != Some(ControlBlock::For) {
+                        return Err("for loop has mismatched `done`/`fi`".to_string());
+                    }
+                    if blocks.is_empty() {
+                        return Ok((body_start, index));
+                    }
+                }
+                "fi" if blocks.pop() != Some(ControlBlock::If) => {
+                    return Err("for loop has mismatched `done`/`fi`".to_string());
+                }
+                _ => {}
             }
         }
     }
     Err("for loop is missing `done`".to_string())
+}
+
+fn parse_if_block(
+    lines: &[&str],
+    header_index: usize,
+    header: &IfHeader,
+) -> Result<IfBlock, String> {
+    let mut body_start = header_index + 1;
+    if !header.inline_then {
+        if lines.get(body_start).map(|line| line.trim()) != Some("then") {
+            return Err("if statement is missing `then`".to_string());
+        }
+        body_start += 1;
+    }
+
+    let mut blocks = vec![ControlBlock::If];
+    let mut clauses = Vec::new();
+    let mut current_condition = Some(header.condition.clone());
+    let mut current_start = body_start;
+    let mut saw_else = false;
+    let mut index = body_start;
+    while index < lines.len() {
+        let line = lines[index];
+        if blocks.len() == 1 {
+            if is_elif_header_line(line) {
+                if saw_else {
+                    return Err("if statement has `elif` after `else`".to_string());
+                }
+                clauses.push(IfClause {
+                    condition: current_condition.take(),
+                    body: lines[current_start..index].join("\n"),
+                });
+                let elif = parse_if_header(line, "elif")?
+                    .ok_or_else(|| "invalid `elif` header".to_string())?;
+                index += 1;
+                current_start = index;
+                if !elif.inline_then {
+                    if lines.get(index).map(|line| line.trim()) != Some("then") {
+                        return Err("elif statement is missing `then`".to_string());
+                    }
+                    index += 1;
+                    current_start = index;
+                }
+                current_condition = Some(elif.condition);
+                continue;
+            }
+            if line.trim() == "else" {
+                if saw_else {
+                    return Err("if statement has more than one `else`".to_string());
+                }
+                clauses.push(IfClause {
+                    condition: current_condition.take(),
+                    body: lines[current_start..index].join("\n"),
+                });
+                saw_else = true;
+                current_start = index + 1;
+                index += 1;
+                continue;
+            }
+            if line.trim() == "fi" {
+                clauses.push(IfClause {
+                    condition: current_condition.take(),
+                    body: lines[current_start..index].join("\n"),
+                });
+                return Ok(IfBlock {
+                    clauses,
+                    end: index,
+                });
+            }
+        }
+
+        if is_for_header_line(line) {
+            blocks.push(ControlBlock::For);
+        } else if is_if_header_line(line) {
+            blocks.push(ControlBlock::If);
+        } else {
+            match line.trim() {
+                "done" if blocks.pop() != Some(ControlBlock::For) => {
+                    return Err("if statement has mismatched `done`/`fi`".to_string());
+                }
+                "fi" if blocks.pop() != Some(ControlBlock::If) => {
+                    return Err("if statement has mismatched `done`/`fi`".to_string());
+                }
+                _ => {}
+            }
+        }
+        index += 1;
+    }
+    Err("if statement is missing `fi`".to_string())
 }
 
 struct ExpandedWord {
@@ -2559,7 +2785,8 @@ mod tests {
         ToolchainError, ToolchainKind, ToolchainOutput, ToolchainProvider, ToolchainRequest,
         CANCELLED_STATUS, MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS, MAX_CLIPBOARD_BYTES,
         MAX_COMMAND_INPUT_BYTES, MAX_FILE_TRANSFER_BYTES, MAX_FOR_VALUES, MAX_OUTPUT_BYTES,
-        MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES, MAX_SOURCE_DEPTH, OUTPUT_TRUNCATION_MARKER,
+        MAX_SCRIPT_BYTES, MAX_SCRIPT_CONTROL_DEPTH, MAX_SCRIPT_LINES, MAX_SOURCE_DEPTH,
+        OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -4524,6 +4751,44 @@ mod tests {
         ));
         assert_eq!(rejected_values.status, 2);
         assert!(rejected_values.stderr.contains("value list exceeds"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn executes_bounded_if_branches_through_the_rust_planner() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        session.execute_line("touch ready");
+
+        let branch = session.execute_script(
+            "if test -f missing; then\necho wrong\nelif test -f ready; then\necho ready\nelse\necho fallback\nfi",
+        );
+        assert_eq!(branch.status, 0, "{branch:?}");
+        assert_eq!(branch.stdout, "ready\n");
+
+        let nested = session
+            .execute_script("if false\nthen\necho wrong\nelse\nif true; then\necho nested\nfi\nfi");
+        assert_eq!(nested.status, 0, "{nested:?}");
+        assert_eq!(nested.stdout, "nested\n");
+
+        let no_branch = session.execute_script("if false; then\necho wrong\nfi");
+        assert_eq!(no_branch.status, 0, "{no_branch:?}");
+        assert!(no_branch.stdout.is_empty());
+
+        let missing_fi = session.execute_script("if true; then\necho incomplete");
+        assert_eq!(missing_fi.status, 2);
+        assert!(missing_fi.stderr.contains("missing `fi`"));
+
+        let mut deep = String::new();
+        for _ in 0..=MAX_SCRIPT_CONTROL_DEPTH {
+            deep.push_str("if true; then\n");
+        }
+        for _ in 0..=MAX_SCRIPT_CONTROL_DEPTH {
+            deep.push_str("fi\n");
+        }
+        let too_deep = session.execute_script(&deep);
+        assert_eq!(too_deep.status, 2);
+        assert!(too_deep.stderr.contains("control-flow nesting exceeds"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

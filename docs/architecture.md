@@ -178,8 +178,10 @@ nesting shares the 16-level source limit and accepts at most 64 positional
 arguments. Multiline scripts also have a bounded `for NAME in VALUE ...; do`
 construct. Its expanded values and nested bodies are executed through this same
 Rust planner; each loop accepts at most 256 values and leaves its final loop
-variable in the session environment. `while`, `case`, and one-line loop bodies
-remain outside the subset.
+variable in the session environment. Multiline `if/elif/else/fi` branches use
+the same planner for their conditions and selected body, with control-flow
+nesting capped at 16 levels. `while`, `case`, functions, and one-line loop
+bodies remain outside the subset.
 
 The Apple source layer declares command, script, and named-session command App
 Intents that construct a normal `RuneFFISession` rooted at the app Documents
