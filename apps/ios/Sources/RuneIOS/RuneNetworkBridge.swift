@@ -1,24 +1,7 @@
 import Foundation
+import RuneFFIHeaders
 
 private let runeNetworkMaximumBodyBytes = 8 * 1024 * 1024
-
-struct RuneNetworkResponse {
-    var statusCode: Int32 = 0
-    var bodyLength: Int = 0
-    var error: Int32 = 0
-}
-
-typealias RuneNetworkRequestCallback = @convention(c) (
-    UnsafeMutableRawPointer?,
-    UnsafePointer<CChar>?,
-    UnsafePointer<CChar>?,
-    UnsafePointer<CChar>?,
-    UnsafePointer<UInt8>?,
-    Int,
-    UnsafeMutablePointer<UInt8>?,
-    Int,
-    UnsafeMutablePointer<RuneNetworkResponse>?
-) -> Bool
 
 private final class RuneURLSessionDelegate: NSObject, URLSessionDataDelegate {
     private let completion: DispatchSemaphore
@@ -139,7 +122,7 @@ let runeNetworkRequestCallback: RuneNetworkRequestCallback = {
             }
         }
     }
-    responsePointer.pointee.statusCode = statusCode
-    responsePointer.pointee.bodyLength = delegate.body.count
+    responsePointer.pointee.status_code = statusCode
+    responsePointer.pointee.body_length = delegate.body.count
     return true
 }

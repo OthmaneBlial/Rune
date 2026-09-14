@@ -485,9 +485,10 @@ There is deliberately no GitHub Actions workflow. Run the local quality gate:
 ./scripts/ci.sh
 ```
 
-When `swiftc` is already available, the gate also parses the native Swift
-sources. This is syntax evidence only; it is not simulator, device, or App
-Store evidence.
+When `swiftc` is already available, the gate builds the header-only
+`RuneFFIHeaders` target and typechecks the native Swift sources against the
+imported C ABI. This is host-toolchain source evidence only; it is not iOS
+SDK, simulator, device, linking, or App Store evidence.
 
 The reference checkout is intentionally ignored and can be checked with:
 

@@ -29,11 +29,15 @@ if command -v swiftc >/dev/null 2>&1; then
   rune_swiftpm_scratch="$(mktemp -d /tmp/rune-swiftpm.XXXXXX)"
   trap 'find "$rune_swiftpm_scratch" -depth -delete' EXIT
   (cd apps/ios && swift package --scratch-path "$rune_swiftpm_scratch" dump-package >/dev/null)
-  find "$rune_swiftpm_scratch" -depth -delete
-  trap - EXIT
+  echo "==> SwiftPM C header target"
+  (cd apps/ios && swift build --target RuneFFIHeaders --scratch-path "$rune_swiftpm_scratch" >/dev/null)
+  rune_swift_module_map="$(find "$rune_swiftpm_scratch" -path '*RuneFFIHeaders.build/module.modulemap' -print -quit)"
+  test -n "$rune_swift_module_map"
 
-  echo "==> swiftc -parse (source-only Apple check)"
-  swiftc -parse \
+  echo "==> swiftc -typecheck (source-only Apple boundary check)"
+  swiftc -typecheck \
+    -Xcc -fmodule-map-file="$rune_swift_module_map" \
+    -Xcc -I -Xcc apps/ios/Sources/RuneFFIHeaders/include \
     apps/ios/Sources/RuneIOS/RuneCoreBridge.swift \
     apps/ios/Sources/RuneIOS/RuneClipboardBridge.swift \
     apps/ios/Sources/RuneIOS/RuneExternalFolderAccess.swift \
@@ -43,6 +47,8 @@ if command -v swiftc >/dev/null 2>&1; then
     apps/ios/Sources/RuneIOS/RuneANSIText.swift \
     apps/ios/Sources/RuneIOS/RuneTerminalView.swift \
     apps/ios/Sources/RuneIOS/RuneWorkspaceView.swift
+  find "$rune_swiftpm_scratch" -depth -delete
+  trap - EXIT
 fi
 
 echo "Local Rune checks passed."

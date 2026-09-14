@@ -1,27 +1,10 @@
 import Foundation
+import RuneFFIHeaders
 #if canImport(UIKit)
 import UIKit
 #endif
 
 private let runeClipboardMaximumBytes = 1024 * 1024
-
-struct RuneClipboardResponse {
-    var textLength: Int = 0
-    var error: Int32 = 0
-}
-
-typealias RuneClipboardReadCallback = @convention(c) (
-    UnsafeMutableRawPointer?,
-    UnsafeMutablePointer<UInt8>?,
-    Int,
-    UnsafeMutablePointer<RuneClipboardResponse>?
-) -> Bool
-
-typealias RuneClipboardWriteCallback = @convention(c) (
-    UnsafeMutableRawPointer?,
-    UnsafePointer<UInt8>?,
-    Int
-) -> Bool
 
 let runeClipboardReadCallback: RuneClipboardReadCallback = {
     _, buffer, capacity, response in

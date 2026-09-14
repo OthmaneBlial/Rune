@@ -1,13 +1,8 @@
 import Foundation
+import RuneFFIHeaders
 #if canImport(UIKit)
 import UIKit
 #endif
-
-typealias RuneOpenCallback = @convention(c) (
-    UnsafeMutableRawPointer?,
-    UnsafePointer<CChar>?,
-    Int32
-) -> Bool
 
 /// Source-only Apple adapter for the Rust external-open capability.
 ///

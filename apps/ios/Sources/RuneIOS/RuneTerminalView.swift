@@ -41,7 +41,7 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var workspaceName = "Documents"
     @Published public private(set) var fontSize: CGFloat = 15
     @Published public private(set) var font = "monospaced"
-    @Published public private(set) var scrollbackLimit = Self.defaultScrollbackLimit
+    @Published public private(set) var scrollbackLimit = 4_096
     @Published public private(set) var toolbarVisible = true
     @Published public private(set) var historyRedaction = true
     @Published public private(set) var environmentPersistence = false
@@ -629,43 +629,47 @@ public struct RuneTerminalView: View {
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
                         .foregroundStyle(palette.cyan)
                         .lineLimit(1)
+                    Group {
 #if canImport(UIKit)
-                    RuneUIKitCommandEditor(
-                        text: $model.command,
-                        isFocused: Binding(
-                            get: { inputFocused },
-                            set: { inputFocused = $0 }
-                        ),
-                        fontSize: model.fontSize,
-                        fontDesign: model.font,
-                        foreground: model.foreground,
-                        cursorColor: model.cursorColor,
-                        cursorShape: model.cursorShape,
-                        onSubmit: {
-                            model.submit()
-                            inputFocused = true
-                        }
-                    )
-                    .frame(minHeight: 22, maxHeight: 100)
+                        RuneUIKitCommandEditor(
+                            text: $model.command,
+                            isFocused: Binding(
+                                get: { inputFocused },
+                                set: { inputFocused = $0 }
+                            ),
+                            fontSize: model.fontSize,
+                            fontDesign: model.font,
+                            foreground: model.foreground,
+                            cursorColor: model.cursorColor,
+                            cursorShape: model.cursorShape,
+                            onSubmit: {
+                                model.submit()
+                                inputFocused = true
+                            }
+                        )
+                        .frame(minHeight: 22, maxHeight: 100)
 #else
-                    TextField("Enter a Rune command", text: $model.command, axis: .vertical)
-                        .font(terminalFont(size: model.fontSize))
-                        .foregroundStyle(palette.foreground)
-                        .tint(palette.cursorColor(named: model.cursorColor))
-                        .textFieldStyle(.plain)
-                        .lineLimit(1...4)
-                        .focused($inputFocused)
-                        .autocorrectionDisabled(true)
-                        .textInputAutocapitalization(.never)
-                        .disabled(model.isExecuting)
-                        .onSubmit {
-                            model.submit()
-                            inputFocused = true
-                        }
+                        TextField("Enter a Rune command", text: $model.command, axis: .vertical)
+                            .font(terminalFont(size: model.fontSize))
+                            .foregroundStyle(palette.foreground)
+                            .tint(palette.cursorColor(named: model.cursorColor))
+                            .textFieldStyle(.plain)
+                            .lineLimit(1...4)
+                            .focused($inputFocused)
+                            .autocorrectionDisabled(true)
+#if os(iOS)
+                            .textInputAutocapitalization(.never)
 #endif
-                        .accessibilityLabel("Command input")
-                        .accessibilityHint("Enter a Rust-backed Rune command and submit it.")
-                        .accessibilityIdentifier("rune.commandInput")
+                            .disabled(model.isExecuting)
+                            .onSubmit {
+                                model.submit()
+                                inputFocused = true
+                            }
+#endif
+                    }
+                    .accessibilityLabel(Text("Command input"))
+                    .accessibilityHint(Text("Enter a Rust-backed Rune command and submit it."))
+                    .accessibilityIdentifier("rune.commandInput")
                     Button {
                         model.previousHistory()
                         inputFocused = true
@@ -1131,7 +1135,9 @@ private struct RuneHistorySearchPanel: View {
                     .tint(palette.cursorColor(named: model.cursorColor))
                     .textFieldStyle(.plain)
                     .autocorrectionDisabled(true)
+#if os(iOS)
                     .textInputAutocapitalization(.never)
+#endif
                     .onChange(of: query) { _, value in
                         model.updateHistorySearch(value)
                     }

@@ -107,7 +107,8 @@ struct RuneANSIText: View {
     }
 
     private var styledText: Text {
-        segments.reduce(Text("")) { result, segment in
+        var attributed = AttributedString("")
+        for segment in segments {
             let regularForeground = segment.style.foreground?.resolve() ?? defaultColor
             let regularBackground = segment.style.background?.resolve()
             let foregroundColor = segment.style.inverse
@@ -116,19 +117,20 @@ struct RuneANSIText: View {
             let backgroundColor = segment.style.inverse
                 ? regularForeground
                 : regularBackground
-            var fragment = Text(segment.text)
-                .foregroundColor(foregroundColor)
+            var fragment = AttributedString(segment.text)
+            fragment.foregroundColor = foregroundColor
+            if let backgroundColor {
+                fragment.backgroundColor = backgroundColor
+            }
             if segment.style.bold {
-                fragment = fragment.bold()
+                fragment.inlinePresentationIntent = .stronglyEmphasized
             }
             if segment.style.underline {
-                fragment = fragment.underline()
+                fragment.underlineStyle = .single
             }
-            if let backgroundColor {
-                fragment = fragment.background(backgroundColor)
-            }
-            return result + fragment
+            attributed.append(fragment)
         }
+        return Text(attributed)
     }
 }
 

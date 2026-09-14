@@ -8,6 +8,14 @@ let package = Package(
         .executable(name: "RuneIOS", targets: ["RuneIOS"]),
     ],
     targets: [
-        .executableTarget(name: "RuneIOS"),
+        .target(
+            name: "RuneFFIHeaders",
+            path: "Sources/RuneFFIHeaders",
+            publicHeadersPath: "include"
+        ),
+        .executableTarget(
+            name: "RuneIOS",
+            dependencies: ["RuneFFIHeaders"]
+        ),
     ]
 )

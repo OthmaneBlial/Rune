@@ -200,15 +200,12 @@ both listing and wildcard enumeration stop at the 10,000-entry boundary.
 The filesystem and FFI layout tests also verify that Documents, Library, and
 tmp can be mounted as `~`, `~/Library`, and `~/tmp`, with navigation and file
 writes staying in their respective approved roots.
-The source-only Apple check also parses the external-folder bookmark layer;
-that syntax check does not prove security-scoped access, entitlements, or Files
-picker behavior on a device.
-It also parses the source-only App Intent declarations, including named command
-and script actions; the AppIntents module, registration, entitlements, and
-Shortcuts runtime remain unverified here.
-The same parse check covers the source-only workspace tab container; it does
-not prove SwiftUI rendering, tab lifecycle, iPad multi-window behavior, or
-Apple runtime integration.
+The source-only Apple check typechecks the external-folder bookmark layer,
+App Intent declarations (including named command and script actions), and the
+workspace tab container against the imported C ABI. It does not prove
+security-scoped access, entitlements, AppIntents registration, Shortcuts
+runtime behavior, SwiftUI rendering, tab lifecycle, iPad multi-window
+behavior, or Apple runtime integration.
 The source-only UI also contains background-task and cancellation code, but
 there is no Apple concurrency, device, or runtime validation in this workspace.
 Its transcript cache has explicit entry and byte bounds in source, but that

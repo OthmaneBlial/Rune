@@ -590,10 +590,10 @@ quoted patterns remain literal, hidden entries require a leading `.`, and an
 unmatched pattern remains a literal argument. The VFS validates every matched
 candidate against its canonical root before returning it.
 
-Apple source integration will be added without installing a new Xcode or
-simulator footprint. Until an existing Apple toolchain is explicitly used,
-Swift compilation and runtime behavior remain unverified gates rather than
-assumed capabilities.
+Apple source integration is validated without installing a new Xcode or
+simulator footprint. The available host Swift toolchain typechecks the native
+sources and imported C ABI; iOS SDK compilation, linking, and runtime behavior
+remain unverified gates rather than assumed capabilities.
 
 Automation uses the same ownership boundary: `Session::execute_script` runs
 non-empty newline-delimited lines through the Rust parser and returns combined

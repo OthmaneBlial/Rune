@@ -1,98 +1,5 @@
 import Foundation
-
-private struct RuneFFIOutput {
-    let stdout: UnsafeMutablePointer<CChar>?
-    let stderr: UnsafeMutablePointer<CChar>?
-    let status: Int32
-}
-
-private struct RuneFFIEvent {
-    let kind: Int32
-    let stdout: UnsafePointer<CChar>?
-    let stderr: UnsafePointer<CChar>?
-    let status: Int32
-    let currentDirectory: UnsafePointer<CChar>?
-}
-
-private typealias RuneEventCallback = @convention(c) (
-    UnsafeRawPointer?,
-    UnsafeMutableRawPointer?
-) -> Void
-
-private struct RuneFFIFile {
-    let data: UnsafeMutablePointer<UInt8>?
-    let length: Int
-    let status: Int32
-    let message: UnsafeMutablePointer<CChar>?
-}
-
-private struct RuneToolchainSlice {
-    let data: UnsafePointer<UInt8>?
-    let length: Int
-}
-
-private struct RuneToolchainEnvironmentEntry {
-    let key: RuneToolchainSlice
-    let value: RuneToolchainSlice
-}
-
-private struct RuneToolchainArtifactBuffer {
-    var pathLength: Int
-    var mediaTypeLength: Int
-    var dataOffset: Int
-    var dataLength: Int
-}
-
-private struct RuneToolchainResponse {
-    var stdoutLength: Int
-    var stderrLength: Int
-    var status: Int32
-    var artifactCount: Int
-    var error: Int32
-}
-
-private struct RuneClipboardResponse {
-    var textLength: Int
-    var error: Int32
-}
-
-private typealias RuneClipboardReadCallback = @convention(c) (
-    UnsafeMutableRawPointer?,
-    UnsafeMutablePointer<UInt8>?,
-    Int,
-    UnsafeMutablePointer<RuneClipboardResponse>?
-) -> Bool
-
-private typealias RuneClipboardWriteCallback = @convention(c) (
-    UnsafeMutableRawPointer?,
-    UnsafePointer<UInt8>?,
-    Int
-) -> Bool
-
-private typealias RuneToolchainRequestCallback = @convention(c) (
-    UnsafeMutableRawPointer?,
-    Int32,
-    UnsafePointer<CChar>?,
-    RuneToolchainSlice,
-    UnsafePointer<RuneToolchainSlice>?,
-    Int,
-    UnsafePointer<RuneToolchainEnvironmentEntry>?,
-    Int,
-    RuneToolchainSlice,
-    UnsafeMutablePointer<UInt8>?,
-    Int,
-    UnsafeMutablePointer<UInt8>?,
-    Int,
-    UnsafeMutablePointer<RuneToolchainArtifactBuffer>?,
-    Int,
-    UnsafeMutablePointer<UInt8>?,
-    Int,
-    UnsafeMutablePointer<UInt8>?,
-    Int,
-    UnsafeMutablePointer<UInt8>?,
-    Int,
-    UnsafeMutablePointer<RuneToolchainResponse>?
-) -> Bool
+import RuneFFIHeaders
 
 public enum RuneExecutionEventKind: Int32, Sendable {
     case output = 1
@@ -127,166 +34,20 @@ private final class RuneEventCollector {
 
 private let runeEventCallback: RuneEventCallback = { event, userData in
     guard let event, let userData else { return }
-    let rawEvent = event.assumingMemoryBound(to: RuneFFIEvent.self).pointee
     let collector = Unmanaged<RuneEventCollector>
         .fromOpaque(userData)
         .takeUnretainedValue()
-    guard let kind = RuneExecutionEventKind(rawValue: rawEvent.kind) else {
+    guard let kind = RuneExecutionEventKind(rawValue: event.pointee.kind) else {
         return
     }
     collector.events.append(RuneExecutionEvent(
         kind: kind,
-        stdout: rawEvent.stdout.map { String(cString: $0) } ?? "",
-        stderr: rawEvent.stderr.map { String(cString: $0) } ?? "",
-        status: rawEvent.status,
-        currentDirectory: rawEvent.currentDirectory.map { String(cString: $0) } ?? ""
+        stdout: event.pointee.stdout.map { String(cString: $0) } ?? "",
+        stderr: event.pointee.stderr.map { String(cString: $0) } ?? "",
+        status: event.pointee.status,
+        currentDirectory: event.pointee.current_directory.map { String(cString: $0) } ?? ""
     ))
 }
-
-@_silgen_name("rune_session_new")
-private func rune_session_new(_ root: UnsafePointer<CChar>) -> OpaquePointer?
-
-@_silgen_name("rune_session_new_named")
-private func rune_session_new_named(
-    _ root: UnsafePointer<CChar>,
-    _ sessionID: UnsafePointer<CChar>
-) -> OpaquePointer?
-
-@_silgen_name("rune_session_new_with_layout")
-private func rune_session_new_with_layout(
-    _ home: UnsafePointer<CChar>,
-    _ library: UnsafePointer<CChar>,
-    _ temporary: UnsafePointer<CChar>
-) -> OpaquePointer?
-
-@_silgen_name("rune_session_new_named_with_layout")
-private func rune_session_new_named_with_layout(
-    _ home: UnsafePointer<CChar>,
-    _ library: UnsafePointer<CChar>,
-    _ temporary: UnsafePointer<CChar>,
-    _ sessionID: UnsafePointer<CChar>
-) -> OpaquePointer?
-
-@_silgen_name("rune_session_destroy")
-private func rune_session_destroy(_ handle: OpaquePointer?)
-
-@_silgen_name("rune_session_cancel")
-private func rune_session_cancel(_ handle: OpaquePointer?)
-
-@_silgen_name("rune_session_set_network_callback")
-private func rune_session_set_network_callback(
-    _ handle: OpaquePointer?,
-    _ callback: RuneNetworkRequestCallback?,
-    _ userData: UnsafeMutableRawPointer?
-) -> Int32
-
-@_silgen_name("rune_session_set_clipboard_callbacks")
-private func rune_session_set_clipboard_callbacks(
-    _ handle: OpaquePointer?,
-    _ read: RuneClipboardReadCallback?,
-    _ write: RuneClipboardWriteCallback?,
-    _ userData: UnsafeMutableRawPointer?
-) -> Int32
-
-@_silgen_name("rune_session_set_open_callback")
-private func rune_session_set_open_callback(
-    _ handle: OpaquePointer?,
-    _ callback: RuneOpenCallback?,
-    _ userData: UnsafeMutableRawPointer?
-) -> Int32
-
-@_silgen_name("rune_session_set_toolchain_callback")
-private func rune_session_set_toolchain_callback(
-    _ handle: OpaquePointer?,
-    _ kind: Int32,
-    _ callback: RuneToolchainRequestCallback?,
-    _ userData: UnsafeMutableRawPointer?
-) -> Int32
-
-@_silgen_name("rune_session_set_configuration")
-private func rune_session_set_configuration(
-    _ handle: OpaquePointer?,
-    _ key: UnsafePointer<CChar>,
-    _ value: UnsafePointer<CChar>
-) -> RuneFFIOutput
-
-@_silgen_name("rune_session_reset_configuration")
-private func rune_session_reset_configuration(_ handle: OpaquePointer?) -> RuneFFIOutput
-
-@_silgen_name("rune_session_execute")
-private func rune_session_execute(
-    _ handle: OpaquePointer?,
-    _ input: UnsafePointer<CChar>
-) -> RuneFFIOutput
-
-@_silgen_name("rune_session_execute_script")
-private func rune_session_execute_script(
-    _ handle: OpaquePointer?,
-    _ script: UnsafePointer<CChar>
-) -> RuneFFIOutput
-
-@_silgen_name("rune_session_execute_with_events")
-private func rune_session_execute_with_events(
-    _ handle: OpaquePointer?,
-    _ input: UnsafePointer<CChar>,
-    _ callback: RuneEventCallback?,
-    _ userData: UnsafeMutableRawPointer?
-) -> RuneFFIOutput
-
-@_silgen_name("rune_session_execute_script_with_events")
-private func rune_session_execute_script_with_events(
-    _ handle: OpaquePointer?,
-    _ script: UnsafePointer<CChar>,
-    _ callback: RuneEventCallback?,
-    _ userData: UnsafeMutableRawPointer?
-) -> RuneFFIOutput
-
-@_silgen_name("rune_session_put_file")
-private func rune_session_put_file(
-    _ handle: OpaquePointer?,
-    _ path: UnsafePointer<CChar>,
-    _ data: UnsafePointer<UInt8>?,
-    _ length: Int
-) -> RuneFFIOutput
-
-@_silgen_name("rune_session_get_file")
-private func rune_session_get_file(
-    _ handle: OpaquePointer?,
-    _ path: UnsafePointer<CChar>
-) -> RuneFFIFile
-
-@_silgen_name("rune_session_current_directory")
-private func rune_session_current_directory(_ handle: OpaquePointer?) -> UnsafeMutablePointer<CChar>?
-
-@_silgen_name("rune_session_history")
-private func rune_session_history(_ handle: OpaquePointer?) -> UnsafeMutablePointer<CChar>?
-
-@_silgen_name("rune_session_history_search")
-private func rune_session_history_search(
-    _ handle: OpaquePointer?,
-    _ query: UnsafePointer<CChar>
-) -> UnsafeMutablePointer<CChar>?
-
-@_silgen_name("rune_session_configuration")
-private func rune_session_configuration(_ handle: OpaquePointer?) -> UnsafeMutablePointer<CChar>?
-
-@_silgen_name("rune_session_commands")
-private func rune_session_commands(_ handle: OpaquePointer?) -> UnsafeMutablePointer<CChar>?
-
-@_silgen_name("rune_session_complete")
-private func rune_session_complete(
-    _ handle: OpaquePointer?,
-    _ input: UnsafePointer<CChar>
-) -> UnsafeMutablePointer<CChar>?
-
-@_silgen_name("rune_session_startup_output")
-private func rune_session_startup_output(_ handle: OpaquePointer?) -> RuneFFIOutput
-
-@_silgen_name("rune_string_free")
-private func rune_string_free(_ value: UnsafeMutablePointer<CChar>?)
-
-@_silgen_name("rune_file_bytes_free")
-private func rune_file_bytes_free(_ data: UnsafeMutablePointer<UInt8>?, _ length: Int)
 
 public struct RuneCommandResult: Equatable, Sendable {
     public let stdout: String
@@ -315,7 +76,7 @@ public enum RuneBridgeError: LocalizedError {
 }
 
 public final class RuneFFISession: @unchecked Sendable {
-    private var handle: OpaquePointer?
+    private var handle: UnsafeMutableRawPointer?
     private let lock = NSLock()
 
     public init(
@@ -324,7 +85,7 @@ public final class RuneFFISession: @unchecked Sendable {
         temporaryURL: URL? = nil,
         sessionID: String? = nil
     ) throws {
-        let created: OpaquePointer?
+        let created: UnsafeMutableRawPointer?
         if let libraryURL, let temporaryURL {
             created = rootURL.path.withCString { home in
                 libraryURL.path.withCString { library in
@@ -373,7 +134,7 @@ public final class RuneFFISession: @unchecked Sendable {
     /// Requests cooperative cancellation for the next Rust execution boundary.
     /// A synchronous operation already in progress may finish first.
     public func cancel() {
-        rune_session_cancel(handle)
+        rune_session_cancel(handle.map(UnsafeRawPointer.init))
     }
 
     /// Updates one validated Rust-owned setting without adding a shell
@@ -399,7 +160,7 @@ public final class RuneFFISession: @unchecked Sendable {
 
     public var currentDirectory: String {
         withLock {
-            guard let pointer = rune_session_current_directory(handle) else {
+            guard let pointer = rune_session_current_directory(handle.map(UnsafeRawPointer.init)) else {
                 return "~"
             }
             defer { rune_string_free(pointer) }
@@ -479,7 +240,9 @@ public final class RuneFFISession: @unchecked Sendable {
     /// Reads bounded bytes from the session's confined virtual filesystem.
     public func getFile(path: String) throws -> Data {
         try withLock {
-            let raw = path.withCString { rune_session_get_file(handle, $0) }
+            let raw = path.withCString {
+                rune_session_get_file(handle.map(UnsafeRawPointer.init), $0)
+            }
             defer {
                 rune_file_bytes_free(raw.data, raw.length)
                 rune_string_free(raw.message)
@@ -504,7 +267,7 @@ public final class RuneFFISession: @unchecked Sendable {
 
     public func history() -> [String] {
         withLock {
-            guard let pointer = rune_session_history(handle) else {
+            guard let pointer = rune_session_history(handle.map(UnsafeRawPointer.init)) else {
                 return []
             }
             defer { rune_string_free(pointer) }
@@ -519,7 +282,7 @@ public final class RuneFFISession: @unchecked Sendable {
     public func historySearch(_ query: String) -> [String] {
         withLock {
             let pointer = query.withCString { queryPointer in
-                rune_session_history_search(handle, queryPointer)
+                rune_session_history_search(handle.map(UnsafeRawPointer.init), queryPointer)
             }
             guard let pointer else {
                 return []
@@ -533,7 +296,7 @@ public final class RuneFFISession: @unchecked Sendable {
 
     public var configuration: String {
         withLock {
-            guard let pointer = rune_session_configuration(handle) else {
+            guard let pointer = rune_session_configuration(handle.map(UnsafeRawPointer.init)) else {
                 return ""
             }
             defer { rune_string_free(pointer) }
@@ -543,7 +306,7 @@ public final class RuneFFISession: @unchecked Sendable {
 
     public func commands() -> [String] {
         withLock {
-            guard let pointer = rune_session_commands(handle) else {
+            guard let pointer = rune_session_commands(handle.map(UnsafeRawPointer.init)) else {
                 return []
             }
             defer { rune_string_free(pointer) }
@@ -555,7 +318,9 @@ public final class RuneFFISession: @unchecked Sendable {
 
     public func completionCandidates(for input: String) -> [String] {
         withLock {
-            let pointer = input.withCString { rune_session_complete(handle, $0) }
+            let pointer = input.withCString {
+                rune_session_complete(handle.map(UnsafeRawPointer.init), $0)
+            }
             guard let pointer else {
                 return []
             }
@@ -566,7 +331,7 @@ public final class RuneFFISession: @unchecked Sendable {
         }
     }
 
-    private func consume(_ raw: RuneFFIOutput) -> RuneCommandResult {
+    private func consume(_ raw: RuneOutput) -> RuneCommandResult {
         defer {
             rune_string_free(raw.stdout)
             rune_string_free(raw.stderr)

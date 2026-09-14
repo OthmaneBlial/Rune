@@ -195,8 +195,11 @@ open/openurl capability; the portable CLI remains launcher-disabled by default.
   background colors, 256-color/RGB colors, bold, underline, and inverse
   sequences; unsupported control sequences are omitted from display rather than
   shown as raw escape bytes.
-- `swiftc -parse` and `swift package dump-package` pass with the already
-  available Swift toolchain; the full package build is not used as evidence.
+- `swift package dump-package`, the isolated `RuneFFIHeaders` target build, and
+  a real `swiftc -typecheck` pass with the already available macOS Swift
+  toolchain. The check imports the C ABI module instead of maintaining
+  duplicate Swift callback layouts; it is still not an iOS build or runtime
+  proof.
 - iOS compilation, simulator behavior, device behavior, and linking are
   currently **unverified** because no Apple build footprint is installed for
   this milestone.
