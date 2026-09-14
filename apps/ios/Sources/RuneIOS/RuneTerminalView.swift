@@ -187,6 +187,13 @@ public final class RuneTerminalModel: ObservableObject {
         session?.cancel()
     }
 
+    /// Stops work that would otherwise continue while this terminal is no
+    /// longer visible or its scene is inactive. Rust observes this request at
+    /// its documented cooperative execution boundaries.
+    public func scenePhaseChanged(_ phase: ScenePhase) {
+        guard phase == .active else { cancel(); return }
+    }
+
     public func insertText(_ value: String) {
         guard !isExecuting else { return }
         command.append(contentsOf: value)
@@ -446,6 +453,7 @@ public final class RuneTerminalModel: ObservableObject {
 
 public struct RuneTerminalView: View {
     @StateObject private var model: RuneTerminalModel
+    @Environment(\.scenePhase) private var scenePhase
     @FocusState private var inputFocused: Bool
     @State private var isImportingFolder = false
     @State private var isShowingSettings = false
@@ -751,6 +759,10 @@ public struct RuneTerminalView: View {
             RuneSettingsView(model: model)
         }
         .onAppear { inputFocused = true }
+        .onDisappear { model.cancel() }
+        .onChange(of: scenePhase) { _, phase in
+            model.scenePhaseChanged(phase)
+        }
     }
 
     private func closeHistorySearch() {

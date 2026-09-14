@@ -384,7 +384,8 @@ optional input toolbar routes Tab/completion, Escape, Ctrl-C, display-clear,
 and paste actions through the native model; the workspace also exposes Cmd-N
 for a new independent window. Only command execution and shell
 state cross the Rust boundary. A currently running synchronous Rust operation
-may still finish before its next boundary; background execution, cancellation,
+may still finish before its next boundary; inactive scenes and disappearing
+terminal views request cancellation, but background execution, cancellation,
 and Apple runtime behavior are not device-validated here.
 
 The SwiftUI terminal source also provides VoiceOver labels, values, hints, and

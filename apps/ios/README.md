@@ -55,7 +55,10 @@ for bounded script files stored in the virtual filesystem. The Swift layer only
 sends the command; file reads, nested execution limits, positional expansion,
 environment changes, output, status, and history remain Rust-owned.
 
-The source-only UI can open a directory with the native Files importer. The
+The source-only UI requests cooperative cancellation when a terminal view
+disappears or its scene becomes inactive; this is a visibility-safety rule,
+not a background execution claim. It can open a directory with the native
+Files importer. The
 Apple layer stores a bounded security-scoped bookmark, keeps the access scope
 alive while the matching Rust session is active, and hands Rust only the
 approved folder root. This is source/API evidence; picker behavior and

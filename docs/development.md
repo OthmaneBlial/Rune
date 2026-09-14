@@ -206,8 +206,10 @@ workspace tab container against the imported C ABI. It does not prove
 security-scoped access, entitlements, AppIntents registration, Shortcuts
 runtime behavior, SwiftUI rendering, tab lifecycle, iPad multi-window
 behavior, or Apple runtime integration.
-The source-only UI also contains background-task and cancellation code, but
-there is no Apple concurrency, device, or runtime validation in this workspace.
+The source-only UI requests cooperative cancellation when a terminal view
+disappears or its scene becomes inactive; it does not claim background task
+execution. There is no Apple concurrency, device, or runtime validation in
+this workspace.
 Its transcript cache has explicit entry and byte bounds in source, but that
 presentation policy cannot be runtime-tested without SwiftUI. The terminal
 and workspace sources also expose explicit accessibility labels, hints, values,
