@@ -143,7 +143,8 @@ and the absence of history mutation; the FFI test covers the owned string
 returned to the source-only native bridge.
 File-transfer tests verify confined paths, the 16 MiB boundary, and binary
 payloads containing NUL bytes across the Rust/FFI boundary.
-Event tests verify Rust pipeline/status emission and the C callback lifetime:
+Event tests verify Rust pipeline/status emission, UTF-8-safe 16 KiB chunking,
+and the C callback lifetime:
 event strings are borrowed only during the callback and are copied by the
 native bridge. The source-only Swift model then consumes the copied events via
 `AsyncStream` while detached execution is still running. This validates the

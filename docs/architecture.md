@@ -39,8 +39,9 @@ they own a coherent capability with tests.
 
 The first execution engine is synchronous and deterministic so behavior can be
 tested easily. Its result model already separates stdout, stderr, and exit
-status. An event sink can receive bounded output after each completed pipeline
-and a status/directory event at each command boundary; the C ABI forwards this
+status. An event sink can receive bounded 16 KiB maximum UTF-8 output chunks
+after each completed pipeline and a status/directory event at each command
+boundary; the C ABI forwards this
 as borrowed callback data for Swift to copy. The source-only terminal model
 feeds those copies through an `AsyncStream` so the main actor can render each
 completed pipeline while execution is still in progress. This is
@@ -51,7 +52,9 @@ A synchronous command response is capped at 1 MiB per stdout or stderr
 channel, and the same bound is applied between pipeline stages. The cap is
 applied after redirections, so terminal rendering cannot receive unbounded
 output; a visible truncation marker is emitted and the underlying command
-status is preserved. Individual command lines are capped at 64 KiB before
+status is preserved. Event delivery then splits each visible channel into
+UTF-8-safe 16 KiB chunks without changing the aggregate response. Individual
+command lines are capped at 64 KiB before
 parsing; automation scripts have separate 256 KiB and 1,024-line limits.
 The shell plan also models `2>&1`, `1>&2`, `>&2`, and `&>`/`&>>` as ordered
 stream targets. Duplicated streams share one bounded file write or captured

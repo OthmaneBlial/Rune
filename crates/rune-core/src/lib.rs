@@ -50,6 +50,7 @@ use rune_wasm::WasmRunner;
 
 const MAX_ALIAS_EXPANSIONS: usize = 32;
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
+const MAX_EVENT_CHUNK_BYTES: usize = 16 * 1024;
 const MAX_COMPLETION_CANDIDATES: usize = 8;
 const MAX_COMPLETION_INPUT_BYTES: usize = 64 * 1024;
 const MAX_COMMAND_INPUT_BYTES: usize = 64 * 1024;
@@ -298,8 +299,9 @@ impl CommandOutput {
 /// A bounded event emitted at a Rust execution boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandEvent {
-    /// Output visible after one pipeline has completed. Redirections have
-    /// already been applied, so redirected bytes are not emitted here.
+    /// A bounded output chunk visible after one pipeline has completed.
+    /// Redirections have already been applied, so redirected bytes are not
+    /// emitted here.
     Output { stdout: String, stderr: String },
     /// Status and virtual directory after one command line or script line.
     Status {
@@ -956,10 +958,7 @@ impl Session {
         };
         let output = self.execute_script_body(script, &mut context);
         if !tracking.output_emitted && (!output.stdout.is_empty() || !output.stderr.is_empty()) {
-            tracking.emit(CommandEvent::Output {
-                stdout: output.stdout.clone(),
-                stderr: output.stderr.clone(),
-            });
+            emit_output_chunks(&mut tracking, &output.stdout, &output.stderr);
         }
         tracking.emit(CommandEvent::Status {
             status: output.status,
@@ -1531,10 +1530,7 @@ impl Session {
             &mut tracking,
         );
         if !tracking.output_emitted && (!output.stdout.is_empty() || !output.stderr.is_empty()) {
-            tracking.emit(CommandEvent::Output {
-                stdout: output.stdout.clone(),
-                stderr: output.stderr.clone(),
-            });
+            emit_output_chunks(&mut tracking, &output.stdout, &output.stderr);
         }
         tracking.emit(CommandEvent::Status {
             status: output.status,
@@ -1704,10 +1700,7 @@ impl Session {
                 self.execute_pipeline(pipeline, record_history, source_depth, external_stdin, sink);
             let mut event_output = pipeline_output.clone();
             limit_output(&mut event_output);
-            sink.emit(CommandEvent::Output {
-                stdout: event_output.stdout,
-                stderr: event_output.stderr,
-            });
+            emit_output_chunks(sink, &event_output.stdout, &event_output.stderr);
             output.stdout.push_str(&pipeline_output.stdout);
             output.stderr.push_str(&pipeline_output.stderr);
             output.status = pipeline_output.status;
@@ -3727,6 +3720,50 @@ fn word_contains(word: &Word, predicate: fn(&ExecutionPlan, usize) -> bool, dept
     })
 }
 
+fn emit_output_chunks(sink: &mut dyn EventSink, stdout: &str, stderr: &str) {
+    let stdout_chunks = output_chunks(stdout);
+    let stderr_chunks = output_chunks(stderr);
+    let chunk_count = stdout_chunks.len().max(stderr_chunks.len()).max(1);
+    for index in 0..chunk_count {
+        sink.emit(CommandEvent::Output {
+            stdout: stdout_chunks
+                .get(index)
+                .copied()
+                .unwrap_or_default()
+                .to_owned(),
+            stderr: stderr_chunks
+                .get(index)
+                .copied()
+                .unwrap_or_default()
+                .to_owned(),
+        });
+    }
+}
+
+fn output_chunks(value: &str) -> Vec<&str> {
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    while start < value.len() {
+        let mut end = (start + MAX_EVENT_CHUNK_BYTES).min(value.len());
+        while end > start && !value.is_char_boundary(end) {
+            end -= 1;
+        }
+        // MAX_EVENT_CHUNK_BYTES is larger than the maximum UTF-8 scalar, so
+        // this is defensive rather than an expected path.
+        if end == start {
+            end = value
+                .char_indices()
+                .find_map(|(offset, character)| {
+                    (offset > start).then_some(offset + character.len_utf8())
+                })
+                .unwrap_or(value.len());
+        }
+        chunks.push(&value[start..end]);
+        start = end;
+    }
+    chunks
+}
+
 fn limit_output(output: &mut CommandOutput) {
     let stdout_truncated = truncate_channel(&mut output.stdout);
     let stderr_truncated = truncate_channel(&mut output.stderr);
@@ -3772,10 +3809,11 @@ mod tests {
         OpenProvider, OpenRequest, OpenTargetKind, Session, TerminalConfig, ToolchainArtifact,
         ToolchainError, ToolchainKind, ToolchainOutput, ToolchainProvider, ToolchainRequest,
         CANCELLED_STATUS, MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS, MAX_CLIPBOARD_BYTES,
-        MAX_COMMAND_INPUT_BYTES, MAX_FILE_TRANSFER_BYTES, MAX_FOR_VALUES, MAX_FUNCTIONS,
-        MAX_FUNCTION_ARGUMENTS, MAX_FUNCTION_DEPTH, MAX_FUNCTION_NAME_BYTES, MAX_LOCAL_VARIABLES,
-        MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_CONTROL_DEPTH, MAX_SCRIPT_LINES,
-        MAX_SOURCE_ARGUMENTS, MAX_SOURCE_DEPTH, MAX_WHILE_ITERATIONS, OUTPUT_TRUNCATION_MARKER,
+        MAX_COMMAND_INPUT_BYTES, MAX_EVENT_CHUNK_BYTES, MAX_FILE_TRANSFER_BYTES, MAX_FOR_VALUES,
+        MAX_FUNCTIONS, MAX_FUNCTION_ARGUMENTS, MAX_FUNCTION_DEPTH, MAX_FUNCTION_NAME_BYTES,
+        MAX_LOCAL_VARIABLES, MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_CONTROL_DEPTH,
+        MAX_SCRIPT_LINES, MAX_SOURCE_ARGUMENTS, MAX_SOURCE_DEPTH, MAX_WHILE_ITERATIONS,
+        OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
     use std::fmt::Write as _;
@@ -3945,6 +3983,36 @@ mod tests {
                 CommandEvent::Status { status: 2, .. }
             ] if stderr.contains("unclosed single quote")
         ));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn chunks_large_pipeline_events_without_splitting_utf8() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let expected = "🙂".repeat((MAX_EVENT_CHUNK_BYTES / "🙂".len()) * 3 + 7);
+        std::fs::write(root.join("large.txt"), expected.as_bytes()).expect("large file written");
+        let mut sink = RecordingEventSink::default();
+
+        let output = session.execute_line_with_events("cat large.txt", &mut sink);
+        assert_eq!(output.status, 0);
+        let mut emitted = String::new();
+        let mut output_events = 0;
+        for event in &sink.events {
+            if let CommandEvent::Output { stdout, stderr } = event {
+                assert!(stdout.len() <= MAX_EVENT_CHUNK_BYTES);
+                assert!(stderr.len() <= MAX_EVENT_CHUNK_BYTES);
+                assert!(stdout.is_char_boundary(stdout.len()));
+                assert!(stderr.is_char_boundary(stderr.len()));
+                if !stdout.is_empty() {
+                    assert_eq!(stdout.len() % "🙂".len(), 0);
+                }
+                emitted.push_str(stdout);
+                output_events += 1;
+            }
+        }
+        assert!(output_events > 1);
+        assert_eq!(emitted, output.stdout);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

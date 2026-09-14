@@ -169,12 +169,12 @@ The Rust session and C/Swift bridge also expose cooperative cancellation at
 command, pipeline, script, and bounded traversal boundaries, returning status
 130; `sleep` polls that same cancellation flag in bounded 25 ms intervals, while
 an unrelated synchronous operation is allowed to finish.
-The event-aware Rust/FFI execution path delivers bounded output after each
-completed pipeline and status/directory events at command boundaries. Swift
-copies those borrowed callback strings into an `AsyncStream` consumed by the
-main-actor terminal model, so completed pipeline output can render while the
-command is still running. This remains boundary-level event delivery, not
-byte-level WASM streaming.
+The event-aware Rust/FFI execution path delivers bounded UTF-8 output chunks
+(16 KiB maximum) after each completed pipeline and status/directory events at
+command boundaries. Swift copies those borrowed callback strings into an
+`AsyncStream` consumed by the main-actor terminal model, so large completed
+pipeline output can render incrementally while the command is still running.
+This remains boundary-level event delivery, not byte-level WASM streaming.
 Environment changes are not serialized by default. On restore, Rune selects a
 bounded startup profile in this order: `~/.rune_profile`, `~/.profile`, then
 `~/.bashrc`. Rune filters blank and full-line comment entries, joins the
