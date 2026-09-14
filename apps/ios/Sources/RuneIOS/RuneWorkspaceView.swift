@@ -128,6 +128,7 @@ public struct RuneWorkspaceView: View {
             .accessibilityLabel("Open a new Rune window")
             .accessibilityHint("Open an independent Rune session window.")
             .accessibilityIdentifier("rune.newWindow")
+            .keyboardShortcut("n", modifiers: [.command])
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

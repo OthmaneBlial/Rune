@@ -380,7 +380,8 @@ The source-only terminal now dispatches command execution away from the SwiftUI
 main actor behind a lock-protected FFI session, keeps the UI responsive, and
 offers a stop control that sends Rust's cooperative cancellation request. Its
 optional input toolbar routes Tab/completion, Escape, Ctrl-C, display-clear,
-and paste actions through the native model; only command execution and shell
+and paste actions through the native model; the workspace also exposes Cmd-N
+for a new independent window. Only command execution and shell
 state cross the Rust boundary. A currently running synchronous Rust operation
 may still finish before its next boundary; background execution, cancellation,
 and Apple runtime behavior are not device-validated here.

@@ -138,10 +138,11 @@ runtime rendering remain unverified.
 
 On restore, the Rust core reads a maximum of 64 KiB from the first existing
 startup profile in this order: `~/.rune_profile`, `~/.profile`, then
-`~/.bashrc`. It skips blank/full-line comment entries, runs only registered
-Rune built-ins, and surfaces the resulting output through the FFI. Profile
-commands, including bounded one-command aliases, are not added to history; the
-persisted working directory is restored after the profile.
+`~/.bashrc`. It skips blank/full-line comment entries, runs supported Rune
+script constructs and built-ins through the bounded Rust planner, and
+surfaces the resulting output through the FFI. Profile commands, including
+bounded one-command aliases and multiline functions, are not added to history;
+the persisted working directory is restored after the profile.
 
 `RuneWorkspaceView.swift` provides a source-only tab container. The first tab
 uses the legacy default state file; additional tabs receive bounded opaque Rust
@@ -168,10 +169,10 @@ open/openurl capability; the portable CLI remains launcher-disabled by default.
   boundary; they do not bundle a compiler or TeX engine.
 - `RuneExternalFolderAccess.swift` owns bounded security-scoped bookmark
   storage and keeps approved folder access alive for a Rust session.
-- `RuneShortcuts.swift` declares Rust-backed command, named-session command,
-  script, and UTF-8 file App Intents.
+- `RuneShortcuts.swift` declares Rust-backed command and script actions for the
+  default and named sessions, plus UTF-8 file App Intents.
 - `RuneWorkspaceView.swift` declares the source-only independent-session tab
-  container.
+  container and Cmd-N new-window action.
 - `RuneTerminalView.swift` declares source-only Command-key shortcuts for
   folder import, cancellation, history navigation, reverse history search, and
   command execution, plus
