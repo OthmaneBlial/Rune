@@ -85,8 +85,10 @@ files stored in the sandbox.
 The Rust session additionally maintains a bounded cursor-grid snapshot with
 split-chunk CSI/OSC parsing, cursor addressing, bounded scroll regions, and
 character/line insertion and erasure. `RuneFFISession.terminalSnapshot` and
-`RuneFFISession.terminalCursorPosition` expose the visible text and caret
-position through the C ABI. The terminal view can switch to a source-only
+`RuneFFISession.terminalCursorPosition` and
+`RuneFFISession.terminalCursorVisible` expose the
+visible text, caret position, and bounded `CSI ?25l` / `CSI ?25h` visibility
+state through the C ABI. The terminal view can switch to a source-only
 Rust screen surface that draws this bounded text and caret; the styled,
 line-oriented transcript remains the default, and Apple runtime rendering
 still needs validation. The screen surface reports bounded row and column

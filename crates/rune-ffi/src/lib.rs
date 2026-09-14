@@ -35,10 +35,21 @@ pub struct RuneOutput {
 
 /// Zero-based cursor position for the bounded Rust-owned terminal screen.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RuneTerminalCursor {
     pub row: usize,
     pub column: usize,
+    pub visible: bool,
+}
+
+impl Default for RuneTerminalCursor {
+    fn default() -> Self {
+        Self {
+            row: 0,
+            column: 0,
+            visible: true,
+        }
+    }
 }
 
 /// A bounded binary file result crossing the C ABI.
@@ -1366,7 +1377,11 @@ pub extern "C" fn rune_session_terminal_cursor(
     // SAFETY: the pointer is read-only and owned by the Swift session.
     let session = unsafe { &*handle.cast::<RuneSession>() };
     let (row, column) = session.core.terminal_cursor_position();
-    RuneTerminalCursor { row, column }
+    RuneTerminalCursor {
+        row,
+        column,
+        visible: session.core.terminal_cursor_visible(),
+    }
 }
 
 /// Returns the restored and in-session history as one newline-separated owned
@@ -2652,7 +2667,11 @@ mod tests {
         unsafe { rune_string_free(snapshot) };
         assert_eq!(
             rune_session_terminal_cursor(handle),
-            RuneTerminalCursor { row: 0, column: 5 }
+            RuneTerminalCursor {
+                row: 0,
+                column: 5,
+                visible: true
+            }
         );
         assert_eq!(rune_session_resize_terminal(handle, 4, 2), 0);
         let resized_snapshot = rune_session_terminal_snapshot(handle);
@@ -2660,7 +2679,11 @@ mod tests {
         unsafe { rune_string_free(resized_snapshot) };
         assert_eq!(
             rune_session_terminal_cursor(handle),
-            RuneTerminalCursor { row: 0, column: 4 }
+            RuneTerminalCursor {
+                row: 0,
+                column: 4,
+                visible: true
+            }
         );
         assert!(rune_session_terminal_snapshot(std::ptr::null()).is_null());
         assert_eq!(

@@ -245,7 +245,8 @@ runtime behavior, SwiftUI rendering, tab lifecycle, iPad multi-window
 behavior, or Apple runtime integration.
 
 The Rust terminal suite also covers cursor-preserving character erasure
-(`CSI X`), alongside cursor addressing, insert/delete operations, scroll
+(`CSI X`) and bounded cursor visibility controls (`CSI ?25l` / `CSI ?25h`),
+alongside cursor addressing, insert/delete operations, scroll
 regions, forward/backward tab stops (`CSI I`/`CSI Z`), split control sequences,
 and bounded resize behavior. These checks
 validate the portable screen model; they do not prove text rendering on iOS.

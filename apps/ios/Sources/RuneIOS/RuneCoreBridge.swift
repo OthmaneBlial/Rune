@@ -300,6 +300,13 @@ public final class RuneFFISession: @unchecked Sendable {
         }
     }
 
+    /// Returns whether the Rust-owned terminal screen requests a visible caret.
+    public var terminalCursorVisible: Bool {
+        withLock {
+            rune_session_terminal_cursor(handle.map(UnsafeRawPointer.init)).visible
+        }
+    }
+
     public func execute(_ command: String) -> RuneCommandResult {
         withLock {
             let raw = command.withCString { rune_session_execute(handle, $0) }

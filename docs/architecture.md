@@ -289,7 +289,9 @@ CSI/OSC parsing, cursor addressing, bounded scroll regions, line
 insertion/deletion, region scrolling, character/line erasure, and bounded
 eight-column forward/backward tab stops (`CSI I`/`CSI Z`);
 `rune_session_terminal_snapshot` and `rune_session_terminal_cursor` expose
-its visible text and zero-based caret position through the C ABI.
+its visible text, zero-based caret position, and bounded cursor visibility
+state (`CSI ?25l` / `CSI ?25h`) through the C ABI. Visibility is ephemeral and
+returns to visible on a full terminal reset.
 The source-only native surface measures its viewport and calls
 `rune_session_resize_terminal`; Rust clamps dimensions and retains the most
 relevant rows without persisting ephemeral layout size.

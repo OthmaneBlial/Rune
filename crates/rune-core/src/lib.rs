@@ -983,6 +983,12 @@ impl Session {
         self.terminal_screen.cursor_position()
     }
 
+    /// Returns whether the bounded terminal screen requests a visible caret.
+    #[must_use]
+    pub fn terminal_cursor_visible(&self) -> bool {
+        self.terminal_screen.cursor_visible()
+    }
+
     /// Resizes the Rust-owned terminal grid for a native viewport. The
     /// bounded screen keeps the most relevant rows and clamps dimensions;
     /// layout changes are intentionally not persisted as session state.

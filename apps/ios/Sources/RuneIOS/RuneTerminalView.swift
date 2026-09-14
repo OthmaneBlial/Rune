@@ -62,6 +62,7 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var completionSelection: Int? = nil
     @Published public private(set) var terminalSnapshot = ""
     @Published public private(set) var terminalCursorPosition = (row: 0, column: 0)
+    @Published public private(set) var terminalCursorVisible = true
     @Published public private(set) var sessionSnapshot: RuneSessionSnapshot? = nil
     @Published public private(set) var requestedAction: RuneSessionAction = .none
 
@@ -545,11 +546,13 @@ public final class RuneTerminalModel: ObservableObject {
         guard let session = session ?? self.session else {
             terminalSnapshot = ""
             terminalCursorPosition = (row: 0, column: 0)
+            terminalCursorVisible = true
             sessionSnapshot = nil
             return
         }
         terminalSnapshot = session.terminalSnapshot
         terminalCursorPosition = session.terminalCursorPosition
+        terminalCursorVisible = session.terminalCursorVisible
         sessionSnapshot = session.sessionSnapshot
     }
 
@@ -803,6 +806,7 @@ public struct RuneTerminalView: View {
                     RuneRustTerminalScreen(
                         snapshot: model.terminalSnapshot,
                         cursorPosition: model.terminalCursorPosition,
+                        cursorVisible: model.terminalCursorVisible,
                         fontSize: model.fontSize,
                         foreground: palette.foreground,
                         cursorColor: palette.cursorColor(named: model.cursorColor),
@@ -1091,6 +1095,7 @@ public struct RuneTerminalView: View {
 private struct RuneRustTerminalScreen: View {
     let snapshot: String
     let cursorPosition: (row: Int, column: Int)
+    let cursorVisible: Bool
     let fontSize: CGFloat
     let foreground: Color
     let cursorColor: Color
@@ -1144,15 +1149,17 @@ private struct RuneRustTerminalScreen: View {
                         .accessibilityLabel("Rust terminal screen")
                         .accessibilityValue(Text(verbatim: snapshot.isEmpty ? "Empty" : snapshot))
 
-                    Rectangle()
-                        .fill(cursorColor.opacity(caretOpacity))
-                        .frame(width: caretWidth, height: caretHeight)
-                        .offset(
-                            x: CGFloat(cursorPosition.column) * characterWidth,
-                            y: CGFloat(cursorPosition.row) * lineHeight
-                                + (cursorShape == "underline" ? lineHeight - 2 : 0)
-                        )
-                        .allowsHitTesting(false)
+                    if cursorVisible {
+                        Rectangle()
+                            .fill(cursorColor.opacity(caretOpacity))
+                            .frame(width: caretWidth, height: caretHeight)
+                            .offset(
+                                x: CGFloat(cursorPosition.column) * characterWidth,
+                                y: CGFloat(cursorPosition.row) * lineHeight
+                                    + (cursorShape == "underline" ? lineHeight - 2 : 0)
+                            )
+                            .allowsHitTesting(false)
+                    }
                 }
                 .frame(
                     minWidth: max(CGFloat(longestLineLength + cursorPosition.column + 1) * characterWidth, 1),

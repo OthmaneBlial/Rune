@@ -29,6 +29,8 @@ typedef struct {
 typedef struct {
     size_t row;
     size_t column;
+    // Whether the Rust terminal requests that the native renderer draw a caret.
+    bool visible;
 } RuneTerminalCursor;
 
 typedef void (*RuneEventCallback)(const RuneEvent *event, void *user_data);

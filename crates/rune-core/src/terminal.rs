@@ -39,6 +39,7 @@ pub struct TerminalScreen {
     cells: Vec<Vec<char>>,
     cursor_row: usize,
     cursor_column: usize,
+    cursor_visible: bool,
     saved_cursor: (usize, usize),
     scroll_top: usize,
     scroll_bottom: usize,
@@ -63,6 +64,7 @@ impl TerminalScreen {
             cells: vec![vec![' '; columns]; rows],
             cursor_row: 0,
             cursor_column: 0,
+            cursor_visible: true,
             saved_cursor: (0, 0),
             scroll_top: 0,
             scroll_bottom: rows - 1,
@@ -85,6 +87,7 @@ impl TerminalScreen {
         }
         self.cursor_row = 0;
         self.cursor_column = 0;
+        self.cursor_visible = true;
         self.saved_cursor = (0, 0);
         self.scroll_top = 0;
         self.scroll_bottom = self.rows - 1;
@@ -122,6 +125,12 @@ impl TerminalScreen {
     #[must_use]
     pub fn cursor_position(&self) -> (usize, usize) {
         (self.cursor_row, self.cursor_column.min(self.columns))
+    }
+
+    /// Returns whether the bounded terminal requests a visible caret.
+    #[must_use]
+    pub fn cursor_visible(&self) -> bool {
+        self.cursor_visible
     }
 
     /// Returns the current bounded grid dimensions as `(columns, rows)`.
@@ -340,6 +349,8 @@ impl TerminalScreen {
             'S' => self.scroll_region_up_by(count()),
             'T' => self.scroll_region_down_by(count()),
             'X' => self.erase_characters(count()),
+            'h' if values.first() == Some(&25) => self.cursor_visible = true,
+            'l' if values.first() == Some(&25) => self.cursor_visible = false,
             'r' => self.set_scroll_region(&values),
             's' => self.saved_cursor = self.cursor_position(),
             'u' => self.restore_cursor(),
@@ -583,6 +594,21 @@ mod tests {
         assert_eq!(screen.snapshot(), "\nworld");
         screen.feed("\x1b[2J\x1b[Hdone");
         assert_eq!(screen.snapshot(), "done");
+    }
+
+    #[test]
+    fn tracks_bounded_cursor_visibility_controls() {
+        let mut screen = TerminalScreen::new(8, 2);
+        assert!(screen.cursor_visible());
+
+        screen.feed("\x1b[?25l");
+        assert!(!screen.cursor_visible());
+
+        screen.feed("\x1b[?25h");
+        assert!(screen.cursor_visible());
+
+        screen.feed("\x1b[?25l\x1bc");
+        assert!(screen.cursor_visible());
     }
 
     #[test]
