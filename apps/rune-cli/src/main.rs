@@ -175,3 +175,24 @@ fn print_output(stdout: &str, stderr: &str) {
     let _ = err.write_all(stderr.as_bytes());
     let _ = err.flush();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{quote_shell_word, validate_script_argument};
+
+    #[test]
+    fn quotes_script_values_without_shell_expansion() {
+        assert_eq!(quote_shell_word("folder's name"), "'folder'\\''s name'");
+        assert_eq!(
+            quote_shell_word("$HOME && echo unsafe"),
+            "'$HOME && echo unsafe'"
+        );
+    }
+
+    #[test]
+    fn rejects_empty_and_control_script_values() {
+        assert!(validate_script_argument("", "value").is_err());
+        assert!(validate_script_argument("line\nfeed", "value").is_err());
+        assert!(validate_script_argument("safe value", "value").is_ok());
+    }
+}
