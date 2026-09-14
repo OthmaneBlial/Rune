@@ -4,6 +4,13 @@ All notable public changes to Rune are documented here. The project is
 pre-1.0; entries describe verified repository behavior and do not imply an
 iOS runtime release.
 
+## [Unreleased]
+
+### Added
+
+- One-line `if ...; then ...; elif ...; else ...; fi` branches use the same
+  bounded Rust planner, with quoted control markers preserved as text.
+
 ## [0.1.0-alpha.9] - 2026-09-14
 
 ### Fixed
@@ -12,8 +19,6 @@ iOS runtime release.
   arguments before creating any artifact paths.
 - Rust-planned scripts now support bounded one-line `for`, `while`, and `until`
   bodies with quote-aware control-marker detection.
-- One-line `if ...; then ...; elif ...; else ...; fi` branches now use the same
-  bounded Rust planner, with quoted control markers preserved as text.
 
 ## [0.1.0-alpha.8] - 2026-09-14
 

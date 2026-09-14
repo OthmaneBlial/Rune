@@ -135,7 +135,7 @@ Apple build footprint needed to produce one.
 | SwiftUI/UIKit source boundary | **Source-only** — package manifest, C header target, and host swiftc typecheck pass |
 | iOS application build, linking, simulator, and device behavior | **Unverified** — no Xcode/SDK/simulator installed |
 | Direct a-Shell behavior comparison | **Pending** — the checkout is reference-only and no Apple harness is available |
-| Release | **v0.1.0-alpha.9** — macOS arm64 CLI asset; not a stable iOS application |
+| Release | **v0.1.0-alpha.10** — macOS arm64 CLI asset; not a stable iOS application |
 
 The compatibility matrix in
 [compat/a-Shell-compatibility.json](compat/a-shell-compatibility.json)
@@ -165,21 +165,21 @@ For a clean repeatable example and a persistence round trip:
 
 ### Download
 
-The [alpha.9 release](https://github.com/OthmaneBlial/Rune/releases/tag/v0.1.0-alpha.9)
+The [alpha.10 release](https://github.com/OthmaneBlial/Rune/releases/tag/v0.1.0-alpha.10)
 includes a verified **macOS arm64** `rune-cli` archive for the portable Rust
 surface. Verify it with the published
-[SHA256SUMS file](dist/SHA256SUMS-v0.1.0-alpha.9.txt). It is not an iOS
+[SHA256SUMS file](dist/SHA256SUMS-v0.1.0-alpha.10.txt). It is not an iOS
 application, simulator build, or signed Apple package.
 
 To download and verify it directly:
 
 ~~~bash
-curl -L -o rune-cli-v0.1.0-alpha.9-macos-arm64.tar.gz \
-  https://github.com/OthmaneBlial/Rune/releases/download/v0.1.0-alpha.9/rune-cli-v0.1.0-alpha.9-macos-arm64.tar.gz
+curl -L -o rune-cli-v0.1.0-alpha.10-macos-arm64.tar.gz \
+  https://github.com/OthmaneBlial/Rune/releases/download/v0.1.0-alpha.10/rune-cli-v0.1.0-alpha.10-macos-arm64.tar.gz
 curl -L -o SHA256SUMS.txt \
-  https://github.com/OthmaneBlial/Rune/releases/download/v0.1.0-alpha.9/SHA256SUMS-v0.1.0-alpha.9.txt
+  https://github.com/OthmaneBlial/Rune/releases/download/v0.1.0-alpha.10/SHA256SUMS-v0.1.0-alpha.10.txt
 shasum -a 256 -c SHA256SUMS.txt --ignore-missing
-tar -xzf rune-cli-v0.1.0-alpha.9-macos-arm64.tar.gz
+tar -xzf rune-cli-v0.1.0-alpha.10-macos-arm64.tar.gz
 ~~~
 
 The CLI also exposes its release identity without creating a session:
@@ -228,7 +228,7 @@ Run the project gate from the repository root:
 To rebuild the portable macOS arm64 release archive and checksum locally:
 
 ~~~bash
-./scripts/package-cli.sh 0.1.0-alpha.9
+./scripts/package-cli.sh 0.1.0-alpha.10
 ~~~
 
 The local gate validates the compatibility documents, shell script syntax,
