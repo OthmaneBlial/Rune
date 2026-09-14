@@ -25,6 +25,7 @@ preserving combined stdout, stderr, and the last status. Argument-free
 `return [STATUS]` exits the current Rust-planned function with a bounded status.
 `local NAME[=VALUE]` is scoped to the current Rust-planned function and is
 restored when that function returns.
+`shift [COUNT]` updates bounded positional parameters while preserving `$0`.
 Native
 Shortcuts registration remains unverified and is not included here.
 

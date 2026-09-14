@@ -198,6 +198,8 @@ these control signals from their caller.
 `local NAME[=VALUE]` creates a function-scoped binding, capped at 64
 declarations per call; the previous value (or absence) is restored when that
 function returns, while non-local session changes remain shared.
+`shift [COUNT]` updates the active script or function parameter frame without
+changing `$0`; it rejects non-numeric or out-of-range counts.
 
 The Apple source layer declares command, script, and named-session command App
 Intents that construct a normal `RuneFFISession` rooted at the app Documents

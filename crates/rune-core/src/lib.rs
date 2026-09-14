@@ -1799,6 +1799,7 @@ impl Session {
             "break" | "continue" => self.execute_loop_control(program, arguments),
             "return" => self.execute_function_return(arguments),
             "local" => self.execute_local(arguments),
+            "shift" => self.execute_shift(arguments),
             "source" | "." => self.execute_source(
                 program,
                 arguments,
@@ -1879,6 +1880,38 @@ impl Session {
             },
         };
         self.function_return = Some(status);
+        CommandOutput::success("")
+    }
+
+    fn execute_shift(&mut self, arguments: &[String]) -> CommandOutput {
+        if self.function_depth == 0 && self.script_parameters.len() <= 1 {
+            return CommandOutput::failure(2, "shift: only valid inside a script or function\n");
+        }
+        if arguments.len() > 1 {
+            return usage("shift", "usage: shift [COUNT]");
+        }
+        let count = match arguments.first() {
+            None => 1,
+            Some(argument) => match argument.parse::<usize>() {
+                Ok(count) => count,
+                Err(_) => {
+                    return CommandOutput::failure(
+                        2,
+                        "shift: count must be a non-negative integer\n",
+                    )
+                }
+            },
+        };
+        let positional_count = self.script_parameters.len().saturating_sub(1);
+        if count > positional_count {
+            return CommandOutput::failure(
+                2,
+                format!("shift: count {count} exceeds {positional_count} positional arguments\n"),
+            );
+        }
+        if count > 0 {
+            self.script_parameters.drain(1..=count);
+        }
         CommandOutput::success("")
     }
 
@@ -1964,6 +1997,9 @@ impl Session {
         }
         if program == "local" {
             return self.execute_local(command_arguments);
+        }
+        if program == "shift" {
+            return self.execute_shift(command_arguments);
         }
         if self.functions.contains_key(program) {
             return self.execute_function(
@@ -5738,6 +5774,36 @@ mod tests {
             session.execute_script("greet() {\necho \"hello $1/$#/$@\"\n}\ngreet rune one\n");
         assert_eq!(greeting.status, 0, "{greeting:?}");
         assert_eq!(greeting.stdout, "hello rune/2/rune one\n");
+
+        let shifted = session.execute_script(
+            "shifted() {\necho \"$1:$#\"\nshift 2\necho \"$1:$#\"\n}\nshifted one two three",
+        );
+        assert_eq!(shifted.status, 0, "{shifted:?}");
+        assert_eq!(shifted.stdout, "one:3\nthree:1\n");
+
+        let shifted_shell = session.execute_script("sh -c 'shift; echo $1:$#' runner one two");
+        assert_eq!(shifted_shell.status, 0, "{shifted_shell:?}");
+        assert_eq!(shifted_shell.stdout, "two:1\n");
+
+        let outside_shift = session.execute_script("shift");
+        assert_eq!(outside_shift.status, 2);
+        assert!(outside_shift
+            .stderr
+            .contains("shift: only valid inside a script or function"));
+
+        let invalid_shift =
+            session.execute_script("invalid_shift() {\nshift nope\n}\ninvalid_shift");
+        assert_eq!(invalid_shift.status, 2);
+        assert!(invalid_shift
+            .stderr
+            .contains("shift: count must be a non-negative integer"));
+
+        let excessive_shift =
+            session.execute_script("excessive_shift() {\nshift 2\n}\nexcessive_shift one");
+        assert_eq!(excessive_shift.status, 2);
+        assert!(excessive_shift
+            .stderr
+            .contains("shift: count 2 exceeds 1 positional arguments"));
 
         let nested = session.execute_script(
             "outer() {\ninner() {\necho inner\n}\nif true; then\ninner\nfi\n}\nouter",

@@ -74,6 +74,12 @@ pub(super) fn local_command(_context: &mut CommandContext<'_>) -> CommandOutput 
     usage("local", "usage: local NAME[=VALUE] ...")
 }
 
+/// `shift` is dispatched by the session so it can update the current Rust-
+/// planned script or function's positional parameter frame.
+pub(super) fn shift_command(_context: &mut CommandContext<'_>) -> CommandOutput {
+    usage("shift", "usage: shift [COUNT]")
+}
+
 pub(super) fn uname(context: &mut CommandContext<'_>) -> CommandOutput {
     let mut selected = Vec::new();
     for argument in context.args {
