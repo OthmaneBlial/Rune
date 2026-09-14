@@ -196,6 +196,12 @@ Run `./scripts/demo.sh` for a real two-process CLI workflow covering file
 creation, recursive copy, configuration persistence, restore, metadata, usage,
 and history. It uses a temporary root and removes only that root on exit.
 
+Run `./scripts/bench.sh` for local timing samples of a warm CLI startup, a
+confined filesystem pipeline, and bounded `tree` rendering. The script builds
+the CLI first, uses an exact temporary VFS root, reports `real`/`user`/`sys`
+durations, and cleans only that root; its output is not evidence of Apple
+device performance.
+
 ## Commit boundaries
 
 Keep commits small enough to describe one coherent behavior. Before a push:

@@ -7,6 +7,9 @@ cd "$project_root"
 echo "==> compatibility matrix validation"
 python3 scripts/validate_compatibility.py
 
+echo "==> shell script syntax"
+bash -n scripts/ci.sh scripts/demo.sh scripts/bench.sh
+
 echo "==> cargo fmt --check"
 cargo fmt --all -- --check
 

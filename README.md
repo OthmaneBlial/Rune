@@ -404,6 +404,11 @@ The reference checkout is intentionally ignored and can be checked with:
 git check-ignore -v base/a-shell
 ```
 
+For local timing samples of the warm CLI startup, a confined filesystem
+pipeline, and bounded tree rendering, run `./scripts/bench.sh`. It reports
+`real`, `user`, and `sys` durations for the current machine; these samples are
+engineering measurements, not release or device-performance claims.
+
 ## Roadmap
 
 ### Phase 1 — Foundation
