@@ -9,7 +9,7 @@ description = "Bounded WASI preview1 execution for Rune"
 
 [dependencies]
 rune-runtime = { path = "../rune-runtime" }
-wasi-common = "2.0"
+wasi-common = "46.0"
 wasmi = "0.36.5"
 wasmi_wasi = "0.36.5"
 
