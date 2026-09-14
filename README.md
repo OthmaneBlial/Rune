@@ -41,7 +41,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
 `true`, `false`, `ar`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`, `type`, `command`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
-`apropos`, `help`, `history`, `sleep`, `uname`, `which`, `whoami`, `xargs`, `pbcopy`, `pbpaste`,
+`apropos`, `help`, `history`, `hideToolbar`, `showToolbar`, `sleep`, `uname`, `which`, `whoami`, `xargs`, `pbcopy`, `pbpaste`,
 `test`, `[`, `source`, `.`, `sh`, `dash`, `return`, `local`, `shift`, `set`, `exit`,
 `newWindow`, `new-window`, `pickFolder`, `open`, `openurl`, `play`, `view`, `z`, and the short bookmark aliases `s`,
 `g`, `l`, `p`, `r`, and `d` against a
@@ -379,6 +379,10 @@ bookmarks, and serialized bookmark data is limited to 256 KiB.
 same confined VFS. It prefers previously visited directories, falls back to
 matching direct child directories, ignores directories that no longer exist,
 and persists at most 1,024 usage records (256 KiB) per session.
+`hideToolbar` and `showToolbar` are argument-free convenience commands backed
+by the Rust-owned `toolbar-visible` setting. The native source UI picks up the
+new value through its normal configuration refresh; actual UIKit rendering
+remains an Apple-runtime gate.
 
 Named Rust sessions keep their virtual working directory, history, and
 bookmarks independent under `~/.rune/sessions/{id}/session.state`. When the

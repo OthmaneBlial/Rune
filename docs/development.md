@@ -58,7 +58,7 @@ Python subset, not CPython or a package/stdlib compatibility claim.
 Configuration tests are local-only as well and verify bounded history, safe-by-default
 history redaction with an explicit opt-out, opt-in bounded environment persistence,
 font, font size, scrollback, toolbar
-visibility, theme, cursor-color, cursor-shape, background, and foreground settings without requiring an Apple
+visibility (including the `hideToolbar`/`showToolbar` command forms), theme, cursor-color, cursor-shape, background, and foreground settings without requiring an Apple
 runtime. The scrollback setting accepts 128–8,192 rendered entries and remains
 subject to the native UI's separate 8 MiB byte cap. The `sleep` command test
 also triggers cancellation during an in-flight bounded wait, not only before a

@@ -5823,6 +5823,25 @@ mod tests {
     }
 
     #[test]
+    fn exposes_toolbar_visibility_commands_through_persisted_configuration() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert!(session.configuration().toolbar_visible());
+        assert_eq!(session.execute_line("hideToolbar").status, 0);
+        assert!(!session.configuration().toolbar_visible());
+        assert_eq!(session.execute_line("showToolbar").status, 0);
+        assert!(session.configuration().toolbar_visible());
+        assert_eq!(session.execute_line("hideToolbar").status, 0);
+        let invalid = session.execute_line("showToolbar extra");
+        assert_eq!(invalid.status, 2);
+        assert!(invalid.stderr.contains("usage: showToolbar"));
+        session.persist().expect("toolbar visibility persisted");
+        let restored = Session::restore(SandboxedFileSystem::new(&root).expect("root reopened"));
+        assert!(!restored.configuration().toolbar_visible());
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn persists_and_applies_terminal_appearance_configuration() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));

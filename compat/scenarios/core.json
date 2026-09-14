@@ -54,6 +54,12 @@
       "normalization": ["crlf", "trailing-newline"]
     },
     {
+      "id": "configuration/toolbar-commands",
+      "command": "hideToolbar && config get toolbar-visible && showToolbar && config get toolbar-visible",
+      "stdin": "",
+      "normalization": ["crlf", "trailing-newline"]
+    },
+    {
       "id": "shell/stderr-status",
       "command": "cat missing.txt",
       "stdin": "",

@@ -22,6 +22,31 @@ pub(super) fn config(context: &mut CommandContext<'_>) -> CommandOutput {
     }
 }
 
+/// Hide the native input toolbar through the Rust-owned configuration state.
+pub(super) fn hide_toolbar(context: &mut CommandContext<'_>) -> CommandOutput {
+    set_toolbar_visibility(context, false, "hideToolbar")
+}
+
+/// Show the native input toolbar through the Rust-owned configuration state.
+pub(super) fn show_toolbar(context: &mut CommandContext<'_>) -> CommandOutput {
+    set_toolbar_visibility(context, true, "showToolbar")
+}
+
+fn set_toolbar_visibility(
+    context: &mut CommandContext<'_>,
+    visible: bool,
+    command: &str,
+) -> CommandOutput {
+    if !context.args.is_empty() {
+        return usage(command, &format!("usage: {command}"));
+    }
+    let value = if visible { "true" } else { "false" };
+    match crate::config::update(context.fs, context.config, "toolbar-visible", value) {
+        Ok(()) => CommandOutput::success(""),
+        Err(error) => CommandOutput::failure(2, format!("{command}: {error}\n")),
+    }
+}
+
 fn show(context: &CommandContext<'_>) -> CommandOutput {
     let mut stdout = String::new();
     let _ = writeln!(stdout, "history-limit={}", context.config.history_limit());

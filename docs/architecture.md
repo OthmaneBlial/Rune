@@ -674,6 +674,9 @@ The native configuration query is also Rust-owned: its FFI serialization now
 includes every persisted key consumed by Swift, including cursor shape, while Swift applies only values
 from the validated finite sets. This keeps the settings sheet from maintaining
 a second configuration source; visual rendering remains an Apple-runtime gate.
+The argument-free `hideToolbar` and `showToolbar` commands use the same
+validated persistence path as `config set toolbar-visible`, so native frontends
+can observe the command-driven change without duplicating presentation state.
 
 Unquoted `*` and `?` are expanded by `rune-core` through the VFS `glob` method;
 quoted patterns remain literal, hidden entries require a leading `.`, and an

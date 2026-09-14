@@ -305,6 +305,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::help,
     },
     CommandDefinition {
+        name: "hideToolbar",
+        summary: "hide the native input toolbar",
+        handler: config::hide_toolbar,
+    },
+    CommandDefinition {
         name: "history",
         summary: "print or search command history",
         handler: shell::history,
@@ -553,6 +558,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "showmarks",
         summary: "list saved directory bookmarks",
         handler: bookmarks::showmarks,
+    },
+    CommandDefinition {
+        name: "showToolbar",
+        summary: "show the native input toolbar",
+        handler: config::show_toolbar,
     },
     CommandDefinition {
         name: "true",
