@@ -76,7 +76,7 @@ honest when an Apple runtime is not available.
 
 - Rust tokenization and planning for quotes, variables, pipes, redirections,
   command substitution, sequencing, &&/||, scripts, multiline and bounded
-  one-line loops, simple inline `if` branches, functions, and positional
+  one-line loops, inline `if`/`else` branches, functions, and positional
   arguments.
 - A growing Unix-like built-in surface including filesystem commands, text
   filters, archives, checksums, awk, sed, grep, sort, wc, tar, gzip,

@@ -3453,10 +3453,8 @@ fn normalized_script_lines(script: &str) -> Vec<String> {
             lines.push(header);
             lines.push(body);
             lines.push("done".to_string());
-        } else if let Some((header, body)) = split_inline_if_line(line) {
-            lines.push(header);
-            lines.push(body);
-            lines.push("fi".to_string());
+        } else if let Some(inline_if_lines) = split_inline_if_line(line) {
+            lines.extend(inline_if_lines);
         } else {
             lines.push(line.to_string());
         }
@@ -3483,7 +3481,7 @@ fn split_inline_loop_line(line: &str) -> Option<(String, String)> {
     Some((format!("{header}; do"), body.to_string()))
 }
 
-fn split_inline_if_line(line: &str) -> Option<(String, String)> {
+fn split_inline_if_line(line: &str) -> Option<Vec<String>> {
     let trimmed = line.trim();
     let then_marker = find_unquoted_marker(trimmed, "; then", 0)?;
     let body_start = then_marker + "; then".len();
@@ -3496,10 +3494,24 @@ fn split_inline_if_line(line: &str) -> Option<(String, String)> {
         return None;
     }
     let body = trimmed[body_start..fi_marker].trim();
-    if body.is_empty() || find_unquoted_marker(body, "; else", 0).is_some() {
+    if body.is_empty() {
         return None;
     }
-    Some((format!("{header}; then"), body.to_string()))
+    let mut lines = vec![format!("{header}; then")];
+    if let Some(else_marker) = find_unquoted_marker(body, "; else", 0) {
+        let then_body = body[..else_marker].trim();
+        let else_body = body[else_marker + "; else".len()..].trim();
+        if then_body.is_empty() || else_body.is_empty() {
+            return None;
+        }
+        lines.push(then_body.to_string());
+        lines.push("else".to_string());
+        lines.push(else_body.to_string());
+    } else {
+        lines.push(body.to_string());
+    }
+    lines.push("fi".to_string());
+    Some(lines)
 }
 
 fn find_unquoted_marker(input: &str, marker: &str, start: usize) -> Option<usize> {
@@ -6668,6 +6680,14 @@ mod tests {
         let quoted = session.execute_script("if true; then echo 'semi; fi'; fi");
         assert_eq!(quoted.status, 0, "{quoted:?}");
         assert_eq!(quoted.stdout, "semi; fi\n");
+        let inline_else =
+            session.execute_script("if false; then echo wrong; else echo fallback; fi");
+        assert_eq!(inline_else.status, 0, "{inline_else:?}");
+        assert_eq!(inline_else.stdout, "fallback\n");
+        let inline_else_quote =
+            session.execute_script("if true; then echo 'semi; else'; else echo wrong; fi");
+        assert_eq!(inline_else_quote.status, 0, "{inline_else_quote:?}");
+        assert_eq!(inline_else_quote.stdout, "semi; else\n");
 
         let missing_fi = session.execute_script("if true; then\necho incomplete");
         assert_eq!(missing_fi.status, 2);
