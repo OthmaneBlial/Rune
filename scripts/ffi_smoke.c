@@ -20,6 +20,7 @@ static int remove_path(const char *path, const struct stat *info, int type, stru
 }
 
 typedef struct {
+    const char *expected_output;
     int output_events;
     int status_events;
     int invalid_events;
@@ -34,7 +35,8 @@ static void observe_event(const RuneEvent *event, void *user_data) {
         return;
     }
     if (event->kind == RUNE_EVENT_OUTPUT) {
-        if (event->stdout_data == NULL || strcmp(event->stdout_data, "ffi-event") != 0) {
+        if (event->stdout_data == NULL || observation->expected_output == NULL ||
+            strstr(event->stdout_data, observation->expected_output) == NULL) {
             observation->invalid_events++;
         } else {
             observation->output_events++;
@@ -69,7 +71,7 @@ int main(void) {
     rune_string_free(output.stdout_data);
     rune_string_free(output.stderr_data);
 
-    EventObservation observation = {0, 0, 0};
+    EventObservation observation = {"ffi-event", 0, 0, 0};
     RuneOutput streamed = rune_session_execute_with_events(
         session,
         "printf ffi-event",
@@ -85,6 +87,23 @@ int main(void) {
     }
     rune_string_free(streamed.stdout_data);
     rune_string_free(streamed.stderr_data);
+
+    EventObservation script_observation = {"ffi-script", 0, 0, 0};
+    RuneOutput scripted = rune_session_execute_script_with_events(
+        session,
+        "printf ffi-script",
+        observe_event,
+        &script_observation
+    );
+    if (scripted.status != 0 || script_observation.output_events < 1 ||
+        script_observation.status_events < 1 || script_observation.invalid_events != 0) {
+        rune_string_free(scripted.stdout_data);
+        rune_string_free(scripted.stderr_data);
+        rune_session_destroy(session);
+        return fail("borrowed script events did not cross the public ABI");
+    }
+    rune_string_free(scripted.stdout_data);
+    rune_string_free(scripted.stderr_data);
 
     char *directory = rune_session_current_directory(session);
     if (directory == NULL || directory[0] == '\0') {
