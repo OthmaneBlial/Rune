@@ -10,7 +10,7 @@ for a-Shell.
 
 ## Development Progress
 
-**Overall progress: 56%**
+**Overall progress: 57%**
 
 This is an engineering estimate of the product path toward a validated iPhone
 and iPad terminal, not a percentage of lines of code. Portable Rust behavior is
@@ -29,7 +29,7 @@ this disk-constrained workspace.
 | SwiftUI/UIKit source boundary | 38% |
 | WASM, scripting, and toolchain runtimes | 28% |
 | Direct a-Shell comparison | 5% |
-| Apple runtime, packaging, and release validation | 10% |
+| Apple runtime, packaging, and release validation | 14% |
 
 <p align="center">
   <a href="https://othmaneblial.github.io/Rune/"><img src="https://img.shields.io/badge/project_site-Rune-e85d2a?style=flat-square" alt="Rune project site"></a>
@@ -134,7 +134,7 @@ Apple build footprint needed to produce one.
 | SwiftUI/UIKit source boundary | **Source-only** — package manifest, C header target, and host swiftc typecheck pass |
 | iOS application build, linking, simulator, and device behavior | **Unverified** — no Xcode/SDK/simulator installed |
 | Direct a-Shell behavior comparison | **Pending** — the checkout is reference-only and no Apple harness is available |
-| Release | **v0.1.0-alpha.7** — source preview, not a stable iOS application |
+| Release | **v0.1.0-alpha.7** — macOS arm64 CLI asset; not a stable iOS application |
 
 The compatibility matrix in
 [compat/a-Shell-compatibility.json](compat/a-shell-compatibility.json)
