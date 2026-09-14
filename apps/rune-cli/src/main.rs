@@ -1,8 +1,21 @@
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::PathBuf;
 
-use rune_core::Session;
+use rune_core::{CommandEvent, CommandOutput, EventSink, Session};
 use rune_fs::SandboxedFileSystem;
+
+struct CliEventSink {
+    emitted_output: bool,
+}
+
+impl EventSink for CliEventSink {
+    fn emit(&mut self, event: CommandEvent) {
+        if let CommandEvent::Output { stdout, stderr } = event {
+            self.emitted_output = true;
+            print_output(&stdout, &stderr);
+        }
+    }
+}
 
 fn main() {
     let (root, command) = match arguments() {
@@ -24,8 +37,7 @@ fn main() {
     print_output(&startup.stdout, &startup.stderr);
 
     if let Some(command) = command {
-        let output = session.execute_line(&command);
-        print_output(&output.stdout, &output.stderr);
+        let output = execute_and_print(&mut session, &command);
         if let Err(error) = session.persist() {
             eprintln!("rune: could not persist session: {error}");
             if output.status == 0 {
@@ -90,10 +102,20 @@ fn repl(session: &mut Session, interactive: bool) -> io::Result<()> {
         if reader.read_line(&mut line)? == 0 {
             break;
         }
-        let output = session.execute_line(&line);
-        print_output(&output.stdout, &output.stderr);
+        let _ = execute_and_print(session, &line);
     }
     Ok(())
+}
+
+fn execute_and_print(session: &mut Session, command: &str) -> CommandOutput {
+    let mut sink = CliEventSink {
+        emitted_output: false,
+    };
+    let output = session.execute_line_with_events(command, &mut sink);
+    if !sink.emitted_output {
+        print_output(&output.stdout, &output.stderr);
+    }
+    output
 }
 
 fn print_output(stdout: &str, stderr: &str) {

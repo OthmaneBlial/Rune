@@ -249,7 +249,9 @@ intentionally does not use GitHub Actions or cloud CI.
 
 Run `./scripts/demo.sh` for a real two-process CLI workflow covering file
 creation, recursive copy, configuration persistence, restore, metadata, usage,
-and history. It uses a temporary root and removes only that root on exit.
+and history. The CLI consumes the same bounded Rust pipeline events used by the
+native bridge, so output is flushed after each completed pipeline. It uses a
+temporary root and removes only that root on exit.
 
 Run `./scripts/bench.sh` for local timing samples of a warm CLI startup, a
 confined filesystem pipeline, and bounded `tree` rendering. The script builds
