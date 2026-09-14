@@ -73,6 +73,9 @@ whole-file unified view, returning status 0 when equal, 1 when different, and
 2 when input, comparison size, or usage bounds are rejected.
 `sort` supports bounded lexical or integer-prefix ordering with `-n`, reverse
 ordering with `-r`, and adjacent-result deduplication with `-u`.
+`wc` reports bounded line, word, byte, character, and maximum-line-length
+counts with `-l`, `-w`, `-c`, `-m`, and `-L`; long option names, explicit stdin
+with `-`, multiple confined files, totals, and `--` termination are supported.
 `file` identifies bounded VFS entries and stdin using a small Rust-owned magic
 surface for directories, empty/text/binary data, ELF, WebAssembly, gzip, ZIP,
 and USTAR; `-b` omits the input label and `--mime-type` returns the bounded MIME

@@ -262,6 +262,11 @@ and signed `head -n -N` omits the final N lines. `--` ends option parsing.
 `sort` supports lexical ordering plus integer-prefix ordering with `-n`,
 reverse ordering with `-r`, and adjacent duplicate removal with `-u`; malformed
 numeric prefixes are ordered after valid numeric lines.
+`wc` counts newline-delimited lines, Unicode words, bytes, Unicode characters,
+and maximum line length through the VFS or pipeline stdin. It supports the
+bounded `-l`, `-w`, `-c`, `-m`, and `-L` fields, long names, explicit `-`,
+multiple-file totals, and `--`; the output order is deterministic rather than
+a complete locale-aware formatting implementation.
 `diff` reads two confined UTF-8 files, uses a bounded longest-common-subsequence
 comparison, emits a whole-file unified view, and returns status 0/1 for equal or
 different inputs. Its input, line, and dynamic-programming-cell limits reject

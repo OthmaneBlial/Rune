@@ -5291,6 +5291,48 @@ mod tests {
     }
 
     #[test]
+    fn counts_bounded_wc_fields_and_multiple_inputs() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(
+            session
+                .execute_line("printf 'é one\\nsecond' > unicode.txt")
+                .status,
+            0
+        );
+        assert_eq!(
+            session.execute_line("printf 'third\\n' > other.txt").status,
+            0
+        );
+        assert_eq!(session.execute_line("wc -l -- unicode.txt").stdout, "1\n");
+        assert_eq!(
+            session.execute_line("wc --words -- unicode.txt").stdout,
+            "3\n"
+        );
+        assert_eq!(
+            session.execute_line("wc --bytes unicode.txt").stdout,
+            "13\n"
+        );
+        assert_eq!(session.execute_line("wc -m unicode.txt").stdout, "12\n");
+        assert_eq!(
+            session.execute_line("wc -L -m unicode.txt").stdout,
+            "12 6\n"
+        );
+        assert_eq!(
+            session.execute_line("wc -l unicode.txt other.txt").stdout,
+            "1 unicode.txt\n1 other.txt\n2 total\n"
+        );
+        assert_eq!(
+            session
+                .execute_line("printf 'a\\nb\\n' | wc --lines -- -")
+                .stdout,
+            "2\n"
+        );
+        assert_eq!(session.execute_line("wc -z unicode.txt").status, 2);
+        std::fs::remove_dir_all(root).expect("root removed");
+    }
+
+    #[test]
     fn redacts_environment_assignment_values_before_persisting_history() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));

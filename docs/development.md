@@ -140,6 +140,10 @@ The `head`/`tail` tests cover default and short counts, `-n`/`--lines`,
 one-based `+N` selection, signed `head -n -N` trimming, option termination,
 and invalid count rejection; full platform-specific line-mode compatibility
 remains outside the bounded profile.
+The `wc` test covers line, word, byte, character, and maximum-line-length
+fields, long options, explicit stdin, multiple-file totals, `--`, and invalid
+option rejection; locale-specific formatting remains outside the bounded
+profile.
 The text pipeline tests also cover regular-expression `sed` substitutions,
 capture replacement, ordered multiple `-e` scripts, `p` printing with `-n`,
 and invalid-pattern rejection; addresses and full POSIX script compatibility

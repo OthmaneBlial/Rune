@@ -745,25 +745,150 @@ pub(super) fn uniq(context: &mut CommandContext<'_>) -> CommandOutput {
 }
 
 pub(super) fn wc(context: &mut CommandContext<'_>) -> CommandOutput {
-    let (lines, words, bytes, paths) = match parse_wc_args(context.args) {
+    let (options, paths) = match parse_wc_args(context.args) {
         Ok(parsed) => parsed,
         Err(output) => return output,
     };
-    let text = match read_inputs(context, "wc", &paths) {
-        Ok(text) => text,
-        Err(output) => return output,
+    let input_paths = if paths.is_empty() {
+        vec![None]
+    } else {
+        paths.iter().map(Some).collect()
     };
-    let mut counts = Vec::new();
-    if lines {
-        counts.push(lines_with_endings(&text).len().to_string());
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    let mut total = WcCounts::default();
+    let mut failed = false;
+    for path in &input_paths {
+        let bytes = match path {
+            None => Ok(context.stdin.as_bytes().to_vec()),
+            Some(path) if *path == "-" => Ok(context.stdin.as_bytes().to_vec()),
+            Some(path) => context
+                .fs
+                .read(path)
+                .map_err(|error| (path.as_str(), error)),
+        };
+        let bytes = match bytes {
+            Ok(bytes) => bytes,
+            Err((path, error)) => {
+                failed = true;
+                let _ = writeln!(stderr, "wc: {path}: {error}");
+                continue;
+            }
+        };
+        let counts = count_wc_bytes(&bytes, options.fields.contains(WcFields::CHARACTERS));
+        total.add(counts);
+        let label = path.filter(|_| input_paths.len() > 1).map(String::as_str);
+        stdout.push_str(&format_wc_counts(counts, options, label));
     }
-    if words {
-        counts.push(text.split_whitespace().count().to_string());
+    if input_paths.len() > 1 {
+        stdout.push_str(&format_wc_counts(total, options, Some("total")));
     }
-    if bytes {
-        counts.push(text.len().to_string());
+    CommandOutput {
+        stdout,
+        stderr,
+        status: i32::from(failed),
     }
-    CommandOutput::success(format!("{}\n", counts.join(" ")))
+}
+
+#[derive(Clone, Copy)]
+struct WcOptions {
+    fields: WcFields,
+}
+
+#[derive(Clone, Copy, Default)]
+struct WcFields(u8);
+
+impl WcFields {
+    const LINES: u8 = 1;
+    const WORDS: u8 = 2;
+    const BYTES: u8 = 4;
+    const CHARACTERS: u8 = 8;
+    const MAX_LINE_LENGTH: u8 = 16;
+
+    const fn contains(self, field: u8) -> bool {
+        self.0 & field != 0
+    }
+
+    fn insert(&mut self, field: u8) {
+        self.0 |= field;
+    }
+
+    fn remove(&mut self, field: u8) {
+        self.0 &= !field;
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct WcCounts {
+    lines: usize,
+    words: usize,
+    bytes: usize,
+    characters: usize,
+    max_line_length: usize,
+}
+
+impl WcCounts {
+    fn add(&mut self, other: Self) {
+        self.lines = self.lines.saturating_add(other.lines);
+        self.words = self.words.saturating_add(other.words);
+        self.bytes = self.bytes.saturating_add(other.bytes);
+        self.characters = self.characters.saturating_add(other.characters);
+        self.max_line_length = self.max_line_length.max(other.max_line_length);
+    }
+}
+
+fn count_wc_bytes(bytes: &[u8], count_characters: bool) -> WcCounts {
+    let text = String::from_utf8_lossy(bytes);
+    let characters = text.chars().count();
+    let max_line_length = if count_characters {
+        text.lines()
+            .map(str::chars)
+            .map(Iterator::count)
+            .max()
+            .unwrap_or(0)
+    } else {
+        bytes
+            .split(|byte| *byte == b'\n')
+            .map(<[u8]>::len)
+            .max()
+            .unwrap_or(0)
+    };
+    let mut lines = 0;
+    for byte in bytes {
+        if *byte == b'\n' {
+            lines += 1;
+        }
+    }
+    WcCounts {
+        lines,
+        words: text.split_whitespace().count(),
+        bytes: bytes.len(),
+        characters,
+        max_line_length,
+    }
+}
+
+fn format_wc_counts(counts: WcCounts, options: WcOptions, label: Option<&str>) -> String {
+    let mut fields = Vec::new();
+    if options.fields.contains(WcFields::LINES) {
+        fields.push(counts.lines.to_string());
+    }
+    if options.fields.contains(WcFields::WORDS) {
+        fields.push(counts.words.to_string());
+    }
+    if options.fields.contains(WcFields::BYTES) {
+        fields.push(counts.bytes.to_string());
+    }
+    if options.fields.contains(WcFields::CHARACTERS) {
+        fields.push(counts.characters.to_string());
+    }
+    if options.fields.contains(WcFields::MAX_LINE_LENGTH) {
+        fields.push(counts.max_line_length.to_string());
+    }
+    if let Some(label) = label {
+        fields.push(label.to_string());
+    }
+    format!("{}\n", fields.join(" "))
 }
 
 fn read_inputs(
@@ -1217,27 +1342,74 @@ fn parse_flag(command: &str, args: &[String], flag: &str) -> Result<bool, Comman
     Ok(args.iter().any(|argument| argument == &expected))
 }
 
-fn parse_wc_args(args: &[String]) -> Result<(bool, bool, bool, Vec<String>), CommandOutput> {
-    let mut lines = false;
-    let mut words = false;
-    let mut bytes = false;
+fn parse_wc_args(args: &[String]) -> Result<(WcOptions, Vec<String>), CommandOutput> {
+    let mut options = WcOptions {
+        fields: WcFields::default(),
+    };
     let mut paths = Vec::new();
+    let mut parse_options = true;
     for argument in args {
-        if let Some(flags) = argument.strip_prefix('-') {
-            if flags.is_empty() || !flags.chars().all(|flag| matches!(flag, 'l' | 'w' | 'c')) {
-                return Err(usage("wc", "usage: wc [-lwc] [file ...]"));
+        if parse_options && argument == "--" {
+            parse_options = false;
+        } else if parse_options && argument == "-" {
+            paths.push(argument.clone());
+        } else if parse_options {
+            let long_option = match argument.as_str() {
+                "--lines" => Some('l'),
+                "--words" => Some('w'),
+                "--bytes" => Some('c'),
+                "--chars" | "--characters" => Some('m'),
+                "--max-line-length" => Some('L'),
+                _ => None,
+            };
+            if let Some(flag) = long_option {
+                apply_wc_flag(&mut options, flag);
+            } else if let Some(flags) = argument.strip_prefix('-') {
+                if flags.is_empty()
+                    || !flags
+                        .chars()
+                        .all(|flag| matches!(flag, 'l' | 'w' | 'c' | 'm' | 'L'))
+                {
+                    return Err(wc_usage());
+                }
+                for flag in flags.chars() {
+                    apply_wc_flag(&mut options, flag);
+                }
+            } else {
+                paths.push(argument.clone());
             }
-            lines |= flags.contains('l');
-            words |= flags.contains('w');
-            bytes |= flags.contains('c');
         } else {
             paths.push(argument.clone());
         }
     }
-    if !lines && !words && !bytes {
-        lines = true;
-        words = true;
-        bytes = true;
+    if options.fields.0 == 0 {
+        options.fields.insert(WcFields::LINES);
+        options.fields.insert(WcFields::WORDS);
+        options.fields.insert(WcFields::BYTES);
     }
-    Ok((lines, words, bytes, paths))
+    Ok((options, paths))
+}
+
+fn apply_wc_flag(options: &mut WcOptions, flag: char) {
+    match flag {
+        'l' => options.fields.insert(WcFields::LINES),
+        'w' => options.fields.insert(WcFields::WORDS),
+        'c' => {
+            options.fields.insert(WcFields::BYTES);
+            options.fields.remove(WcFields::CHARACTERS);
+        }
+        'm' => {
+            options.fields.insert(WcFields::CHARACTERS);
+            options.fields.remove(WcFields::BYTES);
+        }
+        'L' => options.fields.insert(WcFields::MAX_LINE_LENGTH),
+        _ => unreachable!("wc flags were validated before application"),
+    }
+}
+
+fn wc_usage() -> CommandOutput {
+    usage(
+        "wc",
+        "usage: wc [-lwcLm] [--lines|--words|--bytes|--chars|--max-line-length] [--] [file ...]",
+    )
 }
