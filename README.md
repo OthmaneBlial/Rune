@@ -405,7 +405,9 @@ The source-only terminal now dispatches command execution away from the SwiftUI
 main actor behind a lock-protected FFI session, keeps the UI responsive, and
 offers a stop control that sends Rust's cooperative cancellation request. Its
 optional input toolbar routes Tab/completion cycling, Escape dismissal, Ctrl-C, display-clear,
-and paste actions through the native model; display-clear resets and persists
+and paste actions through the native model; the UIKit command editor also
+routes hardware Tab, Escape, and Ctrl-C through those same Rust-backed
+actions. Display-clear resets and persists
 the Rust terminal grid without creating a history entry. The workspace also exposes Cmd-N
 for a new independent window. Only command execution and shell
 state cross the Rust boundary. A currently running synchronous Rust operation

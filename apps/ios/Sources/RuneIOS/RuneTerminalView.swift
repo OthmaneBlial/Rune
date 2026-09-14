@@ -880,6 +880,18 @@ public struct RuneTerminalView: View {
                                 model.submit()
                                 inputFocused = true
                             },
+                            onCompletion: {
+                                model.acceptCompletion()
+                                inputFocused = true
+                            },
+                            onEscape: {
+                                model.handleEscape()
+                                inputFocused = true
+                            },
+                            onCancel: {
+                                model.cancel()
+                                inputFocused = true
+                            },
                             onPreviousHistory: {
                                 model.previousHistory()
                                 inputFocused = true
@@ -1124,6 +1136,9 @@ private struct RuneRustTerminalScreen: View {
 private final class RuneCursorTextView: UITextView {
     var onPreviousHistory: (() -> Void)?
     var onNextHistory: (() -> Void)?
+    var onCompletion: (() -> Void)?
+    var onEscape: (() -> Void)?
+    var onCancel: (() -> Void)?
 
     var cursorShape = "bar" {
         didSet { setNeedsDisplay() }
@@ -1149,6 +1164,33 @@ private final class RuneCursorTextView: UITextView {
                 )
             )
         }
+        if onCompletion != nil {
+            commands.append(
+                UIKeyCommand(
+                    input: "\t",
+                    modifierFlags: [],
+                    action: #selector(completionKeyCommand)
+                )
+            )
+        }
+        if onEscape != nil {
+            commands.append(
+                UIKeyCommand(
+                    input: "\u{1b}",
+                    modifierFlags: [],
+                    action: #selector(escapeKeyCommand)
+                )
+            )
+        }
+        if onCancel != nil {
+            commands.append(
+                UIKeyCommand(
+                    input: "c",
+                    modifierFlags: [.control],
+                    action: #selector(cancelKeyCommand)
+                )
+            )
+        }
         return commands.isEmpty ? nil : commands
     }
 
@@ -1158,6 +1200,18 @@ private final class RuneCursorTextView: UITextView {
 
     @objc private func nextHistoryKeyCommand() {
         onNextHistory?()
+    }
+
+    @objc private func completionKeyCommand() {
+        onCompletion?()
+    }
+
+    @objc private func escapeKeyCommand() {
+        onEscape?()
+    }
+
+    @objc private func cancelKeyCommand() {
+        onCancel?()
     }
 
     override func caretRect(for position: UITextPosition) -> CGRect {
@@ -1187,6 +1241,9 @@ private struct RuneUIKitCommandEditor: UIViewRepresentable {
     let cursorColor: String
     let cursorShape: String
     let onSubmit: () -> Void
+    let onCompletion: () -> Void
+    let onEscape: () -> Void
+    let onCancel: () -> Void
     let onPreviousHistory: () -> Void
     let onNextHistory: () -> Void
 
@@ -1209,6 +1266,9 @@ private struct RuneUIKitCommandEditor: UIViewRepresentable {
         view.textColor = resolvedForegroundColor()
         view.tintColor = resolvedCursorColor()
         view.cursorShape = cursorShape
+        view.onCompletion = onCompletion
+        view.onEscape = onEscape
+        view.onCancel = onCancel
         view.onPreviousHistory = onPreviousHistory
         view.onNextHistory = onNextHistory
         view.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -1224,6 +1284,9 @@ private struct RuneUIKitCommandEditor: UIViewRepresentable {
         view.textColor = resolvedForegroundColor()
         view.tintColor = resolvedCursorColor()
         view.cursorShape = cursorShape
+        view.onCompletion = onCompletion
+        view.onEscape = onEscape
+        view.onCancel = onCancel
         view.onPreviousHistory = onPreviousHistory
         view.onNextHistory = onNextHistory
         view.invalidateIntrinsicContentSize()

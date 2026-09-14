@@ -204,6 +204,9 @@ open/openurl capability; the portable CLI remains launcher-disabled by default.
   portable CLI remains clipboard-disabled by default.
 - `RuneTerminalView.swift` includes the `@main` SwiftUI application entry point
   and launches the source-only workspace view.
+- The UIKit command editor declares source-only hardware-key handlers for Tab,
+  Escape, Ctrl-C, and Up/Down history navigation; they call the same model
+  actions as the input toolbar and remain unverified without an Apple runtime.
 - The bridge asks Rust for bounded command/path replacement candidates; it does
   not maintain a second command registry or filesystem listing in Swift.
 - `RuneTerminalView.swift` renders stdout, stderr, and non-zero exit status

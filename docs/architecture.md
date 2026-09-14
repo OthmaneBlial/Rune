@@ -288,7 +288,9 @@ shell command. These
 controls dispatch into the existing Swift model and Rust FFI rather than
 maintaining a second command, configuration, or history implementation; the
 toolbar visibility preference is persisted by Rust and surfaced through the
-same FFI. Their behavior still needs Apple keyboard/runtime validation.
+same FFI. The UIKit editor also maps hardware Tab, Escape, and Ctrl-C to the
+same model actions; this input routing remains source-level evidence until an
+Apple runtime is available.
 
 Clipboard access is another explicit host capability. Rust owns the bounded
 `pbcopy`/`pbpaste` command semantics and accepts at most 1 MiB of UTF-8 text;
