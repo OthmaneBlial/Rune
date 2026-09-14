@@ -8,7 +8,8 @@ const AR_MAGIC: &[u8] = b"!<arch>\n";
 const AR_HEADER_BYTES: usize = 60;
 const MAX_AR_BYTES: usize = 64 * 1024 * 1024;
 const MAX_AR_MEMBERS: usize = 10_000;
-const MAX_AR_NAME_BYTES: usize = 15;
+const MAX_AR_INLINE_NAME_BYTES: usize = 15;
+const MAX_AR_NAME_BYTES: usize = 255;
 
 #[derive(Debug, Clone, Copy)]
 enum ArOperation {
@@ -234,6 +235,7 @@ fn validate_member_name(name: &str) -> Result<String, String> {
         || name == "."
         || name == ".."
         || name.contains('/')
+        || name.bytes().any(|byte| byte == 0)
         || name.len() > MAX_AR_NAME_BYTES
     {
         return Err(format!(
@@ -248,7 +250,21 @@ fn build_archive(members: &[ArMember]) -> Result<Vec<u8>, String> {
     output.extend_from_slice(AR_MAGIC);
     for member in members {
         validate_member_name(&member.name)?;
-        let size = member.bytes.len();
+        let extended_name = member.name.len() > MAX_AR_INLINE_NAME_BYTES;
+        let encoded_name = if extended_name {
+            format!("#1/{}", member.name.len())
+        } else {
+            member.name.clone()
+        };
+        let name_bytes = if extended_name {
+            member.name.as_bytes()
+        } else {
+            &[]
+        };
+        let size = name_bytes
+            .len()
+            .checked_add(member.bytes.len())
+            .ok_or_else(|| "archive member size overflows".to_string())?;
         let padding = size % 2;
         let next_size = output
             .len()
@@ -259,7 +275,7 @@ fn build_archive(members: &[ArMember]) -> Result<Vec<u8>, String> {
             return Err("archive exceeds the 64 MiB limit".to_string());
         }
         let mut header = [b' '; AR_HEADER_BYTES];
-        write_ar_field(&mut header[0..16], &member.name, false)?;
+        write_ar_field(&mut header[0..16], &encoded_name, false)?;
         write_ar_field(&mut header[16..28], "0", true)?;
         write_ar_field(&mut header[28..34], "0", true)?;
         write_ar_field(&mut header[34..40], "0", true)?;
@@ -267,6 +283,7 @@ fn build_archive(members: &[ArMember]) -> Result<Vec<u8>, String> {
         write_ar_field(&mut header[48..58], &size.to_string(), true)?;
         header[58..60].copy_from_slice(b"`\n");
         output.extend_from_slice(&header);
+        output.extend_from_slice(name_bytes);
         output.extend_from_slice(&member.bytes);
         if padding != 0 {
             output.push(b'\n');
@@ -427,6 +444,18 @@ mod tests {
             },
         ];
         let archive = build_archive(&members).expect("archive built");
+        assert_eq!(parse_archive(&archive).expect("archive parsed"), members);
+    }
+
+    #[test]
+    fn writes_bsd_extended_member_names() {
+        let members = vec![ArMember {
+            name: "a-long-object-member.o".to_string(),
+            bytes: b"object-data".to_vec(),
+        }];
+        let archive = build_archive(&members).expect("archive built");
+
+        assert!(archive[8..24].starts_with(b"#1/"));
         assert_eq!(parse_archive(&archive).expect("archive parsed"), members);
     }
 

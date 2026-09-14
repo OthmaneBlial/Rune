@@ -460,13 +460,14 @@ bounded 9-bit block-mode LZW `.Z` profile. Both are file-to-file transforms that
 preserve sources and refuse overwrites or binary stdout. ZIP64, PAX extensions,
 and broad external compatibility are not claimed.
 
-The `ar` command layer implements a bounded short-name archive profile for
-regular files. `ar -rcs` rebuilds or replaces members, `ar t` lists all or named
-members, and `ar x` extracts them through the VFS after preflighting destinations.
-Member payloads remain binary-safe. Rune reads common external symbol-index and
-BSD extended-name records but does not generate or preserve symbol indexes;
-GNU long-name tables, directories, and linker semantics remain outside the
-profile.
+The `ar` command layer implements a bounded regular-file archive profile.
+Member names are limited to 255 bytes; names longer than the inline 15-byte
+field use BSD extended-name records. `ar -rcs` rebuilds or replaces members,
+`ar t` lists all or named members, and `ar x` extracts them through the VFS
+after preflighting destinations. Member payloads remain binary-safe. Rune
+reads common external symbol-index and BSD extended-name records but does not
+generate or preserve symbol indexes; GNU long-name tables, directories, and
+linker semantics remain outside the profile.
 
 The `xargs` layer is coordinated by `rune-core` because it must invoke the
 existing parser and execution planner for each bounded batch. Its Rust-owned

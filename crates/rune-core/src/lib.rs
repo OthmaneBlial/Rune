@@ -3344,21 +3344,36 @@ mod tests {
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
         let first = b"object-one\0".to_vec();
         let second = b"object-two".to_vec();
+        let long_name = "a-long-object-member.o";
+        let long = b"object-long".to_vec();
         std::fs::write(root.join("first.o"), &first).expect("first object written");
         std::fs::write(root.join("second.o"), &second).expect("second object written");
+        std::fs::write(root.join(long_name), &long).expect("long object written");
 
-        let created = session.execute_line("ar -rcs bundle.a first.o second.o");
+        let created =
+            session.execute_line("ar -rcs bundle.a first.o second.o a-long-object-member.o");
         assert_eq!(created.status, 0);
         assert!(root.join("bundle.a").exists());
         let listing = session.execute_line("ar t bundle.a");
         assert_eq!(listing.status, 0);
-        assert_eq!(listing.stdout, "first.o\nsecond.o\n");
+        assert_eq!(
+            listing.stdout,
+            "first.o\nsecond.o\na-long-object-member.o\n"
+        );
         let filtered_listing = session.execute_line("ar t bundle.a second.o");
         assert_eq!(filtered_listing.status, 0, "{filtered_listing:?}");
         assert_eq!(filtered_listing.stdout, "second.o\n");
+        let filtered_long = session.execute_line("ar t bundle.a a-long-object-member.o");
+        assert_eq!(filtered_long.status, 0, "{filtered_long:?}");
+        assert_eq!(filtered_long.stdout, "a-long-object-member.o\n");
         assert_eq!(session.execute_line("ar t bundle.a missing.o").status, 1);
 
-        assert_eq!(session.execute_line("rm first.o second.o").status, 0);
+        assert_eq!(
+            session
+                .execute_line("rm first.o second.o a-long-object-member.o")
+                .status,
+            0
+        );
         let extracted = session.execute_line("ar x bundle.a");
         assert_eq!(extracted.status, 0);
         assert_eq!(
@@ -3368,6 +3383,10 @@ mod tests {
         assert_eq!(
             std::fs::read(root.join("second.o")).expect("second output read"),
             second
+        );
+        assert_eq!(
+            std::fs::read(root.join(long_name)).expect("long output read"),
+            long
         );
         assert_eq!(session.execute_line("ar x bundle.a").status, 1);
         assert_eq!(session.execute_line("rm first.o").status, 0);

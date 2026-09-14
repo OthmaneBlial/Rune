@@ -22,7 +22,7 @@ working iOS application or a feature-parity claim.
 | Shell tokenizer/parser | 75% |
 | Command runtime | 99% |
 | Sandboxed filesystem | 70% |
-| Archives | 80% |
+| Archives | 82% |
 | Sessions/history | 70% |
 | Configuration | 75% |
 | WASM | 52% |
@@ -260,8 +260,9 @@ The Rust core also provides bounded `ar -rcs`/`ar t`/`ar x` member archives,
 zip -r ARCHIVE FILE ..., unzip ARCHIVE [DESTINATION], unzip -l ARCHIVE
 [MEMBER ...], or unzip ARCHIVE -d DESTINATION [MEMBER ...], tar -cf/-tf/-xf ARCHIVE,
 gzip FILE ..., gunzip FILE.gz ..., compress FILE ..., and uncompress FILE.Z ...
-commands. `ar` stores regular files with short member names and does not emit
-symbol tables. ZIP uses stored or Deflate ZIP32 entries through the VFS, verifies
+commands. `ar` stores regular files with bounded member names up to 255 bytes,
+encodes longer names with BSD extended records, and reads common external
+symbol-index records without emitting symbol tables. ZIP uses stored or Deflate ZIP32 entries through the VFS, verifies
 CRC32, accepts validated data descriptors before extraction, and supports
 bounded member listing with `-l` plus member filters with `-d`. Tar uses UTF-8
 USTAR entries with long names split across the standard name/prefix fields;

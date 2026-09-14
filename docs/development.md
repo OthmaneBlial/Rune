@@ -149,8 +149,8 @@ The `ar` integration test verifies binary-safe regular-file members, `-rcs`
 creation, full and filtered listing, extraction, preflight refusal to overwrite
 existing members, and no partial extraction when a later destination conflicts;
 symbol-index generation, GNU long-name-table, and linker compatibility remain
-unverified; common external symbol-index and BSD extended-name records are
-ignored or decoded while reading.
+unverified; common external symbol-index records are ignored, BSD extended-name
+records are decoded, and Rune-created names above 15 bytes use that BSD form.
 The `xargs` tests verify bounded whitespace and NUL splitting, batch sizing,
 empty-input suppression, safe quoting, and execution through the ordinary Rust
 command planner; full platform-specific xargs compatibility remains unverified.
