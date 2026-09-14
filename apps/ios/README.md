@@ -81,9 +81,10 @@ The Rust session additionally maintains a bounded cursor-grid snapshot with
 split-chunk CSI/OSC parsing, cursor addressing, scrolling, and character
 erasure. `RuneFFISession.terminalSnapshot` and
 `RuneFFISession.terminalCursorPosition` expose the visible text and caret
-position through the C ABI; the current Swift transcript remains the active
-line-oriented presentation until an Apple-rendered terminal surface can be
-validated.
+position through the C ABI. The terminal view can switch to a source-only
+Rust screen surface that draws this bounded text and caret; the styled,
+line-oriented transcript remains the default, and Apple runtime rendering
+still needs validation.
 
 `RuneFFISession.cancel()` forwards a cooperative cancellation request to Rust;
 the next command boundary returns status 130. It is a cancellation signal, not

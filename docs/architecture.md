@@ -265,8 +265,9 @@ In parallel, `rune-core` maintains a bounded cursor grid with streaming
 CSI/OSC parsing, cursor addressing, scrolling, and character/line erasure;
 `rune_session_terminal_snapshot` and `rune_session_terminal_cursor` expose
 its visible text and zero-based caret position through the C ABI.
-The existing Swift transcript remains the active presentation until a native
-terminal surface can be validated on Apple.
+The Swift terminal view can switch to a source-only screen surface that draws
+that state; the styled line-oriented transcript remains the default until the
+native surface is validated on Apple.
 
 The terminal view also declares native keyboard shortcuts for folder import,
 cooperative cancellation, history navigation, reverse history search, command

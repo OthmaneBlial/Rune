@@ -60,6 +60,8 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var isExecuting = false
     @Published public private(set) var historyMatches: [String] = []
     @Published public private(set) var completionSelection: Int? = nil
+    @Published public private(set) var terminalSnapshot = ""
+    @Published public private(set) var terminalCursorPosition = (row: 0, column: 0)
 
     private var session: RuneFFISession?
     private var scopedFolder: RuneScopedFolder?
@@ -103,6 +105,7 @@ public final class RuneTerminalModel: ObservableObject {
                 history = restoredSession.history()
                 append(restoredSession.takeStartupOutput())
                 refreshConfiguration()
+                refreshTerminalState(from: restoredSession)
                 return
             } catch {
                 scope.stopAccessing()
@@ -132,6 +135,9 @@ public final class RuneTerminalModel: ObservableObject {
                 }
             }
             refreshConfiguration()
+            if let session {
+                refreshTerminalState(from: session)
+            }
         } catch {
             session = nil
             initializationError = error.localizedDescription
@@ -208,6 +214,7 @@ public final class RuneTerminalModel: ObservableObject {
             initializationError = nil
             append(nextSession.takeStartupOutput())
             refreshConfiguration()
+            refreshTerminalState(from: nextSession)
             previousScope?.stopAccessing()
         } catch {
             scope.stopAccessing()
@@ -379,6 +386,7 @@ public final class RuneTerminalModel: ObservableObject {
         currentDirectory = session.currentDirectory
         history = session.history()
         refreshConfiguration()
+        refreshTerminalState(from: session)
         isExecuting = false
         executionTask = nil
     }
@@ -508,6 +516,16 @@ public final class RuneTerminalModel: ObservableObject {
         trimTranscript()
     }
 
+    private func refreshTerminalState(from session: RuneFFISession? = nil) {
+        guard let session = session ?? self.session else {
+            terminalSnapshot = ""
+            terminalCursorPosition = (row: 0, column: 0)
+            return
+        }
+        terminalSnapshot = session.terminalSnapshot
+        terminalCursorPosition = session.terminalCursorPosition
+    }
+
     public func previousHistory() {
         guard !history.isEmpty else { return }
         let current = historyCursor ?? history.count
@@ -601,6 +619,7 @@ public struct RuneTerminalView: View {
     @State private var isShowingSettings = false
     @State private var isShowingHistorySearch = false
     @State private var historyQuery = ""
+    @State private var isShowingRustScreen = false
 
     public init(rootURL: URL? = nil, sessionID: String? = nil) {
         _model = StateObject(wrappedValue: RuneTerminalModel(rootURL: rootURL, sessionID: sessionID))
@@ -657,6 +676,23 @@ public struct RuneTerminalView: View {
                     .accessibilityLabel("Terminal settings")
                     .accessibilityHint("Configure terminal appearance and scrollback.")
                     .accessibilityIdentifier("rune.settings")
+                    Button {
+                        isShowingRustScreen.toggle()
+                    } label: {
+                        Image(systemName: isShowingRustScreen ? "list.bullet.rectangle" : "rectangle.on.rectangle")
+                            .font(.title3)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(palette.cyan)
+                    .accessibilityLabel(
+                        isShowingRustScreen ? "Show event transcript" : "Show Rust terminal screen"
+                    )
+                    .accessibilityHint(
+                        isShowingRustScreen
+                            ? "Switch to the styled event transcript."
+                            : "Show the bounded terminal screen maintained by Rust."
+                    )
+                    .accessibilityIdentifier("rune.terminalSurface")
                     if model.isExecuting {
                         Button {
                             model.cancel()
@@ -700,37 +736,50 @@ public struct RuneTerminalView: View {
                         .frame(height: 1)
                 }
 
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 9) {
-                            if let initializationError = model.initializationError {
-                                Text(initializationError)
-                                    .foregroundStyle(palette.error)
-                                    .textSelection(.enabled)
+                if isShowingRustScreen {
+                    RuneRustTerminalScreen(
+                        snapshot: model.terminalSnapshot,
+                        cursorPosition: model.terminalCursorPosition,
+                        fontSize: model.fontSize,
+                        foreground: palette.foreground,
+                        cursorColor: palette.cursorColor(named: model.cursorColor),
+                        cursorShape: model.cursorShape
+                    )
+                    .padding(18)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 9) {
+                                if let initializationError = model.initializationError {
+                                    Text(initializationError)
+                                        .foregroundStyle(palette.error)
+                                        .textSelection(.enabled)
+                                }
+                                ForEach(model.entries) { entry in
+                                    RuneANSIText(
+                                        segments: entry.ansiSegments,
+                                        defaultColor: color(for: entry.kind, palette: palette),
+                                        defaultBackground: palette.background
+                                    )
+                                        .font(terminalFont(size: model.fontSize))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .textSelection(.enabled)
+                                        .accessibilityElement(children: .ignore)
+                                        .accessibilityLabel(accessibilityLabel(for: entry.kind))
+                                        .accessibilityValue(Text(verbatim: entry.text))
+                                        .id(entry.id)
+                                }
                             }
-                            ForEach(model.entries) { entry in
-                                RuneANSIText(
-                                    segments: entry.ansiSegments,
-                                    defaultColor: color(for: entry.kind, palette: palette),
-                                    defaultBackground: palette.background
-                                )
-                                    .font(terminalFont(size: model.fontSize))
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .textSelection(.enabled)
-                                    .accessibilityElement(children: .ignore)
-                                    .accessibilityLabel(accessibilityLabel(for: entry.kind))
-                                    .accessibilityValue(Text(verbatim: entry.text))
-                                    .id(entry.id)
-                            }
+                            .padding(18)
                         }
-                        .padding(18)
-                    }
-                    .accessibilityIdentifier("rune.transcript")
-                    .scrollDismissesKeyboard(.interactively)
-                    .onChange(of: model.entries.count) { _, _ in
-                        if let last = model.entries.last {
-                            withAnimation(.easeOut(duration: 0.15)) {
-                                proxy.scrollTo(last.id, anchor: .bottom)
+                        .accessibilityIdentifier("rune.transcript")
+                        .scrollDismissesKeyboard(.interactively)
+                        .onChange(of: model.entries.count) { _, _ in
+                            if let last = model.entries.last {
+                                withAnimation(.easeOut(duration: 0.15)) {
+                                    proxy.scrollTo(last.id, anchor: .bottom)
+                                }
                             }
                         }
                     }
@@ -951,6 +1000,86 @@ public struct RuneTerminalView: View {
         default: design = .monospaced
         }
         return .system(size: size, design: design)
+    }
+}
+
+private struct RuneRustTerminalScreen: View {
+    let snapshot: String
+    let cursorPosition: (row: Int, column: Int)
+    let fontSize: CGFloat
+    let foreground: Color
+    let cursorColor: Color
+    let cursorShape: String
+
+    private var characterWidth: CGFloat {
+        max(fontSize * 0.602, 1)
+    }
+
+    private var lineHeight: CGFloat {
+        max(fontSize * 1.25, 1)
+    }
+
+    private var lineCount: Int {
+        max(
+            snapshot.split(separator: "\n", omittingEmptySubsequences: false).count,
+            cursorPosition.row + 1
+        )
+    }
+
+    private var longestLineLength: Int {
+        snapshot
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(\.count)
+            .max() ?? 0
+    }
+
+    private var caretWidth: CGFloat {
+        cursorShape == "block" ? characterWidth : (cursorShape == "underline" ? characterWidth : 2)
+    }
+
+    private var caretHeight: CGFloat {
+        cursorShape == "underline" ? 2 : lineHeight
+    }
+
+    private var caretOpacity: Double {
+        cursorShape == "block" ? 0.42 : 0.95
+    }
+
+    var body: some View {
+        ScrollView([.vertical, .horizontal]) {
+            ZStack(alignment: .topLeading) {
+                Text(verbatim: snapshot.isEmpty ? " " : snapshot)
+                    .font(.system(size: fontSize, design: .monospaced))
+                    .foregroundStyle(foreground)
+                    .fixedSize(horizontal: true, vertical: true)
+                    .textSelection(.enabled)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Rust terminal screen")
+                    .accessibilityValue(Text(verbatim: snapshot.isEmpty ? "Empty" : snapshot))
+
+                Rectangle()
+                    .fill(cursorColor.opacity(caretOpacity))
+                    .frame(width: caretWidth, height: caretHeight)
+                    .offset(
+                        x: CGFloat(cursorPosition.column) * characterWidth,
+                        y: CGFloat(cursorPosition.row) * lineHeight
+                            + (cursorShape == "underline" ? lineHeight - 2 : 0)
+                    )
+                    .allowsHitTesting(false)
+            }
+            .frame(
+                minWidth: max(CGFloat(longestLineLength + cursorPosition.column + 1) * characterWidth, 1),
+                minHeight: CGFloat(lineCount) * lineHeight,
+                alignment: .topLeading
+            )
+            .padding(2)
+        }
+        .accessibilityIdentifier("rune.rustTerminalScreen")
+        .accessibilityLabel("Rust terminal screen")
+        .accessibilityValue(
+            Text("Cursor row \(cursorPosition.row + 1), column \(cursorPosition.column + 1)")
+        )
+        .scrollDismissesKeyboard(.interactively)
     }
 }
 

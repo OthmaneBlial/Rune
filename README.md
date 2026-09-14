@@ -205,10 +205,10 @@ underline, and inverse output. Common carriage-return, backspace, and
 erase-line controls are normalized for progress-style output. Rust now also
 maintains a bounded cursor grid with split-chunk CSI/OSC parsing, cursor
 addressing, scrolling, character insertion/deletion, and `J`/`K` erasure;
-the native bridge exposes its visible snapshot. Swift still uses its
-visible snapshot and zero-based cursor position. Swift still uses its
-line-oriented styled transcript, so full xterm/terminal emulation remains
-intentionally deferred.
+the native bridge exposes its visible snapshot and zero-based cursor position.
+Swift defaults to its
+line-oriented styled transcript and also offers a source-only Rust screen view
+with a caret; full xterm/terminal emulation remains intentionally deferred.
 Interactive `export`, `setenv`, and assignment lines are replaced by a
 redaction marker in history before persistence when the Rust-owned
 `history-redaction` setting is enabled. It is enabled by default and remains a
@@ -614,6 +614,7 @@ result.
 ### Phase 4 — Apple integration
 
 - [x] Source-level lazy terminal transcript with cached ANSI spans
+- [x] Source-only Rust terminal screen view with Rust-owned caret position
 - [x] Source-only external folders and bounded security-scoped bookmarks
 - [x] Explicit host URL/file opening capability with bounded open/openurl
 - [x] Rust-namespaced sessions and source-only terminal tabs
