@@ -162,6 +162,14 @@ For a clean repeatable example and a persistence round trip:
 ./scripts/demo.sh
 ~~~
 
+### Download
+
+The [alpha.7 release](https://github.com/OthmaneBlial/Rune/releases/tag/v0.1.0-alpha.7)
+includes a verified **macOS arm64** `rune-cli` archive for the portable Rust
+surface. Verify it with the published
+[SHA256SUMS file](dist/SHA256SUMS-v0.1.0-alpha.7.txt). It is not an iOS
+application, simulator build, or signed Apple package.
+
 The CLI also exposes its release identity without creating a session:
 
 ~~~bash
