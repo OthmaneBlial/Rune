@@ -10,7 +10,7 @@ for a-Shell.
 
 ## Development Progress
 
-**Overall progress: 58%**
+**Overall progress: 59%**
 
 This is an engineering estimate of the product path toward a validated iPhone
 and iPad terminal, not a percentage of lines of code. Portable Rust behavior is
@@ -29,7 +29,7 @@ this disk-constrained workspace.
 | SwiftUI/UIKit source boundary | 38% |
 | WASM, scripting, and toolchain runtimes | 28% |
 | Direct a-Shell comparison | 5% |
-| Apple runtime, packaging, and release validation | 18% |
+| Apple runtime, packaging, and release validation | 22% |
 
 <p align="center">
   <a href="https://othmaneblial.github.io/Rune/"><img src="https://img.shields.io/badge/project_site-Rune-e85d2a?style=flat-square" alt="Rune project site"></a>
