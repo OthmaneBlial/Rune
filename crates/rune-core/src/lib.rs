@@ -2022,7 +2022,10 @@ fn plan_contains_environment_setter(plan: &ExecutionPlan, depth: usize) -> bool 
 fn plan_contains_network_request(plan: &ExecutionPlan, depth: usize) -> bool {
     plan.pipelines.iter().any(|pipeline| {
         pipeline.commands.iter().any(|command| {
-            if command.program.literal_value().as_deref() == Some("curl") {
+            if matches!(
+                command.program.literal_value().as_deref(),
+                Some("curl" | "nslookup")
+            ) {
                 return true;
             }
             (command.program.literal_value().as_deref() == Some("pkg")
@@ -2458,6 +2461,110 @@ mod tests {
             .execute_line("curl https://example.test");
         assert_eq!(disabled.status, 1);
         assert!(disabled.stderr.contains("network provider is unavailable"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn routes_nslookup_through_doh_and_redacts_the_query_from_history() {
+        let root = test_root();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let server = "https://resolver.example.test/dns-query";
+        let query_url = format!("{server}?name=example.com&type=AAAA");
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        session.set_network_provider(Box::new(RoutingNetworkProvider {
+            requests: Arc::clone(&requests),
+            routes: vec![(
+                query_url,
+                NetworkResponse {
+                    status_code: 200,
+                    body: br#"{
+                            "Status": 0,
+                            "Answer": [
+                                {"name":"example.com.","type":28,"TTL":60,"data":"2001:db8::1"},
+                                {"name":"example.com.","type":28,"TTL":60,"data":"2001:db8::2"}
+                            ]
+                        }"#
+                    .to_vec(),
+                },
+            )],
+        }));
+
+        let resolved = session.execute_line(&format!(
+            "nslookup --server {server} -type=AAAA example.com"
+        ));
+        assert_eq!(resolved.status, 0, "{resolved:?}");
+        assert_eq!(resolved.stdout, "2001:db8::1\n2001:db8::2\n");
+        assert_eq!(
+            session.history().last().map(String::as_str),
+            Some("[redacted network command]")
+        );
+
+        let recorded = requests.lock().expect("request log lock");
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].method, NetworkMethod::Get);
+        assert_eq!(
+            recorded[0].url,
+            format!("{server}?name=example.com&type=AAAA")
+        );
+        assert_eq!(
+            recorded[0].headers,
+            [("Accept".to_string(), "application/dns-json".to_string())]
+        );
+        assert!(recorded[0].body.is_empty());
+        drop(recorded);
+
+        let invalid_type = session.execute_line("nslookup -type=HTTPS example.com");
+        assert_eq!(invalid_type.status, 2);
+        assert!(invalid_type
+            .stderr
+            .contains("unsupported record type HTTPS"));
+        let invalid_server =
+            session.execute_line("nslookup --server http://resolver.test example.com");
+        assert_eq!(invalid_server.status, 2);
+        assert!(invalid_server.stderr.contains("must use an https://"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn reports_dns_status_and_empty_answers_without_exposing_response_json() {
+        let root = test_root();
+        let server = "https://resolver.example.test/dns-query";
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        session.set_network_provider(Box::new(RoutingNetworkProvider {
+            requests: Arc::new(Mutex::new(Vec::new())),
+            routes: vec![
+                (
+                    format!("{server}?name=missing.example&type=A"),
+                    NetworkResponse {
+                        status_code: 200,
+                        body: br#"{"Status":3,"Comment":"private resolver detail"}"#.to_vec(),
+                    },
+                ),
+                (
+                    format!("{server}?name=empty.example&type=A"),
+                    NetworkResponse {
+                        status_code: 200,
+                        body: br#"{"Status":0,"Answer":[]}"#.to_vec(),
+                    },
+                ),
+            ],
+        }));
+
+        let dns_error =
+            session.execute_line(&format!("nslookup --server {server} missing.example"));
+        assert_eq!(dns_error.status, 1);
+        assert_eq!(
+            dns_error.stderr,
+            "nslookup: resolver returned DNS status 3 for missing.example\n"
+        );
+        assert!(!dns_error.stderr.contains("private resolver detail"));
+
+        let empty = session.execute_line(&format!("nslookup --server {server} empty.example"));
+        assert_eq!(empty.status, 1);
+        assert_eq!(
+            empty.stderr,
+            "nslookup: no A records found for empty.example\n"
+        );
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

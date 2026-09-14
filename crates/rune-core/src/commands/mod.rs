@@ -123,6 +123,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: network::curl,
     },
     CommandDefinition {
+        name: "nslookup",
+        summary: "resolve a bounded DNS name through host DNS-over-HTTPS",
+        handler: network::nslookup,
+    },
+    CommandDefinition {
         name: "deletemark",
         summary: "remove one or more saved directory names",
         handler: bookmarks::deletemark,

@@ -479,10 +479,14 @@ public per-instruction interrupt budget is available in RustPython.
 HTTP is a separate explicit capability rather than an ambient core service.
 The Rust `curl` command validates the URL, method, headers, request body, HTTP
 failure policy, and output destination before invoking a `NetworkProvider`.
-Sessions default to a disabled provider; the Apple source adapter supplies a
-bounded synchronous `URLSession` callback that fills a Rust-owned response
-buffer. This keeps network and WASM capabilities separate and leaves ATS,
-TLS, redirects, and Apple runtime validation as explicit gates.
+`nslookup` uses the same capability for a bounded, non-interactive
+DNS-over-HTTPS request: it validates the DNS name, record type, HTTPS endpoint,
+and JSON response, then emits only validated answer data. Neither command opens
+sockets in the Rust core. Sessions default to a disabled provider; the Apple
+source adapter supplies a bounded synchronous `URLSession` callback that fills
+a Rust-owned response buffer. This keeps network and WASM capabilities
+separate and leaves ATS, TLS, redirects, and Apple runtime validation as
+explicit gates.
 
 External application opening is a separate OpenProvider capability. The Rust
 openurl command allows only bounded http, https, mailto, tel, sms, and
