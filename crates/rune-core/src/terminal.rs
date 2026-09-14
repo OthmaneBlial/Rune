@@ -304,7 +304,9 @@ impl TerminalScreen {
             'C' | 'a' => {
                 self.cursor_column = self.cursor_column.saturating_add(count()).min(self.columns);
             }
+            'I' => self.cursor_forward_tab(count()),
             'D' => self.cursor_column = self.cursor_column.saturating_sub(count()),
+            'Z' => self.cursor_backward_tab(count()),
             'E' => {
                 self.cursor_down(count());
                 self.cursor_column = 0;
@@ -387,6 +389,23 @@ impl TerminalScreen {
             self.rows - 1
         };
         self.cursor_row = self.cursor_row.saturating_add(amount).min(limit);
+    }
+
+    fn cursor_forward_tab(&mut self, amount: usize) {
+        for _ in 0..amount {
+            let next = ((self.cursor_column / 8) + 1) * 8;
+            self.cursor_column = next.min(self.columns);
+        }
+    }
+
+    fn cursor_backward_tab(&mut self, amount: usize) {
+        for _ in 0..amount {
+            self.cursor_column = if self.cursor_column == 0 {
+                0
+            } else {
+                ((self.cursor_column - 1) / 8) * 8
+            };
+        }
     }
 
     fn scroll_region_up(&mut self) {
@@ -593,6 +612,17 @@ mod tests {
         screen.feed("abcdef\x1b[1;3H\x1b[2X");
         assert_eq!(screen.snapshot(), "ab  ef");
         assert_eq!(screen.cursor_position(), (0, 2));
+    }
+
+    #[test]
+    fn moves_between_bounded_eight_column_tab_stops() {
+        let mut screen = TerminalScreen::new(24, 2);
+        screen.feed("\x1b[1;2H\x1b[2I");
+        assert_eq!(screen.cursor_position(), (0, 16));
+        screen.feed("\x1b[1Z");
+        assert_eq!(screen.cursor_position(), (0, 8));
+        screen.feed("\x1b[9Z");
+        assert_eq!(screen.cursor_position(), (0, 0));
     }
 
     #[test]

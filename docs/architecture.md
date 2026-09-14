@@ -286,7 +286,8 @@ Apple frame-time and device-memory measurements remain unverified.
 
 In parallel, `rune-core` maintains a bounded cursor grid with streaming
 CSI/OSC parsing, cursor addressing, bounded scroll regions, line
-insertion/deletion, region scrolling, and character/line erasure;
+insertion/deletion, region scrolling, character/line erasure, and bounded
+eight-column forward/backward tab stops (`CSI I`/`CSI Z`);
 `rune_session_terminal_snapshot` and `rune_session_terminal_cursor` expose
 its visible text and zero-based caret position through the C ABI.
 The source-only native surface measures its viewport and calls
