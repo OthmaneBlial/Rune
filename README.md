@@ -137,7 +137,9 @@ control-flow nesting is capped at 16 levels. Multiline `case WORD in` branches
 support exact patterns, `*`/`?`, and simple `|` alternatives; POSIX character
 classes, functions, and one-line control-flow bodies remain outside this
 subset. `while` and `until` stop after at most 1,024 body iterations and
-return a bounded status-2 error if the limit is reached.
+return a bounded status-2 error if the limit is reached. Loop bodies can use
+argument-free `break` and `continue`; they are rejected outside a Rust-planned
+loop and do not leak through `sh -c` command substitutions.
 `type` complements `which` by describing aliases, Rust built-ins, installed
 package commands, and missing names without exposing host executables.
 `command -v` and `command -V` provide the same bounded discovery for scripts;
@@ -514,6 +516,7 @@ result.
 - [x] Bounded multiline `if`/`elif`/`else` branches in Rust-planned scripts
 - [x] Bounded multiline `while`/`until` loops in Rust-planned scripts
 - [x] Bounded multiline `case` branches in Rust-planned scripts
+- [x] Bounded `break`/`continue` loop controls in Rust-planned scripts
 - [x] Cooperative command cancellation boundary, including cancellable `sleep`
 - [x] `&&` and `||` conditional chaining
 - [x] Bounded recursive `find` traversal with type/depth filters

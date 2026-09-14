@@ -50,6 +50,18 @@ pub(super) fn pwd(context: &mut CommandContext<'_>) -> CommandOutput {
     CommandOutput::success(format!("{}\n", context.fs.current_dir_display()))
 }
 
+/// Loop control is dispatched by the session so it can stop the current
+/// Rust-planned loop without encoding control state into command output.
+pub(super) fn break_command(_context: &mut CommandContext<'_>) -> CommandOutput {
+    usage("break", "usage: break")
+}
+
+/// Loop control is dispatched by the session so it can skip the current
+/// Rust-planned iteration without starting a host shell.
+pub(super) fn continue_command(_context: &mut CommandContext<'_>) -> CommandOutput {
+    usage("continue", "usage: continue")
+}
+
 pub(super) fn uname(context: &mut CommandContext<'_>) -> CommandOutput {
     let mut selected = Vec::new();
     for argument in context.args {

@@ -314,6 +314,12 @@ struct ScriptExecutionContext<'a> {
     sink: &'a mut dyn EventSink,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoopControl {
+    Break,
+    Continue,
+}
+
 impl<'a> TrackingEventSink<'a> {
     fn new(sink: &'a mut dyn EventSink) -> Self {
         Self {
@@ -423,6 +429,8 @@ pub struct Session {
     open_provider: Box<dyn OpenProvider>,
     cancellation_requested: Arc<AtomicBool>,
     command_substitution_depth: usize,
+    loop_depth: usize,
+    loop_control: Option<LoopControl>,
     state_session_id: Option<String>,
     script_parameters: Vec<String>,
 }
@@ -459,6 +467,8 @@ impl Session {
             open_provider: Box::new(DisabledOpenProvider),
             cancellation_requested: Arc::new(AtomicBool::new(false)),
             command_substitution_depth: 0,
+            loop_depth: 0,
+            loop_control: None,
             state_session_id: None,
             script_parameters: Vec::new(),
         };
@@ -975,6 +985,9 @@ impl Session {
                     if output.status == CANCELLED_STATUS {
                         break;
                     }
+                    if self.loop_control.is_some() {
+                        break;
+                    }
                     continue;
                 }
                 Ok(None) => {}
@@ -1000,6 +1013,9 @@ impl Session {
             output.status = line_output.status;
             limit_output(&mut output);
             line_index += 1;
+            if self.loop_control.is_some() {
+                break;
+            }
         }
         output
     }
@@ -1107,6 +1123,7 @@ impl Session {
             }
         }
 
+        self.loop_depth += 1;
         for (index, value) in values.into_iter().enumerate() {
             if let Some(cancellation) = self.take_cancellation() {
                 output.stderr.push_str(&cancellation.stderr);
@@ -1134,7 +1151,12 @@ impl Session {
             if output.status == CANCELLED_STATUS {
                 break;
             }
+            match self.loop_control.take() {
+                Some(LoopControl::Break) => break,
+                Some(LoopControl::Continue) | None => {}
+            }
         }
+        self.loop_depth -= 1;
         self.last_status = output.status;
         output
     }
@@ -1147,6 +1169,7 @@ impl Session {
     ) -> CommandOutput {
         let mut output = CommandOutput::success("");
         let mut iterations = 0;
+        self.loop_depth += 1;
         loop {
             if let Some(cancellation) = self.take_cancellation() {
                 output.stderr.push_str(&cancellation.stderr);
@@ -1166,6 +1189,11 @@ impl Session {
             );
             output.stdout.push_str(&condition.stdout);
             output.stderr.push_str(&condition.stderr);
+            match self.loop_control.take() {
+                Some(LoopControl::Break) => break,
+                Some(LoopControl::Continue) => continue,
+                None => {}
+            }
             let condition_succeeded = condition.status == 0;
             let should_execute = if header.until {
                 !condition_succeeded
@@ -1211,7 +1239,12 @@ impl Session {
             if output.status == CANCELLED_STATUS {
                 break;
             }
+            match self.loop_control.take() {
+                Some(LoopControl::Break) => break,
+                Some(LoopControl::Continue) | None => {}
+            }
         }
+        self.loop_depth -= 1;
         limit_output(&mut output);
         self.last_status = output.status;
         output
@@ -1607,6 +1640,7 @@ impl Session {
         sink: &mut dyn EventSink,
     ) -> CommandOutput {
         match program {
+            "break" | "continue" => self.execute_loop_control(program, arguments),
             "source" | "." => self.execute_source(
                 program,
                 arguments,
@@ -1642,6 +1676,21 @@ impl Session {
                 sink,
             ),
         }
+    }
+
+    fn execute_loop_control(&mut self, command: &str, arguments: &[String]) -> CommandOutput {
+        if !arguments.is_empty() {
+            return usage(command, &format!("usage: {command}"));
+        }
+        if self.loop_depth == 0 {
+            return CommandOutput::failure(2, format!("{command}: only valid inside a loop\n"));
+        }
+        self.loop_control = Some(if command == "break" {
+            LoopControl::Break
+        } else {
+            LoopControl::Continue
+        });
+        CommandOutput::success("")
     }
 
     fn execute_registered_or_installed(
@@ -1718,6 +1767,9 @@ impl Session {
         if xargs_command {
             return self.execute_xargs(command_arguments, external_stdin, source_depth, sink);
         }
+        if matches!(program.as_str(), "break" | "continue") {
+            return self.execute_loop_control(program, command_arguments);
+        }
         if let Some(handler) = self.registry.find(program) {
             return self.execute_builtin(command_arguments, external_stdin, handler);
         }
@@ -1773,6 +1825,9 @@ impl Session {
         parameters.push(name);
         parameters.extend(arguments.iter().skip(3).cloned());
         let previous_parameters = std::mem::replace(&mut self.script_parameters, parameters);
+        let previous_loop_depth = self.loop_depth;
+        let previous_loop_control = self.loop_control.take();
+        self.loop_depth = 0;
         let output = self.execute_script_internal(
             script,
             record_history,
@@ -1781,6 +1836,8 @@ impl Session {
             sink,
         );
         self.script_parameters = previous_parameters;
+        self.loop_depth = previous_loop_depth;
+        self.loop_control = previous_loop_control;
         output
     }
 
@@ -1910,11 +1967,16 @@ impl Session {
         let previous_status = self.last_status;
         let previous_parameters = self.script_parameters.clone();
         let previous_depth = self.command_substitution_depth;
+        let previous_loop_depth = self.loop_depth;
+        let previous_loop_control = self.loop_control.take();
 
         self.command_substitution_depth += 1;
+        self.loop_depth = 0;
         let mut sink = NoopEventSink;
         let mut output = self.execute_plan(&plan, false, source_depth, "", &mut sink);
         self.command_substitution_depth = previous_depth;
+        self.loop_depth = previous_loop_depth;
+        self.loop_control = previous_loop_control;
         let _ = self.filesystem.change_dir(&previous_directory);
         self.environment = previous_environment;
         self.aliases = previous_aliases;
@@ -5301,6 +5363,28 @@ mod tests {
             "counter=0\nwhile test \"$counter\" -lt 1; do\nexport counter=1\nfalse\ndone",
         );
         assert_eq!(failed_body.status, 1, "{failed_body:?}");
+
+        let continued = session.execute_script(
+            "for item in one two three; do\nif test \"$item\" = two; then\ncontinue\nfi\necho \"$item\"\ndone",
+        );
+        assert_eq!(continued.status, 0, "{continued:?}");
+        assert_eq!(continued.stdout, "one\nthree\n");
+
+        let stopped = session.execute_script(
+            "for item in one two three; do\nif test \"$item\" = two; then\nbreak\nfi\necho \"$item\"\ndone",
+        );
+        assert_eq!(stopped.status, 0, "{stopped:?}");
+        assert_eq!(stopped.stdout, "one\n");
+
+        let outside = session.execute_script("break");
+        assert_eq!(outside.status, 2);
+        assert!(outside.stderr.contains("only valid inside a loop"));
+
+        let isolated_shell =
+            session.execute_script("for item in one; do\nsh -c 'break'\necho after\ndone");
+        assert_eq!(isolated_shell.status, 0, "{isolated_shell:?}");
+        assert_eq!(isolated_shell.stdout, "after\n");
+        assert!(isolated_shell.stderr.contains("only valid inside a loop"));
 
         let until_output = session.execute_script(
             "counter=1\nuntil test \"$counter\" -eq 0; do\necho once\nexport counter=0\ndone\nif false; then\necho wrong\nfi",

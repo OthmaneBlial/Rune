@@ -114,7 +114,9 @@ missing closing markers. Multiline `while`/`until` tests cover state changes,
 body status, and the 1,024-iteration limit; control-flow depth is bounded,
 and case tests cover exact patterns, wildcards, alternatives, and unmatched
 selectors. Functions and one-line control-flow bodies remain outside the
-bounded grammar.
+bounded grammar. Loop-control tests cover `break`, `continue`, rejection
+outside loops, and isolation across `sh -c`; argument-bearing loop controls
+remain unsupported.
 Shell parser tests cover quoted and nested `$(...)` forms and unclosed
 substitution rejection. The core integration test covers stdout capture,
 trailing-newline removal, nested substitutions, redirection targets, and

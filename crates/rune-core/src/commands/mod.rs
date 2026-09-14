@@ -65,6 +65,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: utilities::basename,
     },
     CommandDefinition {
+        name: "break",
+        summary: "leave the current bounded script loop",
+        handler: shell::break_command,
+    },
+    CommandDefinition {
         name: "realpath",
         summary: "print the confined canonical path of an existing file",
         handler: utilities::realpath,
@@ -133,6 +138,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "config",
         summary: "inspect or change Rust-owned session settings",
         handler: config::config,
+    },
+    CommandDefinition {
+        name: "continue",
+        summary: "skip the current bounded script loop iteration",
+        handler: shell::continue_command,
     },
     CommandDefinition {
         name: "curl",

@@ -185,7 +185,9 @@ condition/body path and stop after 1,024 body iterations. `case`, functions,
 and one-line loop bodies remain outside the subset. Multiline `case WORD in`
 branches support exact patterns, `*`/`?`, and simple `|` alternatives through a
 Rust-owned matcher; character classes and other POSIX pattern forms remain
-outside the profile.
+outside the profile. Argument-free `break` and `continue` are session control
+signals consumed by the innermost Rust-planned loop; command substitutions and
+`sh -c` executions isolate those signals from their caller.
 
 The Apple source layer declares command, script, and named-session command App
 Intents that construct a normal `RuneFFISession` rooted at the app Documents
