@@ -90,9 +90,13 @@ configuration, history, status, and script parameters.
 
 Session persistence is explicit and intentionally narrow: the legacy/default
 session stores the virtual working directory, command history, and bounded
-bookmarks in `~/.rune/session.state`. Named sessions use
-`~/.rune/sessions/{id}/session.state` instead, so tabs can restore independent
-cwd/history/bookmark state without sharing records. Session IDs are opaque,
+bookmarks in `~/.rune/session.state`. A separate `~/.rune/terminal.state`
+stores only a bounded recent visible-text window and zero-based cursor
+position. Named sessions use matching `session.state` and `terminal.state`
+files below `~/.rune/sessions/{id}/`, so tabs can restore independent
+cwd/history/bookmark/terminal state without sharing records. Styles, scroll
+margins, and incomplete control sequences are intentionally not persisted.
+Session IDs are opaque,
 validated names of at most 64 ASCII alphanumeric, `_`, `-`, or `.` characters;
 they are never resolved as filesystem input. Environment variables are
 reconstructed for every session by default and are never serialized unless

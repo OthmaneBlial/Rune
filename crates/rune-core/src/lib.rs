@@ -600,6 +600,9 @@ impl Session {
             session.filesystem.as_ref(),
             session.state_session_id.as_deref(),
         );
+        if let Some(terminal) = state.terminal.as_ref() {
+            session.terminal_screen.restore_persisted_state(terminal);
+        }
         session.load_startup_profile();
         session.history = state.history;
         session.apply_history_limit();
@@ -669,7 +672,8 @@ impl Session {
         Arc::clone(&self.cancellation_requested)
     }
 
-    /// Persists the current virtual directory, history, and bookmarks.
+    /// Persists the current virtual directory, history, bookmarks, and a
+    /// bounded text-only terminal screen snapshot.
     /// User-defined environment values are included only when the explicit
     /// `environment-persistence` setting is enabled.
     ///
@@ -683,12 +687,14 @@ impl Session {
             .config
             .environment_persistence()
             .then_some(&self.environment);
+        let terminal = self.terminal_screen.persisted_state();
         persistence::save(
             self.filesystem.as_mut(),
             &directory,
             &self.history,
             &self.bookmarks,
             persisted_environment,
+            &terminal,
             self.state_session_id.as_deref(),
         )?;
         self.config.save(self.filesystem.as_mut())
@@ -4323,6 +4329,22 @@ mod tests {
             restored.history().last().map(String::as_str),
             Some("cat moved/nested/value.txt")
         );
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn persists_and_restores_the_bounded_terminal_screen() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let output = session.execute_line("printf 'stale\r\u{1b}[2Kready'");
+        assert_eq!(output.status, 0);
+        assert_eq!(session.terminal_snapshot(), "ready");
+        assert_eq!(session.terminal_cursor_position(), (0, 5));
+        session.persist().expect("terminal state persisted");
+
+        let restored = Session::restore(SandboxedFileSystem::new(&root).expect("root reopened"));
+        assert_eq!(restored.terminal_snapshot(), "ready");
+        assert_eq!(restored.terminal_cursor_position(), (0, 5));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

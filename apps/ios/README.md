@@ -128,8 +128,12 @@ the Apple toolchain.
 
 The Rust handle restores and persists the virtual working directory, typed
 command history, and bounded bookmarks in `~/.rune/session.state` inside the
-configured sandbox. User-defined environment persistence is disabled by
-default; `config set environment-persistence true` enables its bounded,
+configured sandbox. It also stores a separate bounded text-only terminal
+snapshot and zero-based caret position in `~/.rune/terminal.state`; named
+sessions use the matching `sessions/{id}/` directory. Styles, scroll margins,
+and incomplete control sequences are intentionally not persisted. User-defined
+environment persistence is disabled by default; enabling the
+`environment-persistence` setting enables its bounded,
 explicitly opt-in state records while excluding core directory/runtime
 variables. It may store exported values and is not a secret store.
 FFI command and script calls flush that state before returning, while handle

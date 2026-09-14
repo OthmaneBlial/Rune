@@ -229,8 +229,11 @@ available. Environment restoration is opt-in: `environment-persistence` is
 false by default, and enabling it persists only bounded user-defined variables;
 `HOME`, `PATH`, `RUNE_VERSION`, `TERM`, `PWD`, and `OLDPWD` are never restored
 from session state. The explicit opt-in can still store exported values, so it
-must not be enabled for secrets. Broader terminal-state and scene recovery
-remain planned.
+must not be enabled for secrets. A separate bounded `terminal.state` stores
+the recent visible text window and zero-based cursor position for the default
+session or its named-session equivalent; it intentionally excludes styles,
+scroll margins, and incomplete control sequences. Broader terminal-state and
+scene recovery remain planned.
 The bounded Python, Lua 5.4, and JavaScript providers are implemented in Rust.
 Python supports sandbox files plus `python3 -c CODE` and `python3 -` stdin
 entry points. It intentionally starts with a finite, tested subset: host
@@ -570,6 +573,7 @@ result.
 - [x] Bounded regular-expression `sed` substitutions
 - [x] Bounded terminal output channels
 - [x] Rust-owned bounded terminal cursor grid and ANSI screen snapshot
+- [x] Bounded text-only terminal screen persistence
 - [x] Session-local virtual directory bookmarks
 - [x] Bounded portable utility commands
 - [x] Bounded long-format and human-readable `ls` metadata

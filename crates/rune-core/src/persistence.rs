@@ -2,12 +2,14 @@ use std::collections::BTreeMap;
 
 use rune_fs::{FsError, VirtualFileSystem};
 
+use super::terminal::PersistedTerminal;
 use super::{MAX_BOOKMARKS, MAX_BOOKMARK_BYTES};
 
 const STATE_DIRECTORY: &str = "~/.rune";
 const STATE_PATH: &str = "~/.rune/session.state";
 const SESSION_DIRECTORY: &str = "~/.rune/sessions";
 const STATE_HEADER: &str = "RUNE_SESSION_STATE_V1";
+const TERMINAL_STATE_HEADER: &str = "RUNE_TERMINAL_STATE_V1";
 pub(super) const MAX_HISTORY_ENTRIES: usize = 10_000;
 pub(super) const MAX_HISTORY_BYTES: usize = 4 * 1024 * 1024;
 pub(super) const MAX_ENVIRONMENT_ENTRIES: usize = 1_024;
@@ -15,6 +17,7 @@ pub(super) const MAX_ENVIRONMENT_BYTES: usize = 1024 * 1024;
 const MAX_ENVIRONMENT_NAME_BYTES: usize = 256;
 const MAX_SESSION_STATE_BYTES: usize =
     MAX_HISTORY_BYTES + MAX_BOOKMARK_BYTES + MAX_ENVIRONMENT_BYTES + 1_024;
+pub(super) const MAX_TERMINAL_STATE_BYTES: usize = 1024 * 1024;
 pub(super) const PROFILE_PATH: &str = "~/.rune_profile";
 const COMPAT_PROFILE_PATH: &str = "~/.profile";
 const COMPAT_BASHRC_PATH: &str = "~/.bashrc";
@@ -27,6 +30,7 @@ pub(super) struct SessionState {
     pub history: Vec<String>,
     pub bookmarks: BTreeMap<String, String>,
     pub environment: BTreeMap<String, String>,
+    pub terminal: Option<PersistedTerminal>,
 }
 
 pub(super) fn load(filesystem: &dyn VirtualFileSystem, session_id: Option<&str>) -> SessionState {
@@ -40,7 +44,9 @@ pub(super) fn load(filesystem: &dyn VirtualFileSystem, session_id: Option<&str>)
     let Ok(content) = String::from_utf8(bytes) else {
         return SessionState::default();
     };
-    parse(&content).unwrap_or_default()
+    let mut state = parse(&content).unwrap_or_default();
+    state.terminal = load_terminal(filesystem, session_id);
+    state
 }
 
 pub(super) fn save(
@@ -49,6 +55,7 @@ pub(super) fn save(
     history: &[String],
     bookmarks: &BTreeMap<String, String>,
     environment: Option<&BTreeMap<String, String>>,
+    terminal: &PersistedTerminal,
     session_id: Option<&str>,
 ) -> Result<(), FsError> {
     let (state_directory, state_path) = state_paths(session_id);
@@ -64,7 +71,17 @@ pub(super) fn save(
             message: format!("session state exceeds the {MAX_SESSION_STATE_BYTES}-byte limit"),
         });
     }
-    filesystem.write(&state_path, content.as_bytes(), false)
+    let terminal_path = terminal_state_paths(session_id).1;
+    let terminal_content = serialize_terminal(terminal);
+    if terminal_content.len() > MAX_TERMINAL_STATE_BYTES {
+        return Err(FsError::Io {
+            operation: "serialize terminal".to_string(),
+            path: terminal_path,
+            message: format!("terminal state exceeds the {MAX_TERMINAL_STATE_BYTES}-byte limit"),
+        });
+    }
+    filesystem.write(&state_path, content.as_bytes(), false)?;
+    filesystem.write(&terminal_path, terminal_content.as_bytes(), false)
 }
 
 pub(super) fn is_valid_session_id(session_id: &str) -> bool {
@@ -83,6 +100,32 @@ fn state_paths(session_id: Option<&str>) -> (String, String) {
         ),
         None => (STATE_DIRECTORY.to_string(), STATE_PATH.to_string()),
     }
+}
+
+fn terminal_state_paths(session_id: Option<&str>) -> (String, String) {
+    match session_id {
+        Some(session_id) => (
+            format!("{SESSION_DIRECTORY}/{session_id}"),
+            format!("{SESSION_DIRECTORY}/{session_id}/terminal.state"),
+        ),
+        None => (
+            STATE_DIRECTORY.to_string(),
+            "~/.rune/terminal.state".to_string(),
+        ),
+    }
+}
+
+fn load_terminal(
+    filesystem: &dyn VirtualFileSystem,
+    session_id: Option<&str>,
+) -> Option<PersistedTerminal> {
+    let (_, path) = terminal_state_paths(session_id);
+    let bytes = filesystem.read(&path).ok()?;
+    if bytes.len() > MAX_TERMINAL_STATE_BYTES {
+        return None;
+    }
+    let content = String::from_utf8(bytes).ok()?;
+    parse_terminal(&content)
 }
 
 pub(super) fn load_profile(filesystem: &dyn VirtualFileSystem) -> Result<Vec<String>, FsError> {
@@ -251,6 +294,54 @@ fn parse(content: &str) -> Option<SessionState> {
     Some(state)
 }
 
+fn serialize_terminal(state: &PersistedTerminal) -> String {
+    format!(
+        "{TERMINAL_STATE_HEADER}\noffset={}\ncursor={},{}\nscreen={}\n",
+        state.row_offset,
+        state.cursor_row,
+        state.cursor_column,
+        escape(&state.text)
+    )
+}
+
+fn parse_terminal(content: &str) -> Option<PersistedTerminal> {
+    if content.len() > MAX_TERMINAL_STATE_BYTES {
+        return None;
+    }
+    let mut lines = content.lines();
+    if lines.next()? != TERMINAL_STATE_HEADER {
+        return None;
+    }
+    let mut row_offset = None;
+    let mut cursor = None;
+    let mut text = None;
+    for line in lines {
+        let (key, value) = line.split_once('=')?;
+        match key {
+            "offset" if row_offset.is_none() => row_offset = value.parse().ok(),
+            "cursor" if cursor.is_none() => {
+                let (row, column) = value.split_once(',')?;
+                cursor = Some((row.parse().ok()?, column.parse().ok()?));
+            }
+            "screen" if text.is_none() => {
+                let unescaped = unescape(value)?;
+                if unescaped.len() > super::terminal::MAX_PERSISTED_TERMINAL_TEXT_BYTES {
+                    return None;
+                }
+                text = Some(unescaped);
+            }
+            _ => return None,
+        }
+    }
+    let (row_offset, (cursor_row, cursor_column), text) = (row_offset?, cursor?, text?);
+    Some(PersistedTerminal {
+        text,
+        row_offset,
+        cursor_row,
+        cursor_column,
+    })
+}
+
 pub(super) fn apply_history_limit(history: &mut Vec<String>, max_entries: usize) {
     let max_entries = max_entries.min(MAX_HISTORY_ENTRIES);
     if history.len() > max_entries {
@@ -321,7 +412,11 @@ fn unescape(value: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse, serialize, MAX_BOOKMARK_BYTES, MAX_ENVIRONMENT_BYTES, MAX_HISTORY_BYTES};
+    use super::{
+        parse, parse_terminal, serialize, serialize_terminal, MAX_BOOKMARK_BYTES,
+        MAX_ENVIRONMENT_BYTES, MAX_HISTORY_BYTES, MAX_TERMINAL_STATE_BYTES,
+    };
+    use crate::terminal::PersistedTerminal;
     use std::collections::BTreeMap;
 
     #[test]
@@ -405,5 +500,32 @@ mod tests {
             "x".repeat(MAX_ENVIRONMENT_BYTES)
         );
         assert!(parse(&oversized).is_none());
+    }
+
+    #[test]
+    fn round_trips_the_bounded_terminal_state() {
+        let state = PersistedTerminal {
+            text: "first\nsecond%\tvalue".to_string(),
+            row_offset: 17,
+            cursor_row: 18,
+            cursor_column: 4,
+        };
+        let content = serialize_terminal(&state);
+        let restored = parse_terminal(&content).expect("terminal state is valid");
+        assert_eq!(restored, state);
+        assert!(content.contains("screen=first%0Asecond%25%09value\n"));
+    }
+
+    #[test]
+    fn rejects_malformed_or_oversized_terminal_state() {
+        assert!(parse_terminal("RUNE_TERMINAL_STATE_V1\noffset=1\n").is_none());
+        assert!(
+            parse_terminal("RUNE_TERMINAL_STATE_V1\noffset=1\ncursor=0,0\nscreen=%GG\n").is_none()
+        );
+        let oversized = format!(
+            "RUNE_TERMINAL_STATE_V1\noffset=0\ncursor=0,0\nscreen={}\n",
+            "x".repeat(MAX_TERMINAL_STATE_BYTES)
+        );
+        assert!(parse_terminal(&oversized).is_none());
     }
 }

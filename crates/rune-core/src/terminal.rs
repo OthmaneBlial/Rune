@@ -7,10 +7,12 @@
 
 pub const DEFAULT_COLUMNS: usize = 120;
 pub const DEFAULT_ROWS: usize = 4_096;
-const MAX_COLUMNS: usize = 512;
-const MAX_ROWS: usize = 8_192;
+pub(crate) const MAX_COLUMNS: usize = 512;
+pub(crate) const MAX_ROWS: usize = 8_192;
 const MAX_CSI_BYTES: usize = 1_024;
 const MAX_OSC_BYTES: usize = 4 * 1_024;
+pub(crate) const MAX_PERSISTED_TERMINAL_ROWS: usize = 256;
+pub(crate) const MAX_PERSISTED_TERMINAL_TEXT_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ParserState {
@@ -18,6 +20,15 @@ enum ParserState {
     Escape,
     Csi(String),
     Osc { bytes: usize, escaped: bool },
+}
+
+/// A bounded, text-only terminal state suitable for session persistence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PersistedTerminal {
+    pub(crate) text: String,
+    pub(crate) row_offset: usize,
+    pub(crate) cursor_row: usize,
+    pub(crate) cursor_column: usize,
 }
 
 /// A bounded character grid with a streaming ANSI control parser.
@@ -111,6 +122,46 @@ impl TerminalScreen {
     #[must_use]
     pub fn cursor_position(&self) -> (usize, usize) {
         (self.cursor_row, self.cursor_column.min(self.columns))
+    }
+
+    /// Returns a bounded visible-text window and enough position metadata to
+    /// restore it after relaunch. Styles, scroll margins, and an incomplete
+    /// control sequence are deliberately not part of persisted state.
+    pub(crate) fn persisted_state(&self) -> PersistedTerminal {
+        let snapshot = self.snapshot();
+        let lines = snapshot.split('\n').collect::<Vec<_>>();
+        let mut row_offset = lines.len().saturating_sub(MAX_PERSISTED_TERMINAL_ROWS);
+        loop {
+            let text = lines[row_offset..].join("\n");
+            if text.len() <= MAX_PERSISTED_TERMINAL_TEXT_BYTES || row_offset + 1 >= lines.len() {
+                return PersistedTerminal {
+                    text,
+                    row_offset,
+                    cursor_row: self.cursor_row,
+                    cursor_column: self.cursor_column.min(self.columns),
+                };
+            }
+            row_offset += 1;
+        }
+    }
+
+    /// Restores a previously persisted text window without interpreting its
+    /// contents as fresh ANSI input. Invalid positions are clamped to the
+    /// current bounded grid.
+    pub(crate) fn restore_persisted_state(&mut self, state: &PersistedTerminal) {
+        self.reset();
+        for _ in 0..state.row_offset.min(self.rows.saturating_sub(1)) {
+            self.line_feed();
+        }
+        for character in state.text.chars() {
+            if character == '\n' {
+                self.line_feed();
+            } else if !character.is_control() {
+                self.write(character);
+            }
+        }
+        self.cursor_row = state.cursor_row.min(self.rows - 1);
+        self.cursor_column = state.cursor_column.min(self.columns);
     }
 
     fn consume(&mut self, character: char) {
