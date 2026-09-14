@@ -4,6 +4,14 @@ All notable public changes to Rune are documented here. The project is
 pre-1.0; entries describe verified repository behavior and do not imply an
 iOS runtime release.
 
+## [0.1.0-alpha.8] - 2026-09-14
+
+### Added
+
+- Reproducible macOS arm64 CLI packaging with a published SHA-256 checksum.
+- GitHub contribution templates, Dependabot configuration, and security
+  reporting links.
+
 ## [0.1.0-alpha.7] - 2026-09-14
 
 ### Added
