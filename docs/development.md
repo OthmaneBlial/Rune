@@ -177,10 +177,11 @@ runtime.
 The network tests use an injected provider and verify method, URL, headers,
 request data, response output, raw VFS-file output, disabled-provider behavior,
 the bounded `nslookup` DNS-over-HTTPS query/answer path, resolver error
-handling, and the C callback boundary. They do not prove internet reachability,
-DNS correctness of a live resolver, TLS, ATS, redirects, or Apple URLSession
-behavior. The native callback enforces the same 8 MiB response buffer while
-receiving data in bounded chunks.
+handling, bounded HTTPS RDAP `whois` text output, and the C callback boundary.
+They do not prove internet reachability, DNS/RDAP correctness of a live
+resolver, TLS, ATS, redirects, or Apple URLSession behavior. The native
+callback enforces the same 8 MiB response buffer while receiving data in
+bounded chunks.
 The external-open tests use an injected provider and verify confined file
 canonicalization, approved URL schemes, disabled-provider behavior, rejected
 targets before callback invocation, and the C callback target-kind boundary.

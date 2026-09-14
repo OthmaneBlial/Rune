@@ -33,7 +33,7 @@ working iOS application or a feature-parity claim.
 ## Current status
 
 The first Rust vertical slice is implemented and locally verified. It executes
-the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum`, `curl`, `nslookup`, `date`, `echo`, `expr`, `jsc`, `lua`, `python3`, `md5`, `mkdir`,
+the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum`, `curl`, `nslookup`, `whois`, `date`, `echo`, `expr`, `jsc`, `lua`, `python3`, `md5`, `mkdir`,
 `touch`, `mktemp`, `rm`, `cp`, `mv`, `env`, `export`, `unset`, `unsetenv`, `printenv`,
 `setenv`, `printf`, `basename`, `dirname`, `diff`, `du`, `file`, `realpath`, `rmdir`, `sha256`, `stat`, `sum`, `unlink`, `tee`, `tr`, `tree`, `xxd`,
 `alias`, `unalias`, `find`, `sed`, `ln`, `readlink`,
@@ -229,6 +229,10 @@ non-interactive DNS-over-HTTPS subset with bounded A, AAAA, CAA, CNAME, MX, NS,
 PTR, SOA, SRV, and TXT queries. `--server` selects an explicit HTTPS DoH
 endpoint, and the resolver response is reduced to validated answer data; the
 core never opens DNS sockets or exposes resolver JSON in command output.
+`whois DOMAIN` uses the same explicit network capability with a bounded HTTPS
+RDAP request and safe UTF-8 text output. It is intentionally not a port-43
+WHOIS socket implementation; live RDAP routing and server behavior remain
+runtime/provider gates.
 The open and openurl commands validate approved URL schemes or existing
 confined VFS files/directories, then call an explicit host-open capability.
 The default CLI has no launcher, and the source-only Apple adapter schedules
@@ -473,6 +477,7 @@ engineering measurements, not release or device-performance claims.
 - [x] Bounded `ar` member archives plus stored ZIP/USTAR tar and gzip/.Z file transforms
 - [x] Explicit host HTTP capability and bounded `curl` transport boundary
 - [x] Bounded non-interactive `nslookup` through an explicit HTTPS DoH provider
+- [x] Bounded HTTPS RDAP `whois` query through the explicit network provider
 - [x] Bounded HTTPS registry index, remote search, and explicit-version update policy
 - [x] Bounded Python subset runtime evaluation
 - [x] Bounded JavaScript runtime evaluation

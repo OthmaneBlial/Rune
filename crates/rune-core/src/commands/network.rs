@@ -3,10 +3,12 @@ use crate::{usage, CommandContext, CommandOutput};
 
 const CURL_FAILURE_STATUS: i32 = 22;
 const DEFAULT_DOH_SERVER: &str = "https://cloudflare-dns.com/dns-query";
+const DEFAULT_RDAP_SERVER: &str = "https://rdap.org/domain/";
 const MAX_DNS_NAME_BYTES: usize = 253;
 const MAX_DNS_LABEL_BYTES: usize = 63;
 const MAX_DNS_ANSWERS: usize = 128;
 const MAX_DNS_DATA_BYTES: usize = 16 * 1024;
+const MAX_WHOIS_OUTPUT_BYTES: usize = 256 * 1024;
 const DNS_RECORD_TYPES: &[&str] = &[
     "A", "AAAA", "CAA", "CNAME", "MX", "NS", "PTR", "SOA", "SRV", "TXT",
 ];
@@ -92,11 +94,76 @@ pub(super) fn nslookup(context: &mut CommandContext<'_>) -> CommandOutput {
     CommandOutput::success(stdout)
 }
 
+/// Fetch a domain's RDAP record through a host-provided HTTPS endpoint.
+///
+/// Traditional WHOIS uses an ambient TCP connection to port 43. Rune keeps
+/// that transport outside the portable core and exposes the interoperable
+/// HTTPS RDAP form instead, with a bounded text response.
+pub(super) fn whois(context: &mut CommandContext<'_>) -> CommandOutput {
+    let options = match parse_whois_args(context.args) {
+        Ok(options) => options,
+        Err(message) => return usage("whois", &message),
+    };
+    let request = NetworkRequest {
+        method: NetworkMethod::Get,
+        url: build_rdap_url(&options.server, &options.target),
+        headers: vec![(
+            "Accept".to_string(),
+            "application/rdap+json, application/json, text/plain".to_string(),
+        )],
+        body: Vec::new(),
+    };
+    if let Err(error) = request.validate() {
+        return CommandOutput::failure(2, format!("whois: {error}\n"));
+    }
+    let response = match context.network.request(&request) {
+        Ok(response) => response,
+        Err(error) => return CommandOutput::failure(1, format!("whois: {error}\n")),
+    };
+    if let Err(error) = response.validate() {
+        return CommandOutput::failure(1, format!("whois: {error}\n"));
+    }
+    if !(200..300).contains(&response.status_code) {
+        return CommandOutput::failure(
+            1,
+            format!(
+                "whois: RDAP server returned HTTP status {}\n",
+                response.status_code
+            ),
+        );
+    }
+    if response.body.len() > MAX_WHOIS_OUTPUT_BYTES {
+        return CommandOutput::failure(
+            1,
+            format!("whois: response exceeds {MAX_WHOIS_OUTPUT_BYTES} bytes\n"),
+        );
+    }
+    let Ok(stdout) = String::from_utf8(response.body) else {
+        return CommandOutput::failure(1, "whois: response is not valid UTF-8\n");
+    };
+    if stdout.is_empty() {
+        return CommandOutput::failure(1, "whois: RDAP server returned an empty response\n");
+    }
+    if stdout
+        .chars()
+        .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+    {
+        return CommandOutput::failure(1, "whois: response contains terminal control data\n");
+    }
+    CommandOutput::success(stdout)
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct NslookupOptions {
     server: String,
     record_type: String,
     host: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct WhoisOptions {
+    server: String,
+    target: String,
 }
 
 fn parse_nslookup_args(args: &[String]) -> Result<NslookupOptions, String> {
@@ -170,6 +237,55 @@ fn parse_nslookup_args(args: &[String]) -> Result<NslookupOptions, String> {
     })
 }
 
+fn parse_whois_args(args: &[String]) -> Result<WhoisOptions, String> {
+    let mut server = DEFAULT_RDAP_SERVER.to_string();
+    let mut target = None;
+    let mut parse_options = true;
+    let mut index = 0;
+
+    while index < args.len() {
+        let argument = &args[index];
+        if parse_options && argument == "--" {
+            parse_options = false;
+            index += 1;
+            continue;
+        }
+        if parse_options {
+            let (option, inline_value) = argument
+                .split_once('=')
+                .filter(|(option, _)| matches!(*option, "-s" | "--server"))
+                .map_or((argument.as_str(), None), |(option, value)| {
+                    (option, Some(value))
+                });
+            match option {
+                "-s" | "--server" => {
+                    server = option_value(args, &mut index, inline_value, option)?;
+                }
+                value if value.starts_with('-') => {
+                    return Err("usage: whois [--server SERVER] DOMAIN".to_string());
+                }
+                value => set_whois_target(&mut target, value.to_string())?,
+            }
+        } else {
+            set_whois_target(&mut target, argument.clone())?;
+        }
+        index += 1;
+    }
+
+    let target = target.ok_or_else(|| "usage: whois [--server SERVER] DOMAIN".to_string())?;
+    validate_dns_name(&target)?;
+    if !server
+        .get(.."https://".len())
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://"))
+    {
+        return Err("--server must use an https:// RDAP endpoint".to_string());
+    }
+    if server.contains('?') || server.contains('#') {
+        return Err("--server must not contain a query or URL fragment".to_string());
+    }
+    Ok(WhoisOptions { server, target })
+}
+
 fn option_value(
     args: &[String],
     index: &mut usize,
@@ -193,6 +309,14 @@ fn set_nslookup_host(host: &mut Option<String>, value: String) -> Result<(), Str
         return Err("only one host name is supported".to_string());
     }
     *host = Some(value);
+    Ok(())
+}
+
+fn set_whois_target(target: &mut Option<String>, value: String) -> Result<(), String> {
+    if target.is_some() {
+        return Err("only one domain is supported".to_string());
+    }
+    *target = Some(value);
     Ok(())
 }
 
@@ -228,6 +352,11 @@ fn build_doh_url(server: &str, host: &str, record_type: &str) -> String {
         "{server}{separator}name={}&type={record_type}",
         percent_encode(host)
     )
+}
+
+fn build_rdap_url(server: &str, target: &str) -> String {
+    let separator = if server.ends_with('/') { "" } else { "/" };
+    format!("{server}{separator}{}", percent_encode(target))
 }
 
 fn percent_encode(value: &str) -> String {

@@ -487,6 +487,10 @@ source adapter supplies a bounded synchronous `URLSession` callback that fills
 a Rust-owned response buffer. This keeps network and WASM capabilities
 separate and leaves ATS, TLS, redirects, and Apple runtime validation as
 explicit gates.
+The bounded `whois DOMAIN` command uses the same boundary for an HTTPS RDAP
+request, validates the domain and endpoint, caps the response at 256 KiB, and
+rejects non-UTF-8 or terminal-control output. It does not create a traditional
+WHOIS port-43 socket in the portable core.
 
 External application opening is a separate OpenProvider capability. The Rust
 openurl command allows only bounded http, https, mailto, tel, sms, and

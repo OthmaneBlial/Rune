@@ -128,6 +128,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: network::nslookup,
     },
     CommandDefinition {
+        name: "whois",
+        summary: "fetch a bounded domain record through host HTTPS RDAP",
+        handler: network::whois,
+    },
+    CommandDefinition {
         name: "deletemark",
         summary: "remove one or more saved directory names",
         handler: bookmarks::deletemark,

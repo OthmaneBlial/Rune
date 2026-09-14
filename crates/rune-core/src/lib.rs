@@ -2024,7 +2024,7 @@ fn plan_contains_network_request(plan: &ExecutionPlan, depth: usize) -> bool {
         pipeline.commands.iter().any(|command| {
             if matches!(
                 command.program.literal_value().as_deref(),
-                Some("curl" | "nslookup")
+                Some("curl" | "nslookup" | "whois")
             ) {
                 return true;
             }
@@ -2565,6 +2565,54 @@ mod tests {
             empty.stderr,
             "nslookup: no A records found for empty.example\n"
         );
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn routes_whois_through_https_rdap_with_bounded_text_output() {
+        let root = test_root();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let server = "https://rdap.example.test/domain";
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        session.set_network_provider(Box::new(RoutingNetworkProvider {
+            requests: Arc::clone(&requests),
+            routes: vec![(
+                format!("{server}/example.com"),
+                NetworkResponse {
+                    status_code: 200,
+                    body: b"domain: example.com\nstatus: active\n".to_vec(),
+                },
+            )],
+        }));
+
+        let record = session.execute_line(&format!("whois --server {server} example.com"));
+        assert_eq!(record.status, 0, "{record:?}");
+        assert_eq!(record.stdout, "domain: example.com\nstatus: active\n");
+        assert_eq!(
+            session.history().last().map(String::as_str),
+            Some("[redacted network command]")
+        );
+
+        let recorded = requests.lock().expect("request log lock");
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].method, NetworkMethod::Get);
+        assert_eq!(recorded[0].url, format!("{server}/example.com"));
+        assert_eq!(
+            recorded[0].headers,
+            [(
+                "Accept".to_string(),
+                "application/rdap+json, application/json, text/plain".to_string()
+            )]
+        );
+        assert!(recorded[0].body.is_empty());
+        drop(recorded);
+
+        let invalid_target = session.execute_line("whois example.com/secret");
+        assert_eq!(invalid_target.status, 2);
+        assert!(invalid_target.stderr.contains("ASCII DNS label characters"));
+        let invalid_server = session.execute_line("whois --server http://rdap.test example.com");
+        assert_eq!(invalid_server.status, 2);
+        assert!(invalid_server.stderr.contains("must use an https://"));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
