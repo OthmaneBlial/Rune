@@ -178,7 +178,8 @@ target/debug/rune-cli --root /tmp/rune-root --script project/profile.rune \
 `--script` resolves a virtual path through Rune's filesystem and executes it
 with the same bounded `source` planner used by the native bridge. It never
 launches the host shell. Repeat `--script-arg VALUE` to pass bounded positional
-arguments to the script (`$0`, `$1`, and so on).
+arguments to the script (`$0`, `$1`, and so on); the CLI accepts at most 64
+values, with a 16 KiB limit per value.
 
 ### Check the source-only iOS boundary
 

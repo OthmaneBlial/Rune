@@ -8,6 +8,9 @@ struct CliEventSink {
     emitted_output: bool,
 }
 
+const MAX_SCRIPT_ARGUMENTS: usize = 64;
+const MAX_SCRIPT_ARGUMENT_BYTES: usize = 16 * 1024;
+
 impl EventSink for CliEventSink {
     fn emit(&mut self, event: CommandEvent) {
         if let CommandEvent::Output { stdout, stderr } = event {
@@ -94,6 +97,11 @@ fn arguments() -> Result<(PathBuf, Option<String>), String> {
                     .next()
                     .ok_or_else(|| "--script-arg requires a value".to_string())?;
                 validate_script_argument(&value, "value")?;
+                if script_args.len() >= MAX_SCRIPT_ARGUMENTS {
+                    return Err(format!(
+                        "--script-arg accepts at most {MAX_SCRIPT_ARGUMENTS} values"
+                    ));
+                }
                 script_args.push(value);
             }
             "-h" | "--help" => {
@@ -127,6 +135,11 @@ fn validate_script_argument(value: &str, label: &str) -> Result<(), String> {
     if value.is_empty() || value.chars().any(char::is_control) {
         return Err(format!(
             "--script {label} must contain printable characters"
+        ));
+    }
+    if value.len() > MAX_SCRIPT_ARGUMENT_BYTES {
+        return Err(format!(
+            "--script {label} exceeds the {MAX_SCRIPT_ARGUMENT_BYTES}-byte limit"
         ));
     }
     Ok(())
@@ -178,7 +191,7 @@ fn print_output(stdout: &str, stderr: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{quote_shell_word, validate_script_argument};
+    use super::{quote_shell_word, validate_script_argument, MAX_SCRIPT_ARGUMENT_BYTES};
 
     #[test]
     fn quotes_script_values_without_shell_expansion() {
@@ -193,6 +206,9 @@ mod tests {
     fn rejects_empty_and_control_script_values() {
         assert!(validate_script_argument("", "value").is_err());
         assert!(validate_script_argument("line\nfeed", "value").is_err());
+        assert!(
+            validate_script_argument(&"x".repeat(MAX_SCRIPT_ARGUMENT_BYTES + 1), "value").is_err()
+        );
         assert!(validate_script_argument("safe value", "value").is_ok());
     }
 }
