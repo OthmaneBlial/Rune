@@ -36,7 +36,12 @@ public final class RuneTerminalModel: ObservableObject {
     private static let minimumScrollbackLimit = 128
 
     @Published public private(set) var entries: [RuneTranscriptEntry] = []
-    @Published public var command = ""
+    @Published public var command = "" {
+        didSet {
+            guard !preservingCompletionCycle else { return }
+            invalidateCompletionCycle()
+        }
+    }
     @Published public private(set) var currentDirectory = "~"
     @Published public private(set) var workspaceName = "Documents"
     @Published public private(set) var fontSize: CGFloat = 15
@@ -53,12 +58,18 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var initializationError: String?
     @Published public private(set) var isExecuting = false
     @Published public private(set) var historyMatches: [String] = []
+    @Published public private(set) var completionSelection: Int? = nil
 
     private var session: RuneFFISession?
     private var scopedFolder: RuneScopedFolder?
     private let sessionID: String?
     private var history: [String] = []
     private var historyCursor: Int?
+    private var completionOrigin: String?
+    private var completionAppliedCommand: String?
+    private var completionOptions: [String] = []
+    private var completionIndex = -1
+    private var preservingCompletionCycle = false
     private var executionTask: Task<Void, Never>?
     private var transcriptBytes = 0
 
@@ -216,13 +227,52 @@ public final class RuneTerminalModel: ObservableObject {
         command.append(contentsOf: value)
     }
 
-    public func acceptFirstCompletion() {
+    /// Cycles through the current Rust-provided completion candidates.
+    ///
+    /// The first Tab asks Rust for candidates. Further Tabs keep the original
+    /// replacement range and select the next candidate, even though the
+    /// command text already contains the previous candidate.
+    public func acceptCompletion() {
         guard !isExecuting else { return }
-        if let candidate = completionCandidates.first {
-            applyCompletion(candidate)
-        } else {
-            insertText("\t")
+        if completionOrigin == nil || completionAppliedCommand != command {
+            guard let session else {
+                insertText("\t")
+                return
+            }
+            let candidates = session.completionCandidates(for: command)
+            guard !candidates.isEmpty else {
+                insertText("\t")
+                return
+            }
+            completionOrigin = command
+            completionOptions = candidates
+            completionIndex = -1
         }
+
+        guard !completionOptions.isEmpty, let origin = completionOrigin else {
+            insertText("\t")
+            return
+        }
+        completionIndex = (completionIndex + 1) % completionOptions.count
+        applyCompletionCandidate(
+            completionOptions[completionIndex],
+            in: origin,
+            preservingCycle: true
+        )
+    }
+
+    /// Kept as a source-compatible spelling for callers that used the first
+    /// completion action before cycling was introduced.
+    public func acceptFirstCompletion() {
+        acceptCompletion()
+    }
+
+    /// Dismisses completion state without inserting an escape byte into the
+    /// shell command. Escape is an editor control here; it is not a command
+    /// character unless an interactive runtime explicitly owns the input.
+    public func handleEscape() {
+        guard !isExecuting else { return }
+        invalidateCompletionCycle()
     }
 
     /// Clears only the native transcript presentation. The Rust session and
@@ -454,18 +504,50 @@ public final class RuneTerminalModel: ObservableObject {
     }
 
     public var completionCandidates: [String] {
-        session?.completionCandidates(for: command) ?? []
+        if completionAppliedCommand == command, !completionOptions.isEmpty {
+            return completionOptions
+        }
+        return session?.completionCandidates(for: command) ?? []
     }
 
     public func applyCompletion(_ candidate: String) {
-        let tokenStart = command
+        guard !isExecuting else { return }
+        let input = completionAppliedCommand == command
+            ? (completionOrigin ?? command)
+            : command
+        applyCompletionCandidate(candidate, in: input, preservingCycle: false)
+    }
+
+    private func applyCompletionCandidate(
+        _ candidate: String,
+        in input: String,
+        preservingCycle: Bool
+    ) {
+        let tokenStart = input
             .indices
             .reversed()
-            .first(where: { command[$0].isWhitespace })
-            .map { command.index(after: $0) } ?? command.startIndex
-        let prefix = String(command[..<tokenStart])
+            .first(where: { input[$0].isWhitespace })
+            .map { input.index(after: $0) } ?? input.startIndex
+        let prefix = String(input[..<tokenStart])
         let suffix = candidate.hasSuffix("/") ? "" : " "
-        command = "\(prefix)\(candidate)\(suffix)"
+        let replacement = "\(prefix)\(candidate)\(suffix)"
+        if preservingCycle {
+            preservingCompletionCycle = true
+            command = replacement
+            preservingCompletionCycle = false
+            completionAppliedCommand = replacement
+            completionSelection = completionIndex
+        } else {
+            command = replacement
+        }
+    }
+
+    private func invalidateCompletionCycle() {
+        completionOrigin = nil
+        completionAppliedCommand = nil
+        completionOptions = []
+        completionIndex = -1
+        completionSelection = nil
     }
 }
 
@@ -615,12 +697,16 @@ public struct RuneTerminalView: View {
                 if !model.completionCandidates.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            ForEach(model.completionCandidates, id: \.self) { candidate in
+                            ForEach(
+                                Array(model.completionCandidates.enumerated()),
+                                id: \.element
+                            ) { index, candidate in
                                 RuneCompletionButton(
                                     candidate: candidate,
                                     fontSize: model.fontSize,
                                     foreground: palette.foreground,
-                                    tint: palette.cyan
+                                    tint: palette.cyan,
+                                    isSelected: model.completionSelection == index
                                 ) {
                                     model.applyCompletion(candidate)
                                     inputFocused = true
@@ -1234,11 +1320,11 @@ private struct RuneInputToolbar: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 RuneToolbarButton(title: "Tab", systemImage: "arrow.right.to.line") {
-                    model.acceptFirstCompletion()
+                    model.acceptCompletion()
                     focusInput()
                 }
                 RuneToolbarButton(title: "Esc", systemImage: "escape") {
-                    model.insertText("\u{1b}")
+                    model.handleEscape()
                     focusInput()
                 }
                 RuneToolbarButton(title: "Ctrl-C", systemImage: "xmark.circle") {
@@ -1285,6 +1371,7 @@ private struct RuneCompletionButton: View {
     let fontSize: CGFloat
     let foreground: Color
     let tint: Color
+    let isSelected: Bool
     let action: () -> Void
 
     var body: some View {
@@ -1298,16 +1385,21 @@ private struct RuneCompletionButton: View {
                 .foregroundStyle(foreground)
                 .padding(.horizontal, 11)
                 .padding(.vertical, 8)
-                .background(tint.opacity(0.12))
+                .background(tint.opacity(isSelected ? 0.28 : 0.12))
                 .overlay {
                     Capsule()
-                        .stroke(tint.opacity(0.45), lineWidth: 1)
+                        .stroke(
+                            tint.opacity(isSelected ? 0.9 : 0.45),
+                            lineWidth: isSelected ? 1.5 : 1
+                        )
                 }
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Completion option")
-        .accessibilityValue(Text(verbatim: candidate))
+        .accessibilityValue(
+            Text(verbatim: isSelected ? "Selected, \(candidate)" : candidate)
+        )
     }
 }
 

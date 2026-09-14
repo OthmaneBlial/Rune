@@ -259,7 +259,7 @@ Apple frame-time and device-memory measurements remain unverified.
 The terminal view also declares native keyboard shortcuts for folder import,
 cooperative cancellation, history navigation, reverse history search, command
 submission, and a source-only settings sheet. An optional bounded input toolbar adds
-Tab/completion, Escape, Ctrl-C, display-clear, and paste controls. These
+Tab/completion cycling, Escape dismissal, Ctrl-C, display-clear, and paste controls. These
 controls dispatch into the existing Swift model and Rust FFI rather than
 maintaining a second command, configuration, or history implementation; the
 toolbar visibility preference is persisted by Rust and surfaced through the
@@ -415,7 +415,10 @@ Simple separated `<`/`>` redirection targets use the same confined path list;
 simple command/path completion after one `|` uses the same Rust registry and
 VFS lookup. Quoted, escaped, option, and other compound-shell fragments are
 intentionally deferred until the completion grammar has structured replacement
-ranges.
+ranges. The Swift model keeps the original replacement input while cycling
+through the bounded candidates on repeated Tab presses, so selecting a second
+candidate does not append it to the first. Escape clears that transient editor
+state and does not become shell input.
 
 The `apropos` builtin searches only the Rust registry's command names and
 summaries, using bounded case-insensitive substring terms. It does not inspect

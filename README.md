@@ -190,7 +190,9 @@ the registry and filesystem lookup remain Rust-owned and the bridge exposes only
 replacement tokens. Simple separated `<`/`>` redirection targets use the same
 confined path completion, and simple command/path completion after one `|` is
 supported; quoted, escaped, option, and other compound-shell fragments remain
-deferred.
+deferred. Repeated Tab presses cycle through the candidates while preserving the
+original replacement token, and Escape dismisses the completion state without
+injecting a control byte into the command line.
 It also has a focused command bar, keyboard-aware history controls, an
 ink/cyan/ember console palette, accessible completion controls, native handling
 for the Rust `clear` screen-control sequence, and source-only ANSI rendering
@@ -385,7 +387,7 @@ commands is invoked.
 The source-only terminal now dispatches command execution away from the SwiftUI
 main actor behind a lock-protected FFI session, keeps the UI responsive, and
 offers a stop control that sends Rust's cooperative cancellation request. Its
-optional input toolbar routes Tab/completion, Escape, Ctrl-C, display-clear,
+optional input toolbar routes Tab/completion cycling, Escape dismissal, Ctrl-C, display-clear,
 and paste actions through the native model; the workspace also exposes Cmd-N
 for a new independent window. Only command execution and shell
 state cross the Rust boundary. A currently running synchronous Rust operation
