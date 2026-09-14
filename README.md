@@ -27,8 +27,8 @@ There is not yet a working iOS application or a feature-parity claim.
 | Sessions/history | 70% |
 | Configuration | 75% |
 | WASM | 52% |
-| Native iOS UI | 73% |
-| Swift/Rust bridge | 70% |
+| Native iOS UI | 77% |
+| Swift/Rust bridge | 73% |
 | Package manager | 66% |
 | Compatibility evidence | 3% |
 
