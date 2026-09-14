@@ -99,13 +99,14 @@ expanded from the current environment in left-to-right order, remain
 session-local, and may be used without a command. The initial history policy
 replaces parsed `export`, `setenv`, and assignment lines with
 `[redacted environment assignment]` before storage. The command still executes
-with its real value in memory. This is only a narrow first defense; configurable
-redaction is still required before Rune handles workflows where users type
-credentials into arbitrary commands.
+with its real value in memory. This narrow detector is configurable through the
+Rust-owned `history-redaction` setting and does not claim to detect secrets
+embedded in every arbitrary command.
 
 Configuration is a separate, versioned Rust-owned file at
 `~/.rune/config.state`. The current schema contains a validated `history_limit`
-between 1 and 10,000, a `font_size` between 8 and 32 points, a
+between 1 and 10,000, a `history_redaction` boolean enabled by default, a
+`font_size` between 8 and 32 points, a
 `scrollback_limit` between 128 and 8,192 rendered entries, a font design in
 `monospaced`, `system`, or `rounded`, a theme in `ink`, `light`, or `ember`, and
 a cursor color in `cyan`, `ember`, or `foreground`, and a cursor shape in
@@ -114,12 +115,13 @@ It also supports independent background overrides in `auto`, `black`, `white`,
 or `slate`, and foreground overrides in `auto`, `black`, `white`, `cyan`, or
 `ember`.
 `config get`, `config set`, and `config reset` update these
-values, and the session applies them immediately. SwiftUI consumes all ten
+values, and the session applies them immediately. Setting `history-redaction`
+to false is an explicit opt-out that may persist secrets. SwiftUI consumes all eleven
 settings; the public session and C ABI also expose validated set/reset
 operations that do not add shell text to history, allowing native settings
 surfaces to use the same Rust policy. The source-only SwiftUI sheet uses that
 boundary for font, font size, scrollback, theme, cursor color, cursor shape,
-background, foreground, reset, and toolbar visibility; its scrollback window
+background, foreground, history redaction, reset, and toolbar visibility; its scrollback window
 also remains subject to an 8 MiB byte cap. The source-only UIKit command editor
 maps the validated shape to bar, block, or underline caret geometry when UIKit
 is available; Apple compilation and runtime rendering remain unverified.

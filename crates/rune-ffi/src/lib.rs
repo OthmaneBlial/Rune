@@ -1273,8 +1273,9 @@ pub extern "C" fn rune_session_configuration(handle: *const std::ffi::c_void) ->
     // SAFETY: the pointer is read-only and owned by the Swift session.
     let session = unsafe { &*handle.cast::<RuneSession>() };
     let configuration = format!(
-        "history-limit={}\nfont-size={}\nscrollback-limit={}\ntoolbar-visible={}\ntheme={}\ncursor-color={}\ncursor-shape={}\nfont={}\nbackground={}\nforeground={}\n",
+        "history-limit={}\nhistory-redaction={}\nfont-size={}\nscrollback-limit={}\ntoolbar-visible={}\ntheme={}\ncursor-color={}\ncursor-shape={}\nfont={}\nbackground={}\nforeground={}\n",
         session.core.configuration().history_limit(),
+        session.core.configuration().history_redaction(),
         session.core.configuration().font_size(),
         session.core.configuration().scrollback_limit(),
         session.core.configuration().toolbar_visible(),
@@ -1722,7 +1723,7 @@ mod tests {
         let configuration = rune_session_configuration(handle);
         assert_eq!(
             c_string(configuration),
-            "history-limit=1000\nfont-size=15\nscrollback-limit=4096\ntoolbar-visible=true\ntheme=ink\ncursor-color=cyan\ncursor-shape=bar\nfont=monospaced\nbackground=auto\nforeground=auto\n"
+            "history-limit=1000\nhistory-redaction=true\nfont-size=15\nscrollback-limit=4096\ntoolbar-visible=true\ntheme=ink\ncursor-color=cyan\ncursor-shape=bar\nfont=monospaced\nbackground=auto\nforeground=auto\n"
         );
         // SAFETY: configuration was returned by rune_session_configuration.
         unsafe { rune_string_free(configuration) };
@@ -1805,8 +1806,22 @@ mod tests {
             rune_string_free(changed.stdout);
             rune_string_free(changed.stderr);
         }
+        let redaction_key = CString::new("history-redaction").expect("valid key");
+        let redaction_value = CString::new("false").expect("valid value");
+        let redaction_changed = rune_session_set_configuration(
+            handle,
+            redaction_key.as_ptr(),
+            redaction_value.as_ptr(),
+        );
+        assert_eq!(redaction_changed.status, 0);
+        // SAFETY: both pointers came from rune_session_set_configuration.
+        unsafe {
+            rune_string_free(redaction_changed.stdout);
+            rune_string_free(redaction_changed.stderr);
+        }
         let configuration = rune_session_configuration(handle);
         assert!(c_string(configuration).contains("font-size=20"));
+        assert!(c_string(configuration).contains("history-redaction=false"));
         // SAFETY: configuration came from rune_session_configuration.
         unsafe { rune_string_free(configuration) };
 

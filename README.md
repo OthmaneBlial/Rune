@@ -23,7 +23,7 @@ working iOS application or a feature-parity claim.
 | Command runtime | 99% |
 | Sandboxed filesystem | 70% |
 | Sessions/history | 66% |
-| Configuration | 66% |
+| Configuration | 70% |
 | WASM | 52% |
 | Native iOS UI | 72% |
 | Swift/Rust bridge | 64% |
@@ -162,19 +162,21 @@ for the Rust `clear` screen-control sequence, and source-only ANSI rendering
 for common SGR foreground/background colors, 256-color/RGB colors, bold,
 underline, and inverse output.
 Interactive `export`, `setenv`, and assignment lines are replaced by a
-redaction marker in history before persistence; this is an initial defense, not
-a complete secret management policy.
+redaction marker in history before persistence when the Rust-owned
+`history-redaction` setting is enabled. It is enabled by default and remains a
+narrow detector, not a complete secret management policy; setting it to false
+is an explicit opt-out that may persist command secrets.
 The iOS app is represented by
 source-only SwiftUI and FFI boundaries, but its Apple compilation, linking,
 and runtime gates remain unverified. Bounded directory enumeration and
 current-directory/history persistence now exist in Rust; bounded
-`history-limit`, `font`, `font-size`, `scrollback-limit`, `toolbar-visible`, `theme`,
+`history-limit`, `history-redaction`, `font`, `font-size`, `scrollback-limit`, `toolbar-visible`, `theme`,
 `cursor-color`, `cursor-shape`, `background`, and `foreground` configuration
 is available, and the native source UI consumes the font size, bounded
 scrollback window, three named palettes, the Rust-owned font design, cursor color,
 and independent background/foreground overrides. The native source-only command
 editor applies the configured bar, block, or underline caret when UIKit is
-available. Configurable redaction and broader session recovery remain planned.
+available. Broader session recovery remains planned.
 The bounded Python, Lua 5.4, and JavaScript providers are implemented in Rust.
 Python intentionally starts with a finite, tested subset: host imports and
 dynamic code are denied, and loops/functions are rejected until a public
@@ -511,7 +513,7 @@ result.
 - [x] Bounded WASI preview1 runtime boundary and resource limits
 - [x] Bounded package metadata, integrity, local WASM installation, and local update
 - [x] Portable runtime request/output contract
-- [x] Bounded Rust-owned history, font, font-size, scrollback, toolbar-visible, theme, cursor-color, cursor-shape, background, and foreground configuration
+- [x] Bounded Rust-owned history, history-redaction, font, font-size, scrollback, toolbar-visible, theme, cursor-color, cursor-shape, background, and foreground configuration
 - [x] Bounded `ar` member archives plus stored ZIP/USTAR tar and gzip/.Z file transforms
 - [x] Explicit host HTTP capability and bounded `curl` transport boundary
 - [x] Bounded non-interactive `nslookup` through an explicit HTTPS DoH provider

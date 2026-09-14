@@ -1000,7 +1000,7 @@ impl Session {
             return output;
         }
         if record_history {
-            let entry = history_entry(line);
+            let entry = history_entry(line, self.config.history_redaction());
             if self.history.last() != Some(&entry) {
                 self.history.push(entry);
                 persistence::apply_history_limit(&mut self.history, self.history_limit);
@@ -2151,7 +2151,10 @@ struct ExpandedWord {
     stderr: String,
 }
 
-fn history_entry(line: &str) -> String {
+fn history_entry(line: &str, redact: bool) -> String {
+    if !redact {
+        return line.to_string();
+    }
     let Ok(plan) = parse(line) else {
         return line.to_string();
     };
@@ -3595,6 +3598,21 @@ mod tests {
             session.execute_line("config get toolbar-visible").stdout,
             "toolbar-visible=false\n"
         );
+        assert_eq!(
+            session.execute_line("config get history-redaction").stdout,
+            "history-redaction=true\n"
+        );
+        assert_eq!(
+            session
+                .execute_line("config set history-redaction off")
+                .status,
+            0
+        );
+        assert!(!session.configuration().history_redaction());
+        assert_eq!(
+            session.execute_line("config get history-redaction").stdout,
+            "history-redaction=false\n"
+        );
         assert_eq!(session.execute_line("echo one").status, 0);
         assert_eq!(session.execute_line("echo two").status, 0);
         assert!(session.history().len() <= 3);
@@ -3626,11 +3644,13 @@ mod tests {
         assert_eq!(restored.configuration().scrollback_limit(), 2_048);
         assert!(!restored.configuration().toolbar_visible());
         assert_eq!(restored.configuration().theme().as_str(), "ember");
+        assert!(!restored.configuration().history_redaction());
         assert!(restored.history().len() <= 3);
         assert_eq!(restored.execute_line("config reset").status, 0);
         assert_eq!(restored.configuration().history_limit(), 1_000);
         assert_eq!(restored.configuration().scrollback_limit(), 4_096);
         assert!(restored.configuration().toolbar_visible());
+        assert!(restored.configuration().history_redaction());
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
@@ -3704,6 +3724,16 @@ mod tests {
         assert_eq!(session.configuration().background().as_str(), "white");
         assert_eq!(session.set_configuration("foreground", "black").status, 0);
         assert_eq!(session.configuration().foreground().as_str(), "black");
+        assert_eq!(
+            session.set_configuration("history-redaction", "off").status,
+            0
+        );
+        assert!(!session.configuration().history_redaction());
+        assert_eq!(
+            session.set_configuration("history-redaction", "on").status,
+            0
+        );
+        assert!(session.configuration().history_redaction());
         assert_eq!(session.history(), ["echo keep"]);
 
         let invalid = session.set_configuration("theme", "paper");
@@ -3749,6 +3779,70 @@ mod tests {
         assert_eq!(session.history(), ["echo keep"]);
         assert_eq!(session.execute_line("echo after-reset").status, 0);
         assert_eq!(session.history(), ["echo keep", "echo after-reset"]);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn configures_history_redaction_with_safe_default_and_explicit_opt_out() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert!(session.configuration().history_redaction());
+        assert_eq!(
+            session
+                .execute_line("export DEFAULT_SAFE_TOKEN=hidden-by-default")
+                .status,
+            0
+        );
+        assert_eq!(
+            session.history().last().map(String::as_str),
+            Some("[redacted environment assignment]")
+        );
+
+        let opted_out = session.set_configuration("history-redaction", "false");
+        assert_eq!(opted_out.status, 0);
+        assert!(!session.configuration().history_redaction());
+        assert_eq!(
+            session
+                .execute_line("export OPT_OUT_TOKEN=visible-by-choice")
+                .status,
+            0
+        );
+        assert_eq!(
+            session.history().last().map(String::as_str),
+            Some("export OPT_OUT_TOKEN=visible-by-choice")
+        );
+        session.persist().expect("configuration persisted");
+
+        let mut restored =
+            Session::restore(SandboxedFileSystem::new(&root).expect("root reopened"));
+        assert!(!restored.configuration().history_redaction());
+        assert_eq!(
+            restored.history().last().map(String::as_str),
+            Some("export OPT_OUT_TOKEN=visible-by-choice")
+        );
+        let invalid = restored.set_configuration("history-redaction", "maybe");
+        assert_eq!(invalid.status, 2);
+        assert!(invalid
+            .stderr
+            .contains("history-redaction must be true or false"));
+        assert!(!restored.configuration().history_redaction());
+
+        assert_eq!(
+            restored
+                .set_configuration("history-redaction", "true")
+                .status,
+            0
+        );
+        assert_eq!(
+            restored
+                .execute_line("export REENABLED_TOKEN=hidden-again")
+                .status,
+            0
+        );
+        assert_eq!(
+            restored.history().last().map(String::as_str),
+            Some("[redacted environment assignment]")
+        );
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

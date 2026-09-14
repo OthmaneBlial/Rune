@@ -4,6 +4,7 @@ pub(super) const CONFIG_PATH: &str = "~/.rune/config.state";
 const CONFIG_DIRECTORY: &str = "~/.rune";
 const CONFIG_HEADER: &str = "RUNE_CONFIG_V1";
 const DEFAULT_HISTORY_LIMIT: usize = 1_000;
+const DEFAULT_HISTORY_REDACTION: bool = true;
 const MIN_HISTORY_LIMIT: usize = 1;
 const MAX_HISTORY_LIMIT: usize = 10_000;
 const DEFAULT_FONT_SIZE: u8 = 15;
@@ -201,6 +202,7 @@ impl TerminalForeground {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalConfig {
     history_limit: usize,
+    history_redaction: bool,
     font_size: u8,
     scrollback_limit: usize,
     toolbar_visible: bool,
@@ -216,6 +218,7 @@ impl Default for TerminalConfig {
     fn default() -> Self {
         Self {
             history_limit: DEFAULT_HISTORY_LIMIT,
+            history_redaction: DEFAULT_HISTORY_REDACTION,
             font_size: DEFAULT_FONT_SIZE,
             scrollback_limit: DEFAULT_SCROLLBACK_LIMIT,
             toolbar_visible: DEFAULT_TOOLBAR_VISIBLE,
@@ -234,6 +237,13 @@ impl TerminalConfig {
     #[must_use]
     pub const fn history_limit(&self) -> usize {
         self.history_limit
+    }
+
+    /// Returns whether potentially sensitive command lines are replaced before
+    /// they enter the persisted history.
+    #[must_use]
+    pub const fn history_redaction(&self) -> bool {
+        self.history_redaction
     }
 
     /// Returns the monospace terminal font size in points.
@@ -297,6 +307,10 @@ impl TerminalConfig {
         self.history_limit = value;
     }
 
+    pub(super) fn set_history_redaction(&mut self, value: bool) {
+        self.history_redaction = value;
+    }
+
     pub(super) fn set_font_size(&mut self, value: u8) {
         self.font_size = value;
     }
@@ -349,8 +363,9 @@ impl TerminalConfig {
             Err(error) => return Err(error),
         }
         let content = format!(
-            "{CONFIG_HEADER}\nhistory_limit={}\nfont_size={}\nscrollback_limit={}\ntoolbar_visible={}\ntheme={}\ncursor_color={}\ncursor_shape={}\nfont={}\nbackground={}\nforeground={}\n",
+            "{CONFIG_HEADER}\nhistory_limit={}\nhistory_redaction={}\nfont_size={}\nscrollback_limit={}\ntoolbar_visible={}\ntheme={}\ncursor_color={}\ncursor_shape={}\nfont={}\nbackground={}\nforeground={}\n",
             self.history_limit,
+            self.history_redaction,
             self.font_size,
             self.scrollback_limit,
             self.toolbar_visible,
@@ -380,6 +395,25 @@ pub(super) fn update_history_limit(
     }
     let previous = config.clone();
     config.set_history_limit(parsed);
+    if let Err(error) = config.save(filesystem) {
+        *config = previous;
+        return Err(format!("could not persist configuration: {error}"));
+    }
+    Ok(())
+}
+
+pub(super) fn update_history_redaction(
+    filesystem: &mut dyn VirtualFileSystem,
+    config: &mut TerminalConfig,
+    value: &str,
+) -> Result<(), String> {
+    let parsed = match value {
+        "true" | "1" | "on" => true,
+        "false" | "0" | "off" => false,
+        _ => return Err("history-redaction must be true or false".to_string()),
+    };
+    let previous = config.clone();
+    config.set_history_redaction(parsed);
     if let Err(error) = config.save(filesystem) {
         *config = previous;
         return Err(format!("could not persist configuration: {error}"));
@@ -554,6 +588,7 @@ pub(super) fn update(
 ) -> Result<(), String> {
     match key {
         "history-limit" => update_history_limit(filesystem, config, value),
+        "history-redaction" => update_history_redaction(filesystem, config, value),
         "font-size" => update_font_size(filesystem, config, value),
         "scrollback-limit" => update_scrollback_limit(filesystem, config, value),
         "toolbar-visible" => update_toolbar_visible(filesystem, config, value),
@@ -564,7 +599,7 @@ pub(super) fn update(
         "background" => update_background(filesystem, config, value),
         "foreground" => update_foreground(filesystem, config, value),
         _ => Err(
-            "unknown key; available keys: history-limit, font-size, scrollback-limit, toolbar-visible, theme, cursor-color, cursor-shape, font, background, foreground"
+            "unknown key; available keys: history-limit, history-redaction, font-size, scrollback-limit, toolbar-visible, theme, cursor-color, cursor-shape, font, background, foreground"
                 .to_string(),
         ),
     }
@@ -590,6 +625,7 @@ fn parse(content: &str) -> Option<TerminalConfig> {
     }
     let mut config = TerminalConfig::default();
     let mut seen_history_limit = false;
+    let mut seen_history_redaction = false;
     let mut seen_font_size = false;
     let mut seen_scrollback_limit = false;
     let mut seen_toolbar_visible = false;
@@ -609,6 +645,14 @@ fn parse(content: &str) -> Option<TerminalConfig> {
                 }
                 config.history_limit = history_limit;
                 seen_history_limit = true;
+            }
+            "history_redaction" if !seen_history_redaction => {
+                config.history_redaction = match value {
+                    "true" => true,
+                    "false" => false,
+                    _ => return None,
+                };
+                seen_history_redaction = true;
             }
             "font_size" if !seen_font_size => {
                 let font_size = value.parse::<u8>().ok()?;
@@ -670,7 +714,8 @@ mod tests {
         parse, TerminalBackground, TerminalConfig, TerminalCursorColor, TerminalCursorShape,
         TerminalFont, TerminalForeground, TerminalTheme, CONFIG_HEADER, DEFAULT_BACKGROUND,
         DEFAULT_CURSOR_COLOR, DEFAULT_CURSOR_SHAPE, DEFAULT_FONT, DEFAULT_FONT_SIZE,
-        DEFAULT_FOREGROUND, DEFAULT_SCROLLBACK_LIMIT, DEFAULT_THEME, DEFAULT_TOOLBAR_VISIBLE,
+        DEFAULT_FOREGROUND, DEFAULT_HISTORY_REDACTION, DEFAULT_SCROLLBACK_LIMIT, DEFAULT_THEME,
+        DEFAULT_TOOLBAR_VISIBLE,
     };
 
     #[test]
@@ -678,6 +723,7 @@ mod tests {
         let content = format!("{CONFIG_HEADER}\nhistory_limit=25\n");
         let config = parse(&content).expect("configuration should parse");
         assert_eq!(config.history_limit(), 25);
+        assert_eq!(config.history_redaction(), DEFAULT_HISTORY_REDACTION);
         assert_eq!(config.font_size(), DEFAULT_FONT_SIZE);
         assert_eq!(config.scrollback_limit(), DEFAULT_SCROLLBACK_LIMIT);
         assert_eq!(config.toolbar_visible(), DEFAULT_TOOLBAR_VISIBLE);
@@ -711,6 +757,10 @@ mod tests {
         assert!(!parse(&toolbar)
             .expect("toolbar visibility should parse")
             .toolbar_visible());
+        let redaction = format!("{content}history_redaction=false\n");
+        assert!(!parse(&redaction)
+            .expect("history redaction should parse")
+            .history_redaction());
         assert!(parse("RUNE_CONFIG_V1\nfont_size=7\n").is_none());
         assert!(parse("RUNE_CONFIG_V1\nfont_size=33\n").is_none());
         assert!(parse("RUNE_CONFIG_V1\nscrollback_limit=127\n").is_none());
@@ -762,11 +812,16 @@ mod tests {
         assert!(parse("RUNE_CONFIG_V1\nunknown=value\n").is_none());
         assert!(parse("RUNE_CONFIG_V1\nhistory_limit=0\n").is_none());
         assert!(parse("RUNE_CONFIG_V1\nhistory_limit=10001\n").is_none());
+        assert!(parse("RUNE_CONFIG_V1\nhistory_redaction=maybe\n").is_none());
     }
 
     #[test]
     fn defaults_when_configuration_is_missing_or_malformed() {
         assert_eq!(TerminalConfig::default().history_limit(), 1_000);
+        assert_eq!(
+            TerminalConfig::default().history_redaction(),
+            DEFAULT_HISTORY_REDACTION
+        );
         assert_eq!(TerminalConfig::default().font_size(), DEFAULT_FONT_SIZE);
         assert_eq!(
             TerminalConfig::default().scrollback_limit(),

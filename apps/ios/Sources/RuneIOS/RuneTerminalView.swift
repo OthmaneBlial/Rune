@@ -43,6 +43,7 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var font = "monospaced"
     @Published public private(set) var scrollbackLimit = Self.defaultScrollbackLimit
     @Published public private(set) var toolbarVisible = true
+    @Published public private(set) var historyRedaction = true
     @Published public private(set) var theme = "ink"
     @Published public private(set) var cursorColor = "cyan"
     @Published public private(set) var cursorShape = "bar"
@@ -348,6 +349,12 @@ public final class RuneTerminalModel: ObservableObject {
                     toolbarVisible = true
                 } else if ["false", "0"].contains(pair[1]) {
                     toolbarVisible = false
+                }
+            case "history-redaction":
+                if ["true", "1"].contains(pair[1]) {
+                    historyRedaction = true
+                } else if ["false", "0"].contains(pair[1]) {
+                    historyRedaction = false
                 }
             case "theme":
                 if ["ink", "light", "ember"].contains(pair[1]) {
@@ -921,6 +928,22 @@ private struct RuneSettingsView: View {
                                 )
                             }
                         )
+                    )
+
+                    Toggle(
+                        "Redact secrets in history",
+                        isOn: Binding(
+                            get: { model.historyRedaction },
+                            set: {
+                                model.setConfiguration(
+                                    key: "history-redaction",
+                                    value: $0 ? "true" : "false"
+                                )
+                            }
+                        )
+                    )
+                    .accessibilityHint(
+                        "When enabled, detected environment assignments and network commands are replaced before history is stored."
                     )
 
                     HStack {
