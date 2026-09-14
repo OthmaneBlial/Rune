@@ -10,6 +10,8 @@ iOS runtime release.
 
 - The CLI release packager now rejects malformed or path-bearing version
   arguments before creating any artifact paths.
+- Rust-planned scripts now support bounded one-line `for`, `while`, and `until`
+  bodies with quote-aware control-marker detection.
 
 ## [0.1.0-alpha.8] - 2026-09-14
 

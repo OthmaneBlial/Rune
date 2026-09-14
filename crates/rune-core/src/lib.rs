@@ -1263,11 +1263,12 @@ impl Session {
 
     /// Executes a bounded newline-delimited automation script.
     ///
-    /// Empty lines are ignored. Ordinary lines and bounded multiline `for`,
-    /// `if`, `while`, and `until` constructs use the same parser and command
-    /// registry as interactive input; execution continues after a failed
-    /// command so automation can observe the complete output. The returned
-    /// status is the status of the last executed construct.
+    /// Empty lines are ignored. Ordinary lines and bounded `for`, `if`,
+    /// `while`, and `until` constructs use the same parser and command
+    /// registry as interactive input; loop bodies may be multiline or use the
+    /// bounded `for ...; do command; done` form. Execution continues after a
+    /// failed command so automation can observe the complete output. The
+    /// returned status is the status of the last executed construct.
     pub fn execute_script(&mut self, script: &str) -> CommandOutput {
         let mut sink = NoopEventSink;
         self.execute_with_terminal(&mut sink, |session, sink| {
@@ -1383,7 +1384,11 @@ impl Session {
             self.last_status = output.status;
             return output;
         }
-        let lines = script.lines().collect::<Vec<_>>();
+        let normalized_lines = normalized_script_lines(script);
+        let lines = normalized_lines
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
         let mut output = CommandOutput::success("");
         let mut line_index = 0;
         while line_index < lines.len() {
@@ -3427,6 +3432,61 @@ enum ControlBlock {
 
 fn is_for_header_line(line: &str) -> bool {
     line.trim_start().starts_with("for ")
+}
+
+fn normalized_script_lines(script: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    for line in script.lines() {
+        if let Some((header, body)) = split_inline_loop_line(line) {
+            lines.push(header);
+            lines.push(body);
+            lines.push("done".to_string());
+        } else {
+            lines.push(line.to_string());
+        }
+    }
+    lines
+}
+
+fn split_inline_loop_line(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim();
+    let do_marker = find_unquoted_marker(trimmed, "; do", 0)?;
+    let body_start = do_marker + "; do".len();
+    let done_marker = find_unquoted_marker(trimmed, "; done", body_start)?;
+    if !trimmed[done_marker + "; done".len()..].trim().is_empty() {
+        return None;
+    }
+    let header = trimmed[..do_marker].trim();
+    if !(is_for_header_line(header) || is_loop_header_line(header)) {
+        return None;
+    }
+    let body = trimmed[body_start..done_marker].trim();
+    if body.is_empty() {
+        return None;
+    }
+    Some((format!("{header}; do"), body.to_string()))
+}
+
+fn find_unquoted_marker(input: &str, marker: &str, start: usize) -> Option<usize> {
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in input.char_indices().filter(|(index, _)| *index >= start) {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if quote == Some('"') && character == '\\' {
+            escaped = true;
+            continue;
+        }
+        match quote {
+            Some(expected) if character == expected => quote = None,
+            None if character == '\'' || character == '"' => quote = Some(character),
+            None if input[index..].starts_with(marker) => return Some(index),
+            Some(_) | None => {}
+        }
+    }
+    None
 }
 
 fn is_if_header_line(line: &str) -> bool {
@@ -6516,6 +6576,13 @@ mod tests {
             session.environment().get("item"),
             Some(&"three".to_string())
         );
+
+        let inline = session.execute_script("for item in one two; do echo \"$item\"; done");
+        assert_eq!(inline.status, 0, "{inline:?}");
+        assert_eq!(inline.stdout, "one\ntwo\n");
+        let quoted = session.execute_script("for item in one; do echo 'semi; done'; done");
+        assert_eq!(quoted.status, 0, "{quoted:?}");
+        assert_eq!(quoted.stdout, "semi; done\n");
 
         let nested = session.execute_script(
             "for outer in A B; do\nfor inner in 1 2; do\necho \"$outer$inner\"\ndone\ndone",
