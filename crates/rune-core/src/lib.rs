@@ -10,6 +10,7 @@ mod config;
 mod network;
 mod open;
 mod persistence;
+mod terminal;
 
 pub use clipboard::{
     ClipboardError, ClipboardProvider, DisabledClipboardProvider, MAX_CLIPBOARD_BYTES,
@@ -47,6 +48,7 @@ use rune_runtime::{
 };
 use rune_shell::{parse, CommandPlan, Connector, ExecutionPlan, Redirection, Word, WordPart};
 use rune_wasm::WasmRunner;
+use terminal::TerminalScreen;
 
 const MAX_ALIAS_EXPANSIONS: usize = 32;
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
@@ -489,6 +491,7 @@ pub struct Session {
     function_local_bindings: Vec<BTreeMap<String, Option<String>>>,
     state_session_id: Option<String>,
     script_parameters: Vec<String>,
+    terminal_screen: TerminalScreen,
 }
 
 impl Session {
@@ -531,6 +534,7 @@ impl Session {
             function_local_bindings: Vec::new(),
             state_session_id: None,
             script_parameters: Vec::new(),
+            terminal_screen: TerminalScreen::default(),
         };
         session.update_pwd();
         session
@@ -811,6 +815,19 @@ impl Session {
         self.last_status
     }
 
+    /// Returns the bounded Rust-owned terminal screen after the latest
+    /// command or script execution. The snapshot contains visible text only;
+    /// native renderers may continue to apply event-local styling separately.
+    #[must_use]
+    pub fn terminal_snapshot(&self) -> String {
+        self.terminal_screen.snapshot()
+    }
+
+    fn feed_terminal_output(&mut self, output: &CommandOutput) {
+        self.terminal_screen.feed(&output.stdout);
+        self.terminal_screen.feed(&output.stderr);
+    }
+
     /// Returns the current registry metadata for UI completion/help.
     #[must_use]
     pub fn commands(&self) -> &[CommandDefinition] {
@@ -1043,7 +1060,9 @@ impl Session {
     /// Executes one parsed command line and returns separate output channels.
     pub fn execute_line(&mut self, input: &str) -> CommandOutput {
         let mut sink = NoopEventSink;
-        self.execute_line_internal(input, true, 0, "", &mut sink)
+        let output = self.execute_line_internal(input, true, 0, "", &mut sink);
+        self.feed_terminal_output(&output);
+        output
     }
 
     /// Executes one command line and emits bounded output/status events.
@@ -1052,7 +1071,9 @@ impl Session {
         input: &str,
         sink: &mut dyn EventSink,
     ) -> CommandOutput {
-        self.execute_line_internal(input, true, 0, "", sink)
+        let output = self.execute_line_internal(input, true, 0, "", sink);
+        self.feed_terminal_output(&output);
+        output
     }
 
     /// Executes a bounded newline-delimited automation script.
@@ -1064,7 +1085,9 @@ impl Session {
     /// status is the status of the last executed construct.
     pub fn execute_script(&mut self, script: &str) -> CommandOutput {
         let mut sink = NoopEventSink;
-        self.execute_script_internal(script, true, 0, "", &mut sink)
+        let output = self.execute_script_internal(script, true, 0, "", &mut sink);
+        self.feed_terminal_output(&output);
+        output
     }
 
     /// Executes a bounded script and emits events for each executed line.
@@ -1073,7 +1096,9 @@ impl Session {
         script: &str,
         sink: &mut dyn EventSink,
     ) -> CommandOutput {
-        self.execute_script_internal(script, true, 0, "", sink)
+        let output = self.execute_script_internal(script, true, 0, "", sink);
+        self.feed_terminal_output(&output);
+        output
     }
 
     fn execute_script_internal(
@@ -1794,6 +1819,7 @@ impl Session {
         let script = lines.join("\n");
         let mut sink = NoopEventSink;
         let output = self.execute_script_internal(&script, false, 0, "", &mut sink);
+        self.feed_terminal_output(&output);
         self.startup_output.stdout.push_str(&output.stdout);
         self.startup_output.stderr.push_str(&output.stderr);
         if output.status != 0 {
@@ -4149,6 +4175,20 @@ mod tests {
         }
         assert!(output_events > 1);
         assert_eq!(emitted, output.stdout);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn keeps_a_rust_owned_terminal_snapshot_in_sync_with_command_output() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let progress = session.execute_line("printf 'progress\r\u{1b}[2Kready'");
+        assert_eq!(progress.status, 0);
+        assert_eq!(session.terminal_snapshot(), "ready");
+        assert_eq!(session.execute_line("printf '\nnext'").status, 0);
+        assert_eq!(session.terminal_snapshot(), "ready\nnext");
+        assert_eq!(session.execute_line("clear").status, 0);
+        assert!(session.terminal_snapshot().is_empty());
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

@@ -175,6 +175,19 @@ public final class RuneFFISession: @unchecked Sendable {
         }
     }
 
+    /// Returns the current bounded Rust-owned terminal screen. Cursor and
+    /// erase controls have already been applied by Rust before this snapshot
+    /// crosses the C ABI.
+    public var terminalSnapshot: String {
+        withLock {
+            guard let pointer = rune_session_terminal_snapshot(handle.map(UnsafeRawPointer.init)) else {
+                return ""
+            }
+            defer { rune_string_free(pointer) }
+            return String(cString: pointer)
+        }
+    }
+
     public func execute(_ command: String) -> RuneCommandResult {
         withLock {
             let raw = command.withCString { rune_session_execute(handle, $0) }

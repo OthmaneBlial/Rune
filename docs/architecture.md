@@ -261,6 +261,12 @@ controls are deliberately bounded and not claimed as a complete emulator. This
 is source-level performance evidence;
 Apple frame-time and device-memory measurements remain unverified.
 
+In parallel, `rune-core` maintains a bounded cursor grid with streaming
+CSI/OSC parsing, cursor addressing, scrolling, and character/line erasure;
+`rune_session_terminal_snapshot` exposes its visible text through the C ABI.
+The existing Swift transcript remains the active presentation until a native
+terminal surface can be validated on Apple.
+
 The terminal view also declares native keyboard shortcuts for folder import,
 cooperative cancellation, history navigation, reverse history search, command
 submission, and a source-only settings sheet. The UIKit command editor also

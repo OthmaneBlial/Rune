@@ -1228,6 +1228,20 @@ pub extern "C" fn rune_session_current_directory(handle: *const std::ffi::c_void
     into_owned_c_string(&directory)
 }
 
+/// Returns the bounded Rust-owned terminal screen as visible UTF-8 text.
+/// Control sequences have already updated the cursor grid and are not returned
+/// as raw escape bytes.
+#[no_mangle]
+pub extern "C" fn rune_session_terminal_snapshot(handle: *const std::ffi::c_void) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the pointer is read-only and owned by the Swift session.
+    let session = unsafe { &*handle.cast::<RuneSession>() };
+    let snapshot = session.core.terminal_snapshot();
+    into_owned_c_string(&snapshot)
+}
+
 /// Returns the restored and in-session history as one newline-separated owned
 /// string. Rune command lines are single-line records at this stage.
 #[no_mangle]
@@ -1419,10 +1433,11 @@ mod tests {
         rune_session_new_with_layout, rune_session_put_file, rune_session_reset_configuration,
         rune_session_set_clipboard_callbacks, rune_session_set_configuration,
         rune_session_set_network_callback, rune_session_set_open_callback,
-        rune_session_set_toolchain_callback, rune_session_startup_output, rune_string_free,
-        RuneClipboardResponse, RuneEvent, RuneNetworkResponse, RuneToolchainArtifactBuffer,
-        RuneToolchainEnvironmentEntry, RuneToolchainResponse, RuneToolchainSlice,
-        RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS, RUNE_OPEN_FILE, RUNE_OPEN_URL, RUNE_TOOLCHAIN_C,
+        rune_session_set_toolchain_callback, rune_session_startup_output,
+        rune_session_terminal_snapshot, rune_string_free, RuneClipboardResponse, RuneEvent,
+        RuneNetworkResponse, RuneToolchainArtifactBuffer, RuneToolchainEnvironmentEntry,
+        RuneToolchainResponse, RuneToolchainSlice, RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS,
+        RUNE_OPEN_FILE, RUNE_OPEN_URL, RUNE_TOOLCHAIN_C,
     };
     use rune_core::MAX_EVENT_CHUNK_BYTES;
     use std::ffi::{c_void, CStr, CString};
@@ -2460,6 +2475,34 @@ mod tests {
             rune_session_set_toolchain_callback(handle, 99, None, std::ptr::null_mut()),
             2
         );
+        rune_session_destroy(handle);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn c_abi_exposes_the_rust_owned_terminal_snapshot() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rune-ffi-terminal-test-{suffix}"));
+        std::fs::create_dir_all(&root).expect("test root created");
+        let root_string = CString::new(root.to_string_lossy().as_bytes()).expect("valid root");
+        let handle = rune_session_new(root_string.as_ptr());
+        assert!(!handle.is_null());
+
+        let command = CString::new("printf 'stale\r\u{1b}[2Kready'").expect("valid command");
+        let output = rune_session_execute(handle, command.as_ptr());
+        assert_eq!(output.status, 0);
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+        let snapshot = rune_session_terminal_snapshot(handle);
+        assert_eq!(c_string(snapshot), "ready");
+        unsafe { rune_string_free(snapshot) };
+        assert!(rune_session_terminal_snapshot(std::ptr::null()).is_null());
+
         rune_session_destroy(handle);
         std::fs::remove_dir_all(root).expect("test root removed");
     }

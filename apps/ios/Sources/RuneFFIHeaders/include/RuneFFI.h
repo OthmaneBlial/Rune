@@ -211,6 +211,8 @@ RuneOutput rune_session_execute_script_with_events(
     void *user_data
 );
 char *rune_session_current_directory(const void *handle);
+// Return the bounded Rust-owned terminal screen as visible UTF-8 text.
+char *rune_session_terminal_snapshot(const void *handle);
 char *rune_session_history(const void *handle);
 // Return newest-first history matches; null means invalid/oversized query.
 char *rune_session_history_search(const void *handle, const char *query);
