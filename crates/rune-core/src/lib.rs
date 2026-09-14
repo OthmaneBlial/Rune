@@ -62,6 +62,7 @@ const MAX_SOURCE_DEPTH: usize = 16;
 const MAX_SOURCE_ARGUMENTS: usize = 64;
 const MAX_COMMAND_SUBSTITUTION_DEPTH: usize = 16;
 const MAX_FOR_VALUES: usize = 256;
+const MAX_WHILE_ITERATIONS: usize = 1_024;
 pub(crate) const CANCELLED_STATUS: i32 = 130;
 const MAX_BOOKMARKS: usize = 256;
 const MAX_BOOKMARK_NAME_CHARS: usize = 64;
@@ -869,11 +870,11 @@ impl Session {
 
     /// Executes a bounded newline-delimited automation script.
     ///
-    /// Empty lines are ignored. Ordinary lines and bounded multiline `for`
-    /// loops use the same parser and command registry as interactive input;
-    /// execution continues after a failed command so automation can observe
-    /// the complete output. The returned status is the status of the last
-    /// executed construct.
+    /// Empty lines are ignored. Ordinary lines and bounded multiline `for`,
+    /// `if`, `while`, and `until` constructs use the same parser and command
+    /// registry as interactive input; execution continues after a failed
+    /// command so automation can observe the complete output. The returned
+    /// status is the status of the last executed construct.
     pub fn execute_script(&mut self, script: &str) -> CommandOutput {
         let mut sink = NoopEventSink;
         self.execute_script_internal(script, true, 0, "", &mut sink)
@@ -1022,12 +1023,23 @@ impl Session {
         if is_for_header_line(line) {
             let header =
                 parse_for_header(line)?.ok_or_else(|| "invalid `for` header".to_string())?;
-            let (body_start, body_end) = for_body_range(lines, line_index, &header)?;
+            let (body_start, body_end) = loop_body_range(lines, line_index, header.inline_do)?;
             if context.record_history {
                 self.record_history_line(line.trim());
             }
             let body = lines[body_start..body_end].join("\n");
             let output = self.execute_for_loop(&header, &body, context);
+            return Ok(Some((body_end + 1, output)));
+        }
+        if is_loop_header_line(line) {
+            let header = parse_while_header(line)?
+                .ok_or_else(|| "invalid `while`/`until` header".to_string())?;
+            let (body_start, body_end) = loop_body_range(lines, line_index, header.inline_do)?;
+            if context.record_history {
+                self.record_history_line(line.trim());
+            }
+            let body = lines[body_start..body_end].join("\n");
+            let output = self.execute_while_loop(&header, &body, context);
             return Ok(Some((body_end + 1, output)));
         }
         Ok(None)
@@ -1112,6 +1124,84 @@ impl Session {
                 break;
             }
         }
+        self.last_status = output.status;
+        output
+    }
+
+    fn execute_while_loop(
+        &mut self,
+        header: &WhileHeader,
+        body: &str,
+        context: &mut ScriptExecutionContext<'_>,
+    ) -> CommandOutput {
+        let mut output = CommandOutput::success("");
+        let mut iterations = 0;
+        loop {
+            if let Some(cancellation) = self.take_cancellation() {
+                output.stderr.push_str(&cancellation.stderr);
+                output.status = cancellation.status;
+                break;
+            }
+            let condition = self.execute_line_internal(
+                &header.condition,
+                false,
+                context.source_depth,
+                if iterations == 0 {
+                    context.external_stdin
+                } else {
+                    ""
+                },
+                &mut *context.sink,
+            );
+            output.stdout.push_str(&condition.stdout);
+            output.stderr.push_str(&condition.stderr);
+            let condition_succeeded = condition.status == 0;
+            let should_execute = if header.until {
+                !condition_succeeded
+            } else {
+                condition_succeeded
+            };
+            if !should_execute {
+                if iterations == 0 {
+                    output.status = 0;
+                }
+                break;
+            }
+            if iterations >= MAX_WHILE_ITERATIONS {
+                let error = CommandOutput::failure(
+                    2,
+                    format!(
+                        "{}: loop exceeds the {MAX_WHILE_ITERATIONS}-iteration limit\n",
+                        if header.until { "until" } else { "while" }
+                    ),
+                );
+                output.stderr.push_str(&error.stderr);
+                output.status = error.status;
+                break;
+            }
+            let iteration_stdin = if iterations == 0 {
+                context.external_stdin
+            } else {
+                ""
+            };
+            let mut body_context = ScriptExecutionContext {
+                record_history: context.record_history,
+                source_depth: context.source_depth,
+                external_stdin: iteration_stdin,
+                control_depth: context.control_depth + 1,
+                sink: &mut *context.sink,
+            };
+            let iteration = self.execute_script_body(body, &mut body_context);
+            output.stdout.push_str(&iteration.stdout);
+            output.stderr.push_str(&iteration.stderr);
+            output.status = iteration.status;
+            limit_output(&mut output);
+            iterations += 1;
+            if output.status == CANCELLED_STATUS {
+                break;
+            }
+        }
+        limit_output(&mut output);
         self.last_status = output.status;
         output
     }
@@ -2390,9 +2480,16 @@ struct IfBlock {
     end: usize,
 }
 
+#[derive(Debug)]
+struct WhileHeader {
+    condition: String,
+    inline_do: bool,
+    until: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ControlBlock {
-    For,
+    Loop,
     If,
 }
 
@@ -2402,6 +2499,11 @@ fn is_for_header_line(line: &str) -> bool {
 
 fn is_if_header_line(line: &str) -> bool {
     line.trim_start().starts_with("if ")
+}
+
+fn is_loop_header_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with("while ") || trimmed.starts_with("until ")
 }
 
 fn is_elif_header_line(line: &str) -> bool {
@@ -2456,6 +2558,33 @@ fn parse_for_header(line: &str) -> Result<Option<ForHeader>, String> {
     }))
 }
 
+fn parse_while_header(line: &str) -> Result<Option<WhileHeader>, String> {
+    let trimmed = line.trim();
+    let (keyword, until) = if trimmed.starts_with("while ") {
+        ("while", false)
+    } else if trimmed.starts_with("until ") {
+        ("until", true)
+    } else {
+        return Ok(None);
+    };
+    let rest = trimmed
+        .strip_prefix(&format!("{keyword} "))
+        .expect("loop keyword was checked")
+        .trim_end();
+    let (condition, inline_do) = rest
+        .strip_suffix("; do")
+        .map_or((rest, false), |condition| (condition.trim_end(), true));
+    if condition.is_empty() {
+        return Err(format!("{keyword} condition is empty"));
+    }
+    parse(condition).map_err(|error| format!("invalid {keyword} condition: {error}"))?;
+    Ok(Some(WhileHeader {
+        condition: condition.to_string(),
+        inline_do,
+        until,
+    }))
+}
+
 fn parse_if_header(line: &str, keyword: &str) -> Result<Option<IfHeader>, String> {
     let trimmed = line.trim();
     let Some(rest) = trimmed.strip_prefix(&format!("{keyword} ")) else {
@@ -2483,34 +2612,33 @@ fn is_valid_script_variable(name: &str) -> bool {
     ) && characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
 }
 
-fn for_body_range(
+fn loop_body_range(
     lines: &[&str],
     header_index: usize,
-    header: &ForHeader,
+    inline_do: bool,
 ) -> Result<(usize, usize), String> {
     let mut body_start = header_index + 1;
-    if !header.inline_do {
+    if !inline_do {
         if lines.get(body_start).map(|line| line.trim()) != Some("do") {
             return Err("for loop is missing `do`".to_string());
         }
         body_start += 1;
     }
-    let mut blocks = vec![ControlBlock::For];
+    let mut blocks = vec![ControlBlock::Loop];
     for (index, line) in lines.iter().enumerate().skip(body_start) {
-        if is_for_header_line(line) {
-            blocks.push(ControlBlock::For);
+        if is_for_header_line(line) || is_loop_header_line(line) {
+            blocks.push(ControlBlock::Loop);
         } else if is_if_header_line(line) {
             blocks.push(ControlBlock::If);
         } else {
             match line.trim() {
-                "done" => {
-                    if blocks.pop() != Some(ControlBlock::For) {
-                        return Err("for loop has mismatched `done`/`fi`".to_string());
-                    }
-                    if blocks.is_empty() {
+                "done" => match blocks.pop() {
+                    Some(ControlBlock::Loop) if blocks.is_empty() => {
                         return Ok((body_start, index));
                     }
-                }
+                    Some(ControlBlock::Loop) => {}
+                    _ => return Err("for loop has mismatched `done`/`fi`".to_string()),
+                },
                 "fi" if blocks.pop() != Some(ControlBlock::If) => {
                     return Err("for loop has mismatched `done`/`fi`".to_string());
                 }
@@ -2590,15 +2718,16 @@ fn parse_if_block(
             }
         }
 
-        if is_for_header_line(line) {
-            blocks.push(ControlBlock::For);
+        if is_for_header_line(line) || is_loop_header_line(line) {
+            blocks.push(ControlBlock::Loop);
         } else if is_if_header_line(line) {
             blocks.push(ControlBlock::If);
         } else {
             match line.trim() {
-                "done" if blocks.pop() != Some(ControlBlock::For) => {
-                    return Err("if statement has mismatched `done`/`fi`".to_string());
-                }
+                "done" => match blocks.pop() {
+                    Some(ControlBlock::Loop) => {}
+                    _ => return Err("if statement has mismatched `done`/`fi`".to_string()),
+                },
                 "fi" if blocks.pop() != Some(ControlBlock::If) => {
                     return Err("if statement has mismatched `done`/`fi`".to_string());
                 }
@@ -2786,7 +2915,7 @@ mod tests {
         CANCELLED_STATUS, MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS, MAX_CLIPBOARD_BYTES,
         MAX_COMMAND_INPUT_BYTES, MAX_FILE_TRANSFER_BYTES, MAX_FOR_VALUES, MAX_OUTPUT_BYTES,
         MAX_SCRIPT_BYTES, MAX_SCRIPT_CONTROL_DEPTH, MAX_SCRIPT_LINES, MAX_SOURCE_DEPTH,
-        OUTPUT_TRUNCATION_MARKER,
+        MAX_WHILE_ITERATIONS, OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -4789,6 +4918,35 @@ mod tests {
         let too_deep = session.execute_script(&deep);
         assert_eq!(too_deep.status, 2);
         assert!(too_deep.stderr.contains("control-flow nesting exceeds"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn executes_bounded_while_and_until_loops_through_the_rust_planner() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let bounded = session.execute_script(
+            "counter=0\nwhile test \"$counter\" -lt 3; do\necho \"$counter\"\nexport counter=3\ndone",
+        );
+        assert_eq!(bounded.status, 0, "{bounded:?}");
+        assert_eq!(bounded.stdout, "0\n");
+
+        let failed_body = session.execute_script(
+            "counter=0\nwhile test \"$counter\" -lt 1; do\nexport counter=1\nfalse\ndone",
+        );
+        assert_eq!(failed_body.status, 1, "{failed_body:?}");
+
+        let until_output = session.execute_script(
+            "counter=1\nuntil test \"$counter\" -eq 0; do\necho once\nexport counter=0\ndone\nif false; then\necho wrong\nfi",
+        );
+        assert_eq!(until_output.status, 0, "{until_output:?}");
+        assert_eq!(until_output.stdout, "once\n");
+
+        let infinite = session.execute_script("while true; do\ntrue\ndone");
+        assert_eq!(infinite.status, 2);
+        assert!(infinite.stderr.contains(&format!(
+            "loop exceeds the {MAX_WHILE_ITERATIONS}-iteration limit"
+        )));
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

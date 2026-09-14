@@ -110,8 +110,10 @@ Rust planner, positional values, pipeline stdin, sequencing, and rejection of
 unsupported shell modes without starting a host process. Script control-flow
 tests cover multiline `for` loops, nested loops, variable expansion, bounded
 value lists, multiline `if`/`elif`/`else` branches, nested conditions, and
-missing closing markers; control-flow depth is bounded, while `while`, `case`,
-functions, and one-line loop bodies remain outside the bounded grammar.
+missing closing markers. Multiline `while`/`until` tests cover state changes,
+body status, and the 1,024-iteration limit; control-flow depth is bounded,
+while `case`, functions, and one-line loop bodies remain outside the bounded
+grammar.
 Shell parser tests cover quoted and nested `$(...)` forms and unclosed
 substitution rejection. The core integration test covers stdout capture,
 trailing-newline removal, nested substitutions, redirection targets, and

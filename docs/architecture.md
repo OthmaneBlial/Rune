@@ -180,8 +180,9 @@ construct. Its expanded values and nested bodies are executed through this same
 Rust planner; each loop accepts at most 256 values and leaves its final loop
 variable in the session environment. Multiline `if/elif/else/fi` branches use
 the same planner for their conditions and selected body, with control-flow
-nesting capped at 16 levels. `while`, `case`, functions, and one-line loop
-bodies remain outside the subset.
+nesting capped at 16 levels. Multiline `while` and `until` loops use the same
+condition/body path and stop after 1,024 body iterations. `case`, functions,
+and one-line loop bodies remain outside the subset.
 
 The Apple source layer declares command, script, and named-session command App
 Intents that construct a normal `RuneFFISession` rooted at the app Documents
