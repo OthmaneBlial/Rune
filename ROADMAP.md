@@ -37,6 +37,8 @@ progress is not mistaken for a shipped application.
 
 ## Next — Apple validation
 
+- Follow the [Apple validation runbook](docs/apple-validation.md) and record
+  each runtime result as passed, failed, or unverified.
 - Build and link the native app with a real iOS toolchain.
 - Validate command execution, terminal rendering, keyboard input, accessibility,
   settings, folder access, cancellation, tabs, and window routing on simulator

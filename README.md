@@ -271,8 +271,9 @@ ABI; it does not maintain a second shell or filesystem implementation.
 - base/a-shell/ is a local behavioral reference, ignored by Git, and never
   part of the Rune source tree or release.
 
-Read [docs/architecture.md](docs/architecture.md) for the capability model
-and [SECURITY.md](SECURITY.md) for reporting guidance.
+Read [docs/architecture.md](docs/architecture.md) for the capability model,
+[docs/apple-validation.md](docs/apple-validation.md) for the future runtime
+validation hand-off, and [SECURITY.md](SECURITY.md) for reporting guidance.
 
 ## Roadmap
 
