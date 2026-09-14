@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a reproducible problem in the bounded Rust surface or source-only Apple boundary.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please redact credentials, private paths, tokens, host inventories, and real user data before posting.
+  - type: input
+    id: commit
+    attributes:
+      label: Commit or release
+      placeholder: "05acec1 or v0.1.0-alpha.7"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Rust core or shell
+        - Virtual filesystem or security
+        - Terminal or ANSI state
+        - C FFI
+        - Swift source boundary
+        - CLI or packaging
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Give the smallest safe command, input, or source example that reproduces the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and observed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, architecture, Rust/Swift tool versions, and whether this is CLI or source-only validation.
+    validations:
+      required: true

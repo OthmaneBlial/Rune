@@ -1,0 +1,31 @@
+name: Feature request
+description: Propose a bounded, inspectable improvement to Rune.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Requests should preserve the confined filesystem, explicit capability providers, bounded work, and honest platform claims.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or workflow
+      description: What user need or workflow would this improve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful behavior and any compatibility expectations.
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Security and platform boundaries
+      description: Explain limits, permissions, provider requirements, or Apple runtime assumptions.
+    validations:
+      required: true
