@@ -43,7 +43,8 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
 `apropos`, `help`, `history`, `sleep`, `uname`, `which`, `whoami`, `xargs`, `pbcopy`, `pbpaste`,
 `test`, `[`, `source`, `.`, `sh`, `dash`, `return`, `local`, `shift`, `set`, `exit`,
-`newWindow`, `new-window`, and `pickFolder` against a
+`newWindow`, `new-window`, `pickFolder`, and the short bookmark aliases `s`,
+`g`, `l`, `p`, `r`, and `d` against a
 bounded filesystem,
 including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
@@ -359,6 +360,10 @@ single root instead of borrowing the app's sibling directories.
 
 The portable core also supports session-local virtual directory bookmarks with
 `bookmark`, `showmarks`, `jump`, `cd ~NAME`, `renamemark`, and `deletemark`.
+For the same workflow, the Rust registry also provides the concise `s`, `g`,
+`l`, `p`, `r`, and `d` aliases for save, jump, list, rename, and delete. They
+are intentionally always available in Rune; unlike a-Shell's preference-gated
+shortcuts, they use the same bounded Rust bookmark validation and persistence.
 They persist with the session state and remain confined to the configured VFS;
 the source-only Apple layer also handles user-selected external folders through
 bounded security-scoped bookmarks. Full entitlement, picker, and device/runtime
@@ -601,6 +606,7 @@ result.
 - [x] Rust-owned bounded terminal cursor grid and ANSI screen snapshot
 - [x] Bounded text-only terminal screen persistence
 - [x] Session-local virtual directory bookmarks
+- [x] Rust bookmark shortcuts `s`, `g`, `l`, `p`, `r`, and `d`
 - [x] Bounded portable utility commands
 - [x] Bounded long-format and human-readable `ls` metadata
 - [x] Bounded virtual filesystem metadata and usage commands

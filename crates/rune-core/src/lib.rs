@@ -6848,6 +6848,30 @@ true
     }
 
     #[test]
+    fn supports_short_bookmark_aliases_through_the_rust_registry() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+
+        assert_eq!(session.execute_line("mkdir src && cd src").status, 0);
+        assert_eq!(session.execute_line("s source").status, 0);
+        assert_eq!(session.execute_line("cd ..").status, 0);
+        assert_eq!(session.execute_line("g source").status, 0);
+        assert_eq!(session.current_directory(), "~/src");
+        assert_eq!(session.execute_line("l").stdout, "source -> ~/src\n");
+        assert_eq!(session.execute_line("p").stdout, "source -> ~/src\n");
+        assert_eq!(session.execute_line("r source renamed").status, 0);
+        assert_eq!(session.execute_line("d renamed").status, 0);
+        assert!(session.execute_line("l").stdout.is_empty());
+
+        let invalid = session.execute_line("d missing");
+        assert_eq!(invalid.status, 1);
+        assert!(invalid
+            .stderr
+            .contains("deletemark: missing: bookmark not found"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn formats_bounded_printf_arguments() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));

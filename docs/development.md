@@ -231,6 +231,8 @@ The session snapshot test verifies the named namespace, cwd, history/bookmark/
 environment counters, terminal geometry, versioned JSON shape, and exclusion
 of exported environment values. The source-only bridge decodes that payload
 for native session labeling.
+The bookmark alias test exercises `s`, `g`, `l`, `p`, `r`, and `d` through the
+same Rust handlers, including a missing-bookmark error.
 The source-only Apple check typechecks the external-folder bookmark layer,
 App Intent declarations (including named command and script actions), and the
 workspace tab container against the imported C ABI. It does not prove

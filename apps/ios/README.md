@@ -191,6 +191,11 @@ Rust session namespace, and `pickFolder` opens the existing confined folder
 importer before reinstalling the session root. This is source/API evidence
 only; SwiftUI lifecycle and Apple runtime behavior remain unverified.
 
+The portable Rust registry also provides the short bookmark workflow aliases
+`s`, `g`, `l`, `p`, `r`, and `d`. They operate on the same session-local map as
+the full bookmark commands; the aliases are always available in Rune, while
+the corresponding a-Shell shortcuts depend on its bookmark preferences.
+
 `RuneFFISession.sessionSnapshot` decodes a versioned Rust-owned status payload
 for the current tab. It contains only the session id, cwd, state counters, last
 status, and terminal geometry/cursor; environment values and terminal text are

@@ -497,6 +497,11 @@ to 256 KiB. The map is persisted with the bounded session state. It is not an
 Apple security-scoped bookmark and cannot grant access outside the configured
 VFS.
 
+The registry also exposes the short `s`, `g`, `l`, `p`, `r`, and `d` bookmark
+aliases. They call the same Rust handlers and therefore share validation,
+limits, cwd updates, and persistence; Rune keeps them always available rather
+than copying a-Shell's preference toggles into the core.
+
 The `wasm MODULE [arg ...]` built-in reads the module through the virtual
 filesystem and invokes WASI preview1 `_start` in the Rust runtime. The guest
 receives argv, the session environment, stdin, and stderr, plus explicit
