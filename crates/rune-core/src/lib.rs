@@ -315,6 +315,50 @@ pub enum SessionAction {
     PickFolder,
 }
 
+/// A bounded, non-secret snapshot of one Rust-owned terminal session.
+///
+/// The snapshot is intentionally metadata rather than an environment dump:
+/// native hosts can label tabs and inspect state without receiving exported
+/// values or duplicating session bookkeeping in Swift.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionSnapshot {
+    pub id: String,
+    pub working_directory: String,
+    pub history_count: usize,
+    pub bookmark_count: usize,
+    pub environment_count: usize,
+    pub terminal_columns: usize,
+    pub terminal_rows: usize,
+    pub terminal_cursor_row: usize,
+    pub terminal_cursor_column: usize,
+    pub last_status: i32,
+}
+
+impl SessionSnapshot {
+    /// Serializes the stable versioned snapshot consumed by native hosts.
+    #[must_use]
+    pub fn to_json(&self) -> String {
+        serde_json::json!({
+            "schema_version": 1,
+            "id": self.id,
+            "working_directory": self.working_directory,
+            "history_count": self.history_count,
+            "bookmark_count": self.bookmark_count,
+            "environment_count": self.environment_count,
+            "last_status": self.last_status,
+            "terminal_state": {
+                "columns": self.terminal_columns,
+                "rows": self.terminal_rows,
+                "cursor": {
+                    "row": self.terminal_cursor_row,
+                    "column": self.terminal_cursor_column,
+                },
+            },
+        })
+        .to_string()
+    }
+}
+
 impl CommandOutput {
     #[must_use]
     pub fn success(stdout: impl Into<String>) -> Self {
@@ -776,6 +820,29 @@ impl Session {
     #[must_use]
     pub fn bookmarks(&self) -> &BTreeMap<String, String> {
         &self.bookmarks
+    }
+
+    /// Returns bounded session metadata without exposing environment values.
+    #[must_use]
+    pub fn snapshot(&self) -> SessionSnapshot {
+        let (terminal_columns, terminal_rows) = self.terminal_screen.dimensions();
+        let (terminal_cursor_row, terminal_cursor_column) = self.terminal_screen.cursor_position();
+        SessionSnapshot {
+            id: self
+                .state_session_id
+                .as_deref()
+                .unwrap_or("default")
+                .to_string(),
+            working_directory: self.current_directory(),
+            history_count: self.history.len(),
+            bookmark_count: self.bookmarks.len(),
+            environment_count: self.environment.len(),
+            terminal_columns,
+            terminal_rows,
+            terminal_cursor_row,
+            terminal_cursor_column,
+            last_status: self.last_status,
+        }
     }
 
     /// Returns the current portable Rust-owned terminal configuration.
@@ -8045,6 +8112,40 @@ true
         assert_eq!(pick_folder, CommandOutput::success(""));
         assert_eq!(session.take_action(), Some(SessionAction::PickFolder));
         assert_eq!(session.take_action(), None);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn exposes_bounded_session_snapshot_without_environment_values() {
+        let root = test_root();
+        let mut session = Session::restore_with_id(
+            SandboxedFileSystem::new(&root).expect("root created"),
+            "panel-1",
+        )
+        .expect("valid session id");
+
+        assert_eq!(session.execute_line("mkdir work && cd work").status, 0);
+        assert_eq!(session.execute_line("bookmark project").status, 0);
+        assert_eq!(
+            session.execute_line("export PRIVATE=do-not-export").status,
+            0
+        );
+        let snapshot = session.snapshot();
+
+        assert_eq!(snapshot.id, "panel-1");
+        assert_eq!(snapshot.working_directory, "~/work");
+        assert_eq!(snapshot.history_count, 3);
+        assert_eq!(snapshot.bookmark_count, 1);
+        assert!(snapshot.environment_count >= 1);
+        assert_eq!(snapshot.terminal_columns, 120);
+        assert_eq!(snapshot.terminal_rows, 4_096);
+        assert_eq!(snapshot.last_status, 0);
+        let json = snapshot.to_json();
+        assert!(json.contains("\"schema_version\":1"));
+        assert!(json.contains("\"id\":\"panel-1\""));
+        assert!(json.contains("\"working_directory\":\"~/work\""));
+        assert!(!json.contains("do-not-export"));
+
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

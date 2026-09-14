@@ -191,6 +191,12 @@ Rust session namespace, and `pickFolder` opens the existing confined folder
 importer before reinstalling the session root. This is source/API evidence
 only; SwiftUI lifecycle and Apple runtime behavior remain unverified.
 
+`RuneFFISession.sessionSnapshot` decodes a versioned Rust-owned status payload
+for the current tab. It contains only the session id, cwd, state counters, last
+status, and terminal geometry/cursor; environment values and terminal text are
+kept out of this metadata API. The terminal header uses those counters for
+source-only session labeling.
+
 ## Current evidence
 
 RuneOpenBridge.swift provides the source-only UIKit adapter for the Rust

@@ -75,6 +75,41 @@ public struct RuneCommandResult: Equatable, Sendable {
     }
 }
 
+public struct RuneTerminalStateSnapshot: Decodable, Equatable, Sendable {
+    public let columns: Int
+    public let rows: Int
+    public let cursor: RuneTerminalCursorSnapshot
+}
+
+public struct RuneTerminalCursorSnapshot: Decodable, Equatable, Sendable {
+    public let row: Int
+    public let column: Int
+}
+
+/// Versioned metadata from the Rust session. It intentionally contains
+/// counts and geometry rather than environment values or terminal text.
+public struct RuneSessionSnapshot: Decodable, Equatable, Sendable {
+    public let schemaVersion: Int
+    public let id: String
+    public let workingDirectory: String
+    public let historyCount: Int
+    public let bookmarkCount: Int
+    public let environmentCount: Int
+    public let lastStatus: Int32
+    public let terminalState: RuneTerminalStateSnapshot
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case id
+        case workingDirectory = "working_directory"
+        case historyCount = "history_count"
+        case bookmarkCount = "bookmark_count"
+        case environmentCount = "environment_count"
+        case lastStatus = "last_status"
+        case terminalState = "terminal_state"
+    }
+}
+
 public enum RuneBridgeError: LocalizedError {
     case sessionInitializationFailed(URL)
     case fileOperationFailed(String)
@@ -204,6 +239,19 @@ public final class RuneFFISession: @unchecked Sendable {
             }
             defer { rune_string_free(pointer) }
             return String(cString: pointer)
+        }
+    }
+
+    /// Returns versioned, bounded Rust-owned session metadata. Environment
+    /// values and terminal text are intentionally not part of this contract.
+    public var sessionSnapshot: RuneSessionSnapshot? {
+        withLock {
+            guard let pointer = rune_session_snapshot(handle.map(UnsafeRawPointer.init)) else {
+                return nil
+            }
+            defer { rune_string_free(pointer) }
+            let data = Data(String(cString: pointer).utf8)
+            return try? JSONDecoder().decode(RuneSessionSnapshot.self, from: data)
         }
     }
 

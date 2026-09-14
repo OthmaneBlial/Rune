@@ -124,6 +124,12 @@ impl TerminalScreen {
         (self.cursor_row, self.cursor_column.min(self.columns))
     }
 
+    /// Returns the current bounded grid dimensions as `(columns, rows)`.
+    #[must_use]
+    pub fn dimensions(&self) -> (usize, usize) {
+        (self.columns, self.rows)
+    }
+
     /// Resizes the bounded grid while retaining the most recent rows and
     /// clamping the cursor to the new dimensions. The parser state survives a
     /// resize so a control sequence split across host layout updates is not

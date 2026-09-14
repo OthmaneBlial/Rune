@@ -226,6 +226,8 @@ RuneOutput rune_session_execute_script_with_events(
     void *user_data
 );
 char *rune_session_current_directory(const void *handle);
+// Return a versioned, bounded, non-secret Rust-owned session snapshot as JSON.
+char *rune_session_snapshot(const void *handle);
 // Return the bounded Rust-owned terminal screen as visible UTF-8 text.
 char *rune_session_terminal_snapshot(const void *handle);
 // Return safe, bounded, non-persistent development diagnostics.

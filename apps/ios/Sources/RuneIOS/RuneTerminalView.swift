@@ -62,6 +62,7 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var completionSelection: Int? = nil
     @Published public private(set) var terminalSnapshot = ""
     @Published public private(set) var terminalCursorPosition = (row: 0, column: 0)
+    @Published public private(set) var sessionSnapshot: RuneSessionSnapshot? = nil
     @Published public private(set) var requestedAction: RuneSessionAction = .none
 
     private var session: RuneFFISession?
@@ -544,10 +545,12 @@ public final class RuneTerminalModel: ObservableObject {
         guard let session = session ?? self.session else {
             terminalSnapshot = ""
             terminalCursorPosition = (row: 0, column: 0)
+            sessionSnapshot = nil
             return
         }
         terminalSnapshot = session.terminalSnapshot
         terminalCursorPosition = session.terminalCursorPosition
+        sessionSnapshot = session.sessionSnapshot
     }
 
     /// Adapts the Rust-owned terminal grid to the source-only native viewport.
@@ -764,6 +767,15 @@ public struct RuneTerminalView: View {
                             .font(.system(size: 12, design: .monospaced))
                             .foregroundStyle(palette.foreground)
                             .lineLimit(1)
+                        if let snapshot = model.sessionSnapshot {
+                            Text("\(snapshot.id) · \(snapshot.historyCount) cmds · \(snapshot.bookmarkCount) marks")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(palette.muted)
+                        } else {
+                            Text("Session metadata unavailable")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(palette.muted)
+                        }
                         Text("\(model.entries.count) events")
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(palette.muted)
@@ -773,6 +785,9 @@ public struct RuneTerminalView: View {
                     .accessibilityValue(
                         "\(model.workspaceName), directory \(model.currentDirectory), "
                             + "\(model.entries.count) events"
+                            + (model.sessionSnapshot.map {
+                                ", session \($0.id), \($0.historyCount) commands, \($0.bookmarkCount) bookmarks"
+                            } ?? "")
                     )
                 }
                 .padding(.horizontal, 18)

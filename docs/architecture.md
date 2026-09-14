@@ -244,6 +244,13 @@ legacy key.
 This is source/API evidence for routing; it does not yet prove SwiftUI
 lifecycle behavior, scene restoration, or device runtime behavior.
 
+The Rust session also publishes a versioned metadata snapshot for native
+hosts. It contains the opaque session id, working directory, history,
+bookmark, and environment counts, last command status, and terminal
+dimensions/cursor. It does not serialize environment values or terminal text;
+the FFI exposes the snapshot as JSON so Swift can decode it without owning a
+parallel session-state machine.
+
 Host-session actions use a separate one-shot signal rather than being encoded
 as terminal output. Rust recognizes argument-free `exit`, `newWindow`, and
 `pickFolder` (with the bounded `new-window` spelling), records the action on

@@ -227,6 +227,10 @@ both listing and wildcard enumeration stop at the 10,000-entry boundary.
 The filesystem and FFI layout tests also verify that Documents, Library, and
 tmp can be mounted as `~`, `~/Library`, and `~/tmp`, with navigation and file
 writes staying in their respective approved roots.
+The session snapshot test verifies the named namespace, cwd, history/bookmark/
+environment counters, terminal geometry, versioned JSON shape, and exclusion
+of exported environment values. The source-only bridge decodes that payload
+for native session labeling.
 The source-only Apple check typechecks the external-folder bookmark layer,
 App Intent declarations (including named command and script actions), and the
 workspace tab container against the imported C ABI. It does not prove

@@ -10,7 +10,7 @@ excluded from Git and no a-Shell source is part of Rune.
 
 ## Development Progress
 
-**Overall progress: 68%**
+**Overall progress: 69%**
 
 This is an intentionally conservative engineering estimate. The repository
 foundation and first Rust shell slice are locally verified; the estimate also
@@ -24,11 +24,11 @@ There is not yet a working iOS application or a feature-parity claim.
 | Command runtime | 99% |
 | Sandboxed filesystem | 70% |
 | Archives | 83% |
-| Sessions/history | 70% |
+| Sessions/history | 72% |
 | Configuration | 75% |
 | WASM | 52% |
 | Native iOS UI | 77% |
-| Swift/Rust bridge | 73% |
+| Swift/Rust bridge | 75% |
 | Package manager | 66% |
 | Compatibility evidence | 3% |
 
@@ -381,6 +381,12 @@ tab from a bounded route-specific key. SwiftUI rendering, scene restoration,
 iPad runtime behavior, and Apple runtime behavior remain unverified without an
 Apple build toolchain.
 
+The same Rust session exposes a versioned, bounded metadata snapshot through
+the FFI. It reports the opaque session id, working directory, history,
+bookmark and environment counts, last status, and terminal geometry/cursor;
+it deliberately excludes environment values and terminal text so native hosts
+do not need a second session-state model or a secret-bearing status API.
+
 The Rust shell also exposes `exit`, `newWindow`, and `pickFolder` as one-shot
 host-session actions. The FFI transfers those actions separately from
 stdout/stderr/status; the source-only Swift workspace closes the current
@@ -644,6 +650,7 @@ result.
 - [x] Source-only external folders and bounded security-scoped bookmarks
 - [x] Explicit host URL/file opening capability with bounded open/openurl
 - [x] Rust-namespaced sessions and source-only terminal tabs
+- [x] Versioned non-secret Rust session snapshot through the FFI
 - [x] Source-only typed iPad window routing
 - [x] Source-only Rust `exit`/`newWindow` host-action routing
 - [x] Source-only Rust `pickFolder` host-action routing
