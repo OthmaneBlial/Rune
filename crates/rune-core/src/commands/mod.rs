@@ -70,6 +70,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::break_command,
     },
     CommandDefinition {
+        name: "return",
+        summary: "return a bounded status from a script function",
+        handler: shell::return_command,
+    },
+    CommandDefinition {
         name: "realpath",
         summary: "print the confined canonical path of an existing file",
         handler: utilities::realpath,

@@ -191,8 +191,10 @@ subset. Multiline `case WORD in`
 branches support exact patterns, `*`/`?`, and simple `|` alternatives through a
 Rust-owned matcher; character classes and other POSIX pattern forms remain
 outside the profile. Argument-free `break` and `continue` are session control
-signals consumed by the innermost Rust-planned loop; command substitutions and
-`sh -c` executions isolate those signals from their caller.
+signals consumed by the innermost Rust-planned loop. Functions also accept
+`return [STATUS]`, bounded to 0–255, with an omitted status reusing the
+preceding command status. Command substitutions and `sh -c` executions isolate
+these control signals from their caller.
 
 The Apple source layer declares command, script, and named-session command App
 Intents that construct a normal `RuneFFISession` rooted at the app Documents

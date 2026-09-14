@@ -1773,6 +1773,20 @@ mod tests {
             rune_string_free(output.stdout);
             rune_string_free(output.stderr);
         }
+
+        let function_script =
+            CString::new("finish() {\necho ffi\nreturn 7\necho unreachable\n}\nfinish")
+                .expect("valid function script");
+        let function_output = rune_session_execute_script(handle, function_script.as_ptr());
+        assert_eq!(function_output.status, 7);
+        assert_eq!(c_string(function_output.stdout), "ffi\n");
+        assert!(c_string(function_output.stderr).is_empty());
+        // SAFETY: both pointers were returned by rune_session_execute_script
+        // and are released exactly once.
+        unsafe {
+            rune_string_free(function_output.stdout);
+            rune_string_free(function_output.stderr);
+        }
         rune_session_destroy(handle);
         std::fs::remove_dir_all(root).expect("test root removed");
     }

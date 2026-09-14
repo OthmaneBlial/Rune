@@ -21,7 +21,9 @@ lines, then runs ordinary lines and the bounded multiline `for`, `if`, `while`,
 `until`, `case`, and `NAME() { ... }` function constructs through the same
 planner and registry while
 preserving combined stdout, stderr, and the last status. Argument-free
-`break`/`continue` are consumed by the innermost Rust-planned loop. Native
+`break`/`continue` are consumed by the innermost Rust-planned loop, and
+`return [STATUS]` exits the current Rust-planned function with a bounded status.
+Native
 Shortcuts registration remains unverified and is not included here.
 
 `RuneShortcuts.swift` now declares source-only `AppIntent` actions for command

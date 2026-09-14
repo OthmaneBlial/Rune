@@ -62,6 +62,12 @@ pub(super) fn continue_command(_context: &mut CommandContext<'_>) -> CommandOutp
     usage("continue", "usage: continue")
 }
 
+/// `return` is dispatched by the session so it can leave a Rust-planned
+/// function without encoding control state into command output.
+pub(super) fn return_command(_context: &mut CommandContext<'_>) -> CommandOutput {
+    usage("return", "usage: return [STATUS]")
+}
+
 pub(super) fn uname(context: &mut CommandContext<'_>) -> CommandOutput {
     let mut selected = Vec::new();
     for argument in context.args {

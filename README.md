@@ -41,7 +41,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 `true`, `false`, `ar`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`, `type`, `command`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
 `help`, `history`, `sleep`, `uname`, `which`, `whoami`, `xargs`, `pbcopy`, `pbpaste`,
-`test`, `[`, `source`, `.`, `sh`, and `dash` against a
+`test`, `[`, `source`, `.`, `sh`, `dash`, and `return` against a
 bounded filesystem,
 including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
@@ -142,7 +142,9 @@ control-flow bodies remain outside this subset. `while` and `until` stop after
 at most 1,024 body iterations and
 return a bounded status-2 error if the limit is reached. Loop bodies can use
 argument-free `break` and `continue`; they are rejected outside a Rust-planned
-loop and do not leak through `sh -c` command substitutions.
+loop and do not leak through `sh -c` command substitutions. Functions can use
+`return [STATUS]` to stop their current body; the status is limited to 0–255,
+and an omitted status reuses the preceding command status.
 `type` complements `which` by describing aliases, Rust built-ins, installed
 package commands, and missing names without exposing host executables.
 `command -v` and `command -V` provide the same bounded discovery for scripts;
@@ -520,6 +522,7 @@ result.
 - [x] Bounded multiline `while`/`until` loops in Rust-planned scripts
 - [x] Bounded multiline `case` branches in Rust-planned scripts
 - [x] Bounded multiline shell function definitions and calls in Rust-planned scripts
+- [x] Bounded function `return [STATUS]` in Rust-planned scripts
 - [x] Bounded `break`/`continue` loop controls in Rust-planned scripts
 - [x] Cooperative command cancellation boundary, including cancellable `sleep`
 - [x] `&&` and `||` conditional chaining

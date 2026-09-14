@@ -442,6 +442,7 @@ pub struct Session {
     loop_control: Option<LoopControl>,
     functions: BTreeMap<String, FunctionDefinition>,
     function_depth: usize,
+    function_return: Option<i32>,
     state_session_id: Option<String>,
     script_parameters: Vec<String>,
 }
@@ -482,6 +483,7 @@ impl Session {
             loop_control: None,
             functions: BTreeMap::new(),
             function_depth: 0,
+            function_return: None,
             state_session_id: None,
             script_parameters: Vec::new(),
         };
@@ -998,7 +1000,7 @@ impl Session {
                     if output.status == CANCELLED_STATUS {
                         break;
                     }
-                    if self.loop_control.is_some() {
+                    if self.loop_control.is_some() || self.function_return.is_some() {
                         break;
                     }
                     continue;
@@ -1026,7 +1028,7 @@ impl Session {
             output.status = line_output.status;
             limit_output(&mut output);
             line_index += 1;
-            if self.loop_control.is_some() {
+            if self.loop_control.is_some() || self.function_return.is_some() {
                 break;
             }
         }
@@ -1185,6 +1187,9 @@ impl Session {
             if output.status == CANCELLED_STATUS {
                 break;
             }
+            if self.function_return.is_some() {
+                break;
+            }
             match self.loop_control.take() {
                 Some(LoopControl::Break) => break,
                 Some(LoopControl::Continue) | None => {}
@@ -1221,6 +1226,7 @@ impl Session {
         let Some(definition) = self.functions.get(name).cloned() else {
             return CommandOutput::failure(127, format!("{name}: command not found\n"));
         };
+        let previous_return = self.function_return.take();
         let previous_parameters = self.script_parameters.clone();
         let mut parameters = Vec::with_capacity(arguments.len() + 1);
         parameters.push(
@@ -1239,8 +1245,15 @@ impl Session {
             external_stdin,
             sink,
         );
+        let returned_status = self.function_return.take();
+        self.function_return = previous_return;
         self.function_depth -= 1;
         self.script_parameters = previous_parameters;
+        let mut output = output;
+        if let Some(status) = returned_status {
+            output.status = status;
+        }
+        self.last_status = output.status;
         output
     }
 
@@ -1272,6 +1285,9 @@ impl Session {
             );
             output.stdout.push_str(&condition.stdout);
             output.stderr.push_str(&condition.stderr);
+            if self.function_return.is_some() {
+                break;
+            }
             match self.loop_control.take() {
                 Some(LoopControl::Break) => break,
                 Some(LoopControl::Continue) => continue,
@@ -1320,6 +1336,9 @@ impl Session {
             limit_output(&mut output);
             iterations += 1;
             if output.status == CANCELLED_STATUS {
+                break;
+            }
+            if self.function_return.is_some() {
                 break;
             }
             match self.loop_control.take() {
@@ -1724,6 +1743,7 @@ impl Session {
     ) -> CommandOutput {
         match program {
             "break" | "continue" => self.execute_loop_control(program, arguments),
+            "return" => self.execute_function_return(arguments),
             "source" | "." => self.execute_source(
                 program,
                 arguments,
@@ -1781,6 +1801,29 @@ impl Session {
         } else {
             LoopControl::Continue
         });
+        CommandOutput::success("")
+    }
+
+    fn execute_function_return(&mut self, arguments: &[String]) -> CommandOutput {
+        if self.function_depth == 0 {
+            return CommandOutput::failure(2, "return: only valid inside a function\n");
+        }
+        if arguments.len() > 1 {
+            return usage("return", "usage: return [STATUS]");
+        }
+        let status = match arguments.first() {
+            None => self.last_status,
+            Some(argument) => match argument.parse::<i32>() {
+                Ok(status) if (0..=255).contains(&status) => status,
+                _ => {
+                    return CommandOutput::failure(
+                        2,
+                        "return: status must be an integer from 0 through 255\n",
+                    )
+                }
+            },
+        };
+        self.function_return = Some(status);
         CommandOutput::success("")
     }
 
@@ -1861,6 +1904,9 @@ impl Session {
         if matches!(program.as_str(), "break" | "continue") {
             return self.execute_loop_control(program, command_arguments);
         }
+        if program == "return" {
+            return self.execute_function_return(command_arguments);
+        }
         if self.functions.contains_key(program) {
             return self.execute_function(
                 program,
@@ -1930,8 +1976,10 @@ impl Session {
         let previous_loop_control = self.loop_control.take();
         let previous_functions = std::mem::take(&mut self.functions);
         let previous_function_depth = self.function_depth;
+        let previous_function_return = self.function_return.take();
         self.loop_depth = 0;
         self.function_depth = 0;
+        self.function_return = None;
         let output = self.execute_script_internal(
             script,
             record_history,
@@ -1944,6 +1992,7 @@ impl Session {
         self.loop_control = previous_loop_control;
         self.functions = previous_functions;
         self.function_depth = previous_function_depth;
+        self.function_return = previous_function_return;
         output
     }
 
@@ -2077,10 +2126,12 @@ impl Session {
         let previous_loop_control = self.loop_control.take();
         let previous_functions = std::mem::take(&mut self.functions);
         let previous_function_depth = self.function_depth;
+        let previous_function_return = self.function_return.take();
 
         self.command_substitution_depth += 1;
         self.loop_depth = 0;
         self.function_depth = 0;
+        self.function_return = None;
         let mut sink = NoopEventSink;
         let mut output = self.execute_plan(&plan, false, source_depth, "", &mut sink);
         self.command_substitution_depth = previous_depth;
@@ -2088,6 +2139,7 @@ impl Session {
         self.loop_control = previous_loop_control;
         self.functions = previous_functions;
         self.function_depth = previous_function_depth;
+        self.function_return = previous_function_return;
         let _ = self.filesystem.change_dir(&previous_directory);
         self.environment = previous_environment;
         self.aliases = previous_aliases;
@@ -5655,6 +5707,35 @@ mod tests {
         let redefined = session.execute_script("greet() {\necho replacement\n}\ngreet");
         assert_eq!(redefined.status, 0, "{redefined:?}");
         assert_eq!(redefined.stdout, "replacement\n");
+
+        let early_return =
+            session.execute_script("finish() {\necho before\nreturn 7\necho after\n}\nfinish");
+        assert_eq!(early_return.status, 7, "{early_return:?}");
+        assert_eq!(early_return.stdout, "before\n");
+
+        let implicit_return =
+            session.execute_script("use_last_status() {\nfalse\nreturn\n}\nuse_last_status");
+        assert_eq!(implicit_return.status, 1, "{implicit_return:?}");
+        assert!(implicit_return.stdout.is_empty());
+
+        let loop_return = session.execute_script(
+            "return_from_loop() {\nfor item in one two; do\necho $item\nreturn 9\ndone\necho after\n}\nreturn_from_loop",
+        );
+        assert_eq!(loop_return.status, 9, "{loop_return:?}");
+        assert_eq!(loop_return.stdout, "one\n");
+
+        let outside_return = session.execute_script("return 4");
+        assert_eq!(outside_return.status, 2);
+        assert!(outside_return
+            .stderr
+            .contains("return: only valid inside a function"));
+
+        let invalid_return =
+            session.execute_script("invalid_status() {\nreturn 256\n}\ninvalid_status");
+        assert_eq!(invalid_return.status, 2);
+        assert!(invalid_return
+            .stderr
+            .contains("status must be an integer from 0 through 255"));
 
         let isolated_shell = session.execute_script("sh -c 'greet'");
         assert_eq!(isolated_shell.status, 127, "{isolated_shell:?}");
