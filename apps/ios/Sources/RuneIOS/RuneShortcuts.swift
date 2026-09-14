@@ -4,6 +4,7 @@ import Foundation
 public enum RuneShortcutError: LocalizedError {
     case noDocumentsDirectory
     case invalidSessionIdentifier
+    case invalidUTF8File(String)
 
     public var errorDescription: String? {
         switch self {
@@ -11,6 +12,8 @@ public enum RuneShortcutError: LocalizedError {
             return "Rune could not locate its Documents directory."
         case .invalidSessionIdentifier:
             return "Rune session identifiers must be 1–64 ASCII letters, digits, '.', '-' or '_'."
+        case .invalidUTF8File(let path):
+            return "Rune file is not valid UTF-8: \(path)."
         }
     }
 }
@@ -105,6 +108,30 @@ public struct RuneExecuteScriptIntent: AppIntent {
     }
 }
 
+public struct RuneExecuteScriptInSessionIntent: AppIntent {
+    public static let title: LocalizedStringResource = "Execute Rune Script in Session"
+    public static let description = IntentDescription(
+        "Run a bounded script through a named, persisted Rune Rust session."
+    )
+
+    @Parameter(title: "Session ID")
+    public var sessionID: String
+
+    @Parameter(title: "Script")
+    public var script: String
+
+    public init() {
+        sessionID = "default"
+        script = ""
+    }
+
+    public func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        .result(value: try executeInSession(sessionID) { session in
+            session.executeScript(script)
+        })
+    }
+}
+
 public struct RuneExecuteCommandInSessionIntent: AppIntent {
     public static let title: LocalizedStringResource = "Execute Rune Command in Session"
     public static let description = IntentDescription(
@@ -170,8 +197,11 @@ public struct RuneGetFileIntent: AppIntent {
     public func perform() async throws -> some IntentResult & ReturnsValue<String> {
         .result(value: try executeInDefaultSession { session in
             let data = try session.getFile(path: path)
+            guard let text = String(data: data, encoding: .utf8) else {
+                throw RuneShortcutError.invalidUTF8File(path)
+            }
             return RuneCommandResult(
-                stdout: String(decoding: data, as: UTF8.self),
+                stdout: text,
                 stderr: "",
                 status: 0
             )
@@ -192,6 +222,12 @@ public struct RuneShortcuts: AppShortcutsProvider {
                 phrases: ["Execute a script in \(.applicationName)"],
                 shortTitle: "Execute Script",
                 systemImageName: "scroll"
+            )
+            AppShortcut(
+                intent: RuneExecuteScriptInSessionIntent(),
+                phrases: ["Execute a script in a Rune session in \(.applicationName)"],
+                shortTitle: "Execute Script in Session",
+                systemImageName: "rectangle.connected.to.line.below"
             )
             AppShortcut(
                 intent: RuneExecuteCommandInSessionIntent(),

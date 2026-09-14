@@ -27,7 +27,7 @@ working iOS application or a feature-parity claim.
 | Configuration | 75% |
 | WASM | 52% |
 | Native iOS UI | 73% |
-| Swift/Rust bridge | 64% |
+| Swift/Rust bridge | 65% |
 | Package manager | 66% |
 | Compatibility evidence | 3% |
 
@@ -356,7 +356,9 @@ bookmark jumps and aliases that change directories use the same state update.
 
 The FFI and Swift source boundary exposes bounded command and newline-delimited
 script execution for Shortcuts, including named persisted session namespaces.
-Source-only App Intent declarations call that real Rust-backed API and return stdout/stderr/status as text; Rust rejects
+Source-only App Intent declarations cover command and script execution in both
+the default and named sessions, call that real Rust-backed API, and return
+stdout/stderr/status as text; Rust rejects
 scripts larger than 256 KiB or 1,024 lines and caps accumulated output per
 channel. App Intent registration, entitlements, and runtime behavior remain
 unverified without an Apple build/runtime.

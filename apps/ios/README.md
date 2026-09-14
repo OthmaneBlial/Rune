@@ -30,14 +30,14 @@ Native
 Shortcuts registration remains unverified and is not included here.
 
 `RuneShortcuts.swift` now declares source-only `AppIntent` actions for command
-and script execution, including execution in a named persisted Rust session.
+and script execution in both the default and named persisted Rust sessions.
 They call the existing Rust FFI and return the real stdout/stderr/status
 result; App Intent registration, entitlements, and Shortcuts runtime behavior
 remain unverified without an Apple build.
 
 The same file declares UTF-8 text Put/Get actions. Put writes through the Rust
-VFS transfer API and Get reads through the binary-safe FFI before decoding as
-UTF-8 for the text automation result. The Rust API itself accepts bounded
+VFS transfer API and Get reads through the binary-safe FFI, rejecting non-UTF-8
+bytes before returning the text automation result. The Rust API itself accepts bounded
 binary payloads up to 16 MiB; the source-only App Intent surface intentionally
 does not claim arbitrary binary file parameters.
 

@@ -207,10 +207,10 @@ changing `$0`; it rejects non-numeric or out-of-range counts.
 `set -- [ARG ...]` replaces the active bounded positional arguments while
 preserving `$0`, with the same 64-argument limit.
 
-The Apple source layer declares command, script, and named-session command App
-Intents that construct a normal `RuneFFISession` rooted at the app Documents
-directory and return the Rust result without reimplementing command behavior in
-Swift. Named session identifiers are validated in Swift for early feedback and
+The Apple source layer declares command and script App Intents for both the
+default and named sessions. They construct a normal `RuneFFISession` rooted at
+the app Documents directory and return the Rust result without reimplementing
+command behavior in Swift. Named session identifiers are validated in Swift for early feedback and
 again in Rust before the persisted namespace is opened. This is a real
 automation boundary, but App Intent registration, entitlements, and Shortcuts
 runtime execution remain unverified until an Apple target can be built.
@@ -220,7 +220,8 @@ shell-string interpolation. Both operations stay inside the session VFS and
 enforce a separate 16 MiB transfer limit; writes replace one file and do not
 create parent directories. The FFI returns binary reads with an explicit
 pointer/length release function, so NUL bytes are preserved. Source-only
-Shortcuts currently expose the safer UTF-8 text Put/Get surface, while the
+Shortcuts currently expose the safer UTF-8 text Put/Get surface and reject
+non-UTF-8 reads, while the
 binary-safe FFI remains available for a future validated native file type.
 
 The source-only workspace tab layer creates the default session for the first
