@@ -224,6 +224,12 @@ Run the project gate from the repository root:
 ./scripts/ci.sh
 ~~~
 
+To rebuild the portable macOS arm64 release archive and checksum locally:
+
+~~~bash
+./scripts/package-cli.sh 0.1.0-alpha.7
+~~~
+
 The local gate validates the compatibility documents, shell script syntax,
 Rust formatting/Clippy/tests/build, the Swift package boundary, and a
 source-only Swift typecheck when swiftc is already present. It does not

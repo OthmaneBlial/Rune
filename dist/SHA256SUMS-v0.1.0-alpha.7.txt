@@ -1,1 +1,1 @@
-d812ba79ff2571ac6d3ec6116f217b65359e5d61a62097b7a00189d0ac2d152d  rune-cli-v0.1.0-alpha.7-macos-arm64.tar.gz
+4929c2c077913404c4764a458adf40b9dfbaf355c8c242e9138dc57bf6303860  rune-cli-v0.1.0-alpha.7-macos-arm64.tar.gz
