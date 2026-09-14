@@ -146,9 +146,10 @@ completed pipeline and status/directory events at command boundaries. Swift
 copies those borrowed callback strings and renders them through the same
 bounded transcript policy; this is boundary-level event delivery, not live UI
 rendering or byte-level WASM streaming.
-Environment changes are not serialized. A bounded `~/.rune_profile` is loaded
-on restore; its supported Rust built-ins can update the session environment and
-define aliases, with output surfaced to the CLI/native boundary without
+Environment changes are not serialized by default. On restore, Rune selects a
+bounded startup profile in this order: `~/.rune_profile`, `~/.profile`, then
+`~/.bashrc`. Its supported Rust built-ins can update the session environment
+and define aliases, with output surfaced to the CLI/native boundary without
 polluting history. Alias expansion is bounded and currently accepts one
 command per alias value; compound alias values are rejected explicitly. The
 native source UI now asks Rust for bounded command and sandbox-path completion;

@@ -16,6 +16,8 @@ const MAX_ENVIRONMENT_NAME_BYTES: usize = 256;
 const MAX_SESSION_STATE_BYTES: usize =
     MAX_HISTORY_BYTES + MAX_BOOKMARK_BYTES + MAX_ENVIRONMENT_BYTES + 1_024;
 pub(super) const PROFILE_PATH: &str = "~/.rune_profile";
+const COMPAT_PROFILE_PATH: &str = "~/.profile";
+const COMPAT_BASHRC_PATH: &str = "~/.bashrc";
 const PROFILE_LIMIT: usize = 64 * 1024;
 pub(super) const MAX_SESSION_ID_CHARS: usize = 64;
 
@@ -84,21 +86,25 @@ fn state_paths(session_id: Option<&str>) -> (String, String) {
 }
 
 pub(super) fn load_profile(filesystem: &dyn VirtualFileSystem) -> Result<Vec<String>, FsError> {
-    let bytes = match filesystem.read(PROFILE_PATH) {
-        Ok(bytes) => bytes,
-        Err(FsError::NotFound(_)) => return Ok(Vec::new()),
-        Err(error) => return Err(error),
-    };
+    let (path, bytes) = [PROFILE_PATH, COMPAT_PROFILE_PATH, COMPAT_BASHRC_PATH]
+        .into_iter()
+        .find_map(|path| match filesystem.read(path) {
+            Ok(bytes) => Some(Ok((path, bytes))),
+            Err(FsError::NotFound(_)) => None,
+            Err(error) => Some(Err(error)),
+        })
+        .transpose()?
+        .map_or((PROFILE_PATH, Vec::new()), |value| value);
     if bytes.len() > PROFILE_LIMIT {
         return Err(FsError::Io {
             operation: "read profile".to_string(),
-            path: PROFILE_PATH.to_string(),
+            path: path.to_string(),
             message: format!("profile exceeds the {PROFILE_LIMIT}-byte limit"),
         });
     }
     let content = String::from_utf8(bytes).map_err(|_| FsError::Io {
         operation: "read profile".to_string(),
-        path: PROFILE_PATH.to_string(),
+        path: path.to_string(),
         message: "profile is not valid UTF-8".to_string(),
     })?;
     Ok(content

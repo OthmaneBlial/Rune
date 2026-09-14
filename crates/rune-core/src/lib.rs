@@ -514,7 +514,7 @@ impl Session {
         session
     }
 
-    /// Takes output produced while loading `~/.rune_profile` during restore.
+    /// Takes output produced while loading the selected startup profile during restore.
     /// Profile commands are intentionally not added to history.
     pub fn take_startup_output(&mut self) -> CommandOutput {
         std::mem::replace(&mut self.startup_output, CommandOutput::success(""))
@@ -5768,6 +5768,37 @@ mod tests {
             session.execute_line("profile-greeting").stdout,
             "from-alias\n"
         );
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn falls_back_to_standard_profile_names_when_rune_profile_is_absent() {
+        let root = test_root();
+        std::fs::create_dir_all(&root).expect("root created");
+        std::fs::write(
+            root.join(".profile"),
+            b"export STANDARD_PROFILE=loaded\necho standard-profile\n",
+        )
+        .expect("standard profile written");
+        let mut session = Session::restore(SandboxedFileSystem::new(&root).expect("root opened"));
+        let startup = session.take_startup_output();
+        assert_eq!(startup.status, 0);
+        assert_eq!(startup.stdout, "standard-profile\n");
+        assert_eq!(
+            session
+                .environment()
+                .get("STANDARD_PROFILE")
+                .map(String::as_str),
+            Some("loaded")
+        );
+
+        std::fs::write(root.join(".rune_profile"), b"echo rune-profile\n")
+            .expect("Rune profile written");
+        let mut prioritized =
+            Session::restore(SandboxedFileSystem::new(&root).expect("root reopened"));
+        let prioritized_startup = prioritized.take_startup_output();
+        assert_eq!(prioritized_startup.stdout, "rune-profile\n");
+        assert!(prioritized.environment().get("STANDARD_PROFILE").is_none());
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

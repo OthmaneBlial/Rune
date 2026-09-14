@@ -152,10 +152,11 @@ redirections with the invocation. Each alias value is limited to one command;
 recursive expansion is capped at 32 levels and compound values fail with a
 normal shell error instead of recursing indefinitely.
 
-On restore, Rune reads at most 64 KiB from `~/.rune_profile`. It skips blank and
-full-line comment entries, executes each remaining line through the same Rust
-parser/registry, and returns profile stdout/stderr through the CLI or FFI. The
-profile is loaded before the persisted working directory is restored, so a
+On restore, Rune reads at most 64 KiB from the first existing startup profile
+in this order: `~/.rune_profile`, `~/.profile`, then `~/.bashrc`. It skips blank
+and full-line comment entries, executes each remaining line through the same
+Rust parser/registry, and returns profile stdout/stderr through the CLI or FFI.
+The profile is loaded before the persisted working directory is restored, so a
 session's saved `cwd` remains authoritative. Profile lines are not added to
 history, and unsupported commands fail visibly instead of reaching the host.
 

@@ -128,11 +128,12 @@ toolbar visibility. The source-only UIKit command editor maps bar, block, and
 underline to caret geometry when UIKit is available. Apple compilation and
 runtime rendering remain unverified.
 
-On restore, the Rust core reads a maximum of 64 KiB from `~/.rune_profile`,
-skips blank/full-line comment entries, runs only registered Rune built-ins, and
-surfaces the resulting output through the FFI. Profile commands, including
-bounded one-command aliases, are not added to history; the persisted working
-directory is restored after the profile.
+On restore, the Rust core reads a maximum of 64 KiB from the first existing
+startup profile in this order: `~/.rune_profile`, `~/.profile`, then
+`~/.bashrc`. It skips blank/full-line comment entries, runs only registered
+Rune built-ins, and surfaces the resulting output through the FFI. Profile
+commands, including bounded one-command aliases, are not added to history; the
+persisted working directory is restored after the profile.
 
 `RuneWorkspaceView.swift` provides a source-only tab container. The first tab
 uses the legacy default state file; additional tabs receive bounded opaque Rust
