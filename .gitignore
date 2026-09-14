@@ -18,3 +18,4 @@ DerivedData/
 .env.*
 !.env.example
 *.swp
+__pycache__/
