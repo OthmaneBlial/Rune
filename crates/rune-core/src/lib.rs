@@ -1353,6 +1353,15 @@ impl Session {
         output
     }
 
+    fn script_line_limit_failure(&mut self) -> CommandOutput {
+        let output = CommandOutput::failure(
+            2,
+            format!("rune: script expands beyond the {MAX_SCRIPT_LINES}-line limit\n"),
+        );
+        self.last_status = output.status;
+        output
+    }
+
     fn execute_script_body(
         &mut self,
         script: &str,
@@ -1385,6 +1394,9 @@ impl Session {
             return output;
         }
         let normalized_lines = normalized_script_lines(script);
+        if normalized_lines.len() > MAX_SCRIPT_LINES {
+            return self.script_line_limit_failure();
+        }
         let lines = normalized_lines
             .iter()
             .map(String::as_str)
@@ -6653,6 +6665,18 @@ mod tests {
         );
         assert_eq!(bounded.status, 0, "{bounded:?}");
         assert_eq!(bounded.stdout, "0\n");
+
+        let inline_while = session.execute_script(
+            "counter=0\nwhile test \"$counter\" -lt 1; do echo \"$counter\"; export counter=1; done",
+        );
+        assert_eq!(inline_while.status, 0, "{inline_while:?}");
+        assert_eq!(inline_while.stdout, "0\n");
+
+        let inline_until = session.execute_script(
+            "counter=1\nuntil test \"$counter\" -eq 0; do echo once; export counter=0; done",
+        );
+        assert_eq!(inline_until.status, 0, "{inline_until:?}");
+        assert_eq!(inline_until.stdout, "once\n");
 
         let failed_body = session.execute_script(
             "counter=0\nwhile test \"$counter\" -lt 1; do\nexport counter=1\nfalse\ndone",
