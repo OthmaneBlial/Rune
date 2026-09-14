@@ -146,7 +146,8 @@ validation. The LZW integration test also crosses a dictionary reset and
 verifies `.Z` round-trip bytes. These tests do not establish full gzip or
 `compress` command-line compatibility.
 The `ar` integration test verifies binary-safe regular-file members, `-rcs`
-creation, listing, extraction, and refusal to overwrite existing members;
+creation, listing, extraction, preflight refusal to overwrite existing members,
+and no partial extraction when a later destination conflicts;
 symbol-table, long-name-table, and linker compatibility remain unverified.
 The `xargs` tests verify bounded whitespace and NUL splitting, batch sizing,
 empty-input suppression, safe quoting, and execution through the ordinary Rust

@@ -191,6 +191,8 @@ fn extract(context: &mut CommandContext<'_>, arguments: &ArArguments) -> Command
         if context.fs.metadata(&member.name).is_ok() {
             return ar_failure(&member.name, "destination already exists");
         }
+    }
+    for member in &selected {
         if let Err(error) = context.fs.write(&member.name, &member.bytes, false) {
             return fs_failure("ar", &error);
         }

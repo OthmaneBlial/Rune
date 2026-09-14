@@ -3366,6 +3366,10 @@ mod tests {
             second
         );
         assert_eq!(session.execute_line("ar x bundle.a").status, 1);
+        assert_eq!(session.execute_line("rm first.o").status, 0);
+        let blocked = session.execute_line("ar x bundle.a");
+        assert_eq!(blocked.status, 1, "{blocked:?}");
+        assert!(!root.join("first.o").exists());
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
