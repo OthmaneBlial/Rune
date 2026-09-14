@@ -138,25 +138,87 @@ enum RuneANSIRenderer {
     static func segments(from text: String) -> [RuneANSISegment] {
         var segments = [RuneANSISegment]()
         var style = RuneANSIStyle(foreground: nil, background: nil)
-        var pending = ""
+
+        func appendText(_ value: String) {
+            guard !value.isEmpty else { return }
+            if let last = segments.last, last.style == style {
+                segments[segments.index(before: segments.endIndex)] = RuneANSISegment(
+                    text: last.text + value,
+                    style: style
+                )
+            } else {
+                segments.append(RuneANSISegment(text: value, style: style))
+            }
+        }
+
+        func replaceLastSegment(at index: Int, with value: String) {
+            let segment = segments[index]
+            if value.isEmpty {
+                segments.remove(at: index)
+            } else {
+                segments[index] = RuneANSISegment(text: value, style: segment.style)
+            }
+        }
+
+        // This is intentionally a small line-oriented terminal model. It
+        // handles the controls commonly emitted by progress indicators while
+        // leaving full cursor-addressing semantics for a future emulator.
+        func eraseCurrentLineSuffix() {
+            while let index = segments.indices.last {
+                let segment = segments[index]
+                guard let newline = segment.text.lastIndex(of: "\n") else {
+                    segments.remove(at: index)
+                    continue
+                }
+                let suffixStart = segment.text.index(after: newline)
+                guard suffixStart < segment.text.endIndex else { return }
+                replaceLastSegment(at: index, with: String(segment.text[..<suffixStart]))
+                return
+            }
+        }
+
+        func eraseLastCharacter() {
+            guard let index = segments.indices.last else { return }
+            let segment = segments[index]
+            guard let last = segment.text.last else { return }
+            guard last != "\n" else { return }
+            let end = segment.text.index(before: segment.text.endIndex)
+            replaceLastSegment(at: index, with: String(segment.text[..<end]))
+        }
+
+        func applyNonRenderingCSI(_ parameters: String, final: UInt32) {
+            // K (EL) is meaningful even though the terminal view does not
+            // expose a mutable cursor grid yet. At the logical end of a
+            // rendered event, all three erase-line modes have the same safe
+            // bounded result.
+            guard final == 0x6b else { return }
+            let mode = Int(parameters.split(separator: ";").first ?? "0") ?? 0
+            guard mode == 0 || mode == 1 || mode == 2 else { return }
+            eraseCurrentLineSuffix()
+        }
+
         let scalars = text.unicodeScalars
         var index = scalars.startIndex
-
-        func flush() {
-            guard !pending.isEmpty else { return }
-            segments.append(RuneANSISegment(text: pending, style: style))
-            pending.removeAll(keepingCapacity: true)
-        }
 
         while index < scalars.endIndex {
             let scalar = scalars[index]
             guard scalar.value == 0x1b else {
-                pending.unicodeScalars.append(scalar)
+                switch scalar.value {
+                case 0x00, 0x07, 0x0b, 0x0c:
+                    // NUL, BEL, vertical tab, and form feed are not visible
+                    // terminal text in the transcript.
+                    break
+                case 0x08:
+                    eraseLastCharacter()
+                case 0x0d:
+                    eraseCurrentLineSuffix()
+                default:
+                    appendText(String(scalar))
+                }
                 index = scalars.index(after: index)
                 continue
             }
 
-            flush()
             let controlStart = scalars.index(after: index)
             guard controlStart < scalars.endIndex else { break }
             switch scalars[controlStart].value {
@@ -173,6 +235,9 @@ enum RuneANSIRenderer {
                 if scalars[cursor].value == 0x6d { // SGR
                     let parameters = String(scalars[parameterStart..<cursor])
                     applySGR(parameters, to: &style)
+                } else {
+                    let parameters = String(scalars[parameterStart..<cursor])
+                    applyNonRenderingCSI(parameters, final: scalars[cursor].value)
                 }
                 index = scalars.index(after: cursor)
             case 0x5d: // OSC: consume until BEL or ST
@@ -181,7 +246,6 @@ enum RuneANSIRenderer {
                 index = scalars.index(after: controlStart)
             }
         }
-        flush()
         return segments
     }
 

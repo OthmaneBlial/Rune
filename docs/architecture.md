@@ -250,10 +250,12 @@ evicts oldest rendered events at the boundary;
 Rust output limits, command history, and sandbox files remain independent of
 that UI eviction policy. The source-only Apple renderer consumes common ANSI
 SGR foreground/background colors, 256-color/RGB colors, bold, underline, and
-inverse controls after the Rust boundary; parsed spans are cached when an
-immutable transcript entry is created, so SwiftUI body recomputation does not
-rescan raw output. Unsupported terminal controls are deliberately bounded and
-not claimed as a complete emulator. This is source-level performance evidence;
+inverse controls after the Rust boundary. It also normalizes carriage returns,
+backspaces, and bounded erase-line (`K`) controls for progress-style output.
+Parsed spans are cached when an immutable transcript entry is created, so
+SwiftUI body recomputation does not rescan raw output. Unsupported terminal
+controls are deliberately bounded and not claimed as a complete emulator. This
+is source-level performance evidence;
 Apple frame-time and device-memory measurements remain unverified.
 
 The terminal view also declares native keyboard shortcuts for folder import,

@@ -197,7 +197,9 @@ It also has a focused command bar, keyboard-aware history controls, an
 ink/cyan/ember console palette, accessible completion controls, native handling
 for the Rust `clear` screen-control sequence, and source-only ANSI rendering
 for common SGR foreground/background colors, 256-color/RGB colors, bold,
-underline, and inverse output.
+underline, and inverse output. Common carriage-return, backspace, and
+erase-line controls are normalized for progress-style output; full cursor-grid
+terminal emulation remains intentionally deferred.
 Interactive `export`, `setenv`, and assignment lines are replaced by a
 redaction marker in history before persistence when the Rust-owned
 `history-redaction` setting is enabled. It is enabled by default and remains a

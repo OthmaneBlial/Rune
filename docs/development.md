@@ -218,9 +218,10 @@ presentation policy cannot be runtime-tested without SwiftUI. The terminal
 and workspace sources also expose explicit accessibility labels, hints, values,
 and identifiers; VoiceOver traversal and Dynamic Type remain runtime gates.
 The source-only renderer also consumes bounded ANSI SGR foreground/background
-colors, 256-color/RGB colors, bold, underline, and inverse controls; Apple
-text-layout and terminal-control fidelity remain unverified without the Apple
-runtime.
+colors, 256-color/RGB colors, bold, underline, and inverse controls, plus
+carriage-return, backspace, and erase-line normalization for progress output;
+Apple text-layout and terminal-control fidelity remain unverified without the
+Apple runtime.
 The versioned compatibility scenario runner validates bounded command fixtures,
 runs Rune scenarios in isolated temporary filesystems, and supports comparison
 against separately captured a-Shell observations. Its default output remains
