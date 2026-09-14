@@ -14,6 +14,7 @@ mod open;
 mod package;
 mod python;
 pub(super) mod shell;
+mod test;
 mod text;
 mod utilities;
 mod wasm;
@@ -426,6 +427,16 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "true",
         summary: "return a success status",
         handler: shell::true_command,
+    },
+    CommandDefinition {
+        name: "test",
+        summary: "evaluate bounded file, string, and integer predicates",
+        handler: test::test_command,
+    },
+    CommandDefinition {
+        name: "[",
+        summary: "evaluate a bounded predicate with a closing bracket",
+        handler: test::bracket_command,
     },
     CommandDefinition {
         name: "type",

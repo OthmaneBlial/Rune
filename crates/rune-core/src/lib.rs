@@ -2654,6 +2654,33 @@ mod tests {
     }
 
     #[test]
+    fn evaluates_bounded_test_and_bracket_predicates_inside_shell_conditionals() {
+        let root = test_root();
+        std::fs::write(root.join("note.txt"), b"hello\n").expect("file written");
+        std::fs::write(root.join("empty.txt"), b"").expect("empty file written");
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+
+        assert_eq!(session.execute_line("test -f note.txt").status, 0);
+        assert_eq!(session.execute_line("[ -d . ]").status, 0);
+        assert_eq!(session.execute_line("test -s empty.txt").status, 1);
+        assert_eq!(session.execute_line("test -e missing.txt").status, 1);
+        assert_eq!(session.execute_line("test -n value -a 7 -ge 3").status, 0);
+        assert_eq!(session.execute_line("test 7 -lt 3").status, 1);
+        assert_eq!(session.execute_line("[ left = left ]").status, 0);
+        assert_eq!(session.execute_line("test ! -z value").status, 0);
+
+        let conditional = session.execute_line("test -f note.txt && echo readable");
+        assert_eq!(conditional.status, 0);
+        assert_eq!(conditional.stdout, "readable\n");
+
+        assert_eq!(session.execute_line("ln -s note.txt note-link").status, 0);
+        assert_eq!(session.execute_line("test -L note-link").status, 0);
+        assert_eq!(session.execute_line("[ -f note.txt").status, 2);
+        assert_eq!(session.execute_line("test -e ../outside").status, 2);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn rejects_open_targets_before_the_host_provider() {
         let root = test_root();
         let requests = Arc::new(Mutex::new(Vec::new()));

@@ -40,7 +40,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 `true`, `false`, `ar`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`, `type`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
 `help`, `history`, `sleep`, `uname`, `which`, `whoami`, `xargs`, `pbcopy`, `pbpaste`,
-`source`, `.`, `sh`, and `dash` against a
+`test`, `[`, `source`, `.`, `sh`, and `dash` against a
 bounded filesystem,
 including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
@@ -130,6 +130,9 @@ that same Rust planner, with an optional `$0` name and up to 64 positional
 arguments; they never start a host shell.
 `type` complements `which` by describing aliases, Rust built-ins, installed
 package commands, and missing names without exposing host executables.
+The Rust-owned `test` and `[` built-ins evaluate bounded file predicates
+(`-e`, `-f`, `-d`, `-L`, `-h`, `-s`), string predicates, integer comparisons,
+negation, and `-a`/`-o` composition so scripts can branch without a host shell.
 The Rust session and C/Swift bridge also expose cooperative cancellation at
 command, pipeline, script, and bounded traversal boundaries, returning status
 130; `sleep` polls that same cancellation flag in bounded 25 ms intervals, while
@@ -467,6 +470,7 @@ engineering measurements, not release or device-performance claims.
 - [x] Bounded `type` command discovery
 - [x] Bounded Rust-owned `file` identification utility
 - [x] Bounded VFS `tree` directory rendering
+- [x] Bounded `test` and `[` predicates for script conditionals
 
 ### Phase 3 — Developer environment
 

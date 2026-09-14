@@ -144,6 +144,10 @@ The `wc` test covers line, word, byte, character, and maximum-line-length
 fields, long options, explicit stdin, multiple-file totals, `--`, and invalid
 option rejection; locale-specific formatting remains outside the bounded
 profile.
+The `test`/`[` integration test covers confined file, directory, empty-file,
+symlink, string, integer, negation, logical-composition, shell-conditional,
+missing-closing-bracket, and sandbox-escape paths; the full platform-specific
+`test` grammar remains outside the bounded profile.
 The text pipeline tests also cover regular-expression `sed` substitutions,
 capture replacement, ordered multiple `-e` scripts, `p` printing with `-n`,
 and invalid-pattern rejection; addresses and full POSIX script compatibility

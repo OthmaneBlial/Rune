@@ -492,6 +492,13 @@ request, validates the domain and endpoint, caps the response at 256 KiB, and
 rejects non-UTF-8 or terminal-control output. It does not create a traditional
 WHOIS port-43 socket in the portable core.
 
+The `test` and `[` built-ins are Rust-owned expression evaluators rather than
+delegation to a host shell. Their bounded grammar covers string and integer
+comparisons, `-n`/`-z`, confined VFS existence/type/size predicates, `!`,
+parenthesized expressions, and `-a`/`-o` composition. Invalid or sandbox-
+escaping path checks return a usage failure instead of being treated as a
+successful host lookup.
+
 External application opening is a separate OpenProvider capability. The Rust
 openurl command allows only bounded http, https, mailto, tel, sms, and
 shortcuts URLs; open additionally resolves an existing regular file or
