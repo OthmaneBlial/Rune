@@ -75,7 +75,7 @@
     },
     "c-cpp": {
       "status": "planned",
-      "rune_evidence": [],
+      "rune_evidence": ["crates/rune-runtime/src/lib.rs", "crates/rune-core/src/commands/toolchain.rs"],
       "reference_comparison": "not-started"
     },
     "wasm": {
@@ -85,7 +85,7 @@
     },
     "tex": {
       "status": "planned",
-      "rune_evidence": [],
+      "rune_evidence": ["crates/rune-runtime/src/lib.rs", "crates/rune-core/src/commands/toolchain.rs"],
       "reference_comparison": "not-started"
     },
     "package-management": {

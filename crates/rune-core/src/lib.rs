@@ -27,6 +27,12 @@ pub use open::{
     DisabledOpenProvider, OpenError, OpenProvider, OpenRequest, OpenTargetKind,
     MAX_OPEN_TARGET_BYTES,
 };
+pub use rune_runtime::{
+    DisabledToolchainProvider, ToolchainArtifact, ToolchainError, ToolchainKind, ToolchainOutput,
+    ToolchainProvider, ToolchainRequest, MAX_TOOLCHAIN_ARGUMENTS, MAX_TOOLCHAIN_ARTIFACTS,
+    MAX_TOOLCHAIN_ARTIFACT_BYTES, MAX_TOOLCHAIN_ENVIRONMENT_BYTES, MAX_TOOLCHAIN_OUTPUT_BYTES,
+    MAX_TOOLCHAIN_SOURCE_BYTES, MAX_TOOLCHAIN_STDIN_BYTES,
+};
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -71,8 +77,12 @@ fn supports_path_completion(command: &str) -> bool {
             | "bc"
             | "basename"
             | "cat"
+            | "c++"
             | "cd"
+            | "cc"
             | "cksum"
+            | "clang"
+            | "clang++"
             | "cp"
             | "compress"
             | "cut"
@@ -110,6 +120,7 @@ fn supports_path_completion(command: &str) -> bool {
             | "tail"
             | "tar"
             | "tee"
+            | "tex"
             | "touch"
             | "tree"
             | "unzip"
@@ -144,6 +155,40 @@ struct InstalledInvocation<'a> {
     source_depth: usize,
     sink: &'a mut dyn EventSink,
     command: &'a InstalledCommand,
+}
+
+struct ToolchainProviders {
+    c: Box<dyn ToolchainProvider>,
+    cpp: Box<dyn ToolchainProvider>,
+    tex: Box<dyn ToolchainProvider>,
+}
+
+impl Default for ToolchainProviders {
+    fn default() -> Self {
+        Self {
+            c: Box::new(DisabledToolchainProvider::new(ToolchainKind::C)),
+            cpp: Box::new(DisabledToolchainProvider::new(ToolchainKind::Cpp)),
+            tex: Box::new(DisabledToolchainProvider::new(ToolchainKind::Tex)),
+        }
+    }
+}
+
+impl ToolchainProviders {
+    fn provider(&self, kind: ToolchainKind) -> &dyn ToolchainProvider {
+        match kind {
+            ToolchainKind::C => self.c.as_ref(),
+            ToolchainKind::Cpp => self.cpp.as_ref(),
+            ToolchainKind::Tex => self.tex.as_ref(),
+        }
+    }
+
+    fn set(&mut self, provider: Box<dyn ToolchainProvider>) {
+        match provider.kind() {
+            ToolchainKind::C => self.c = provider,
+            ToolchainKind::Cpp => self.cpp = provider,
+            ToolchainKind::Tex => self.tex = provider,
+        }
+    }
 }
 
 fn is_wasm_entry(entry: &str) -> bool {
@@ -328,6 +373,7 @@ pub struct CommandContext<'a> {
     pub(crate) python_runtime: &'a dyn Runtime,
     pub(crate) lua_runtime: &'a dyn Runtime,
     pub(crate) javascript_runtime: &'a dyn Runtime,
+    pub(crate) toolchains: &'a ToolchainProviders,
     pub(crate) network: &'a dyn NetworkProvider,
     pub(crate) clipboard: &'a dyn ClipboardProvider,
     pub(crate) opener: &'a dyn OpenProvider,
@@ -358,6 +404,7 @@ pub struct Session {
     python_runner: PythonRunner,
     lua_runner: LuaRunner,
     javascript_runner: JavaScriptRunner,
+    toolchains: ToolchainProviders,
     network_provider: Box<dyn NetworkProvider>,
     clipboard_provider: Box<dyn ClipboardProvider>,
     open_provider: Box<dyn OpenProvider>,
@@ -393,6 +440,7 @@ impl Session {
             python_runner: PythonRunner,
             lua_runner: LuaRunner,
             javascript_runner: JavaScriptRunner,
+            toolchains: ToolchainProviders::default(),
             network_provider: Box::new(DisabledNetworkProvider),
             clipboard_provider: Box::new(DisabledClipboardProvider),
             open_provider: Box::new(DisabledOpenProvider),
@@ -496,6 +544,16 @@ impl Session {
     /// and openurl. The default session has no launcher provider.
     pub fn set_open_provider(&mut self, provider: Box<dyn OpenProvider>) {
         self.open_provider = provider;
+    }
+
+    /// Installs one explicit C, C++, or TeX toolchain capability.
+    ///
+    /// The default session keeps all toolchain providers unavailable. A host
+    /// or package integration may install a reviewed provider that returns
+    /// artifacts for materialization through Rune's confined VFS; providers
+    /// never receive an ambient host path or shell.
+    pub fn set_toolchain_provider(&mut self, provider: Box<dyn ToolchainProvider>) {
+        self.toolchains.set(provider);
     }
 
     /// Returns the bridge handle used to request cancellation safely while
@@ -985,6 +1043,7 @@ impl Session {
             python_runtime: &self.python_runner,
             lua_runtime: &self.lua_runner,
             javascript_runtime: &self.javascript_runner,
+            toolchains: &self.toolchains,
             network: self.network_provider.as_ref(),
             clipboard: self.clipboard_provider.as_ref(),
             opener: self.open_provider.as_ref(),
@@ -2253,10 +2312,11 @@ mod tests {
     use super::{
         persistence::MAX_HISTORY_BYTES, ClipboardError, ClipboardProvider, CommandEvent, EventSink,
         NetworkError, NetworkMethod, NetworkProvider, NetworkRequest, NetworkResponse, OpenError,
-        OpenProvider, OpenRequest, OpenTargetKind, Session, TerminalConfig, CANCELLED_STATUS,
-        MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS, MAX_CLIPBOARD_BYTES, MAX_COMMAND_INPUT_BYTES,
-        MAX_FILE_TRANSFER_BYTES, MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_LINES,
-        MAX_SOURCE_DEPTH, OUTPUT_TRUNCATION_MARKER,
+        OpenProvider, OpenRequest, OpenTargetKind, Session, TerminalConfig, ToolchainArtifact,
+        ToolchainError, ToolchainKind, ToolchainOutput, ToolchainProvider, ToolchainRequest,
+        CANCELLED_STATUS, MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS, MAX_CLIPBOARD_BYTES,
+        MAX_COMMAND_INPUT_BYTES, MAX_FILE_TRANSFER_BYTES, MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES,
+        MAX_SCRIPT_LINES, MAX_SOURCE_DEPTH, OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -2354,6 +2414,33 @@ mod tests {
                 .expect("open request log lock")
                 .push(request.clone());
             Ok(())
+        }
+    }
+
+    struct RecordingToolchainProvider {
+        kind: ToolchainKind,
+    }
+
+    impl ToolchainProvider for RecordingToolchainProvider {
+        fn kind(&self) -> ToolchainKind {
+            self.kind
+        }
+
+        fn execute(
+            &self,
+            request: &ToolchainRequest<'_>,
+        ) -> Result<ToolchainOutput, ToolchainError> {
+            request.validate()?;
+            Ok(ToolchainOutput {
+                stdout: format!("compiled {}\n", request.program_name),
+                stderr: String::new(),
+                status: 0,
+                artifacts: vec![ToolchainArtifact {
+                    path: "hello.wasm".to_string(),
+                    media_type: "application/wasm".to_string(),
+                    bytes: b"fake-compiled-artifact".to_vec(),
+                }],
+            })
         }
     }
 
@@ -3907,6 +3994,34 @@ mod tests {
     }
 
     #[test]
+    fn routes_toolchain_commands_through_an_explicit_provider_and_vfs() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        session
+            .write_file("hello.c", b"int main(void) { return 0; }")
+            .expect("source file written");
+
+        let unavailable = session.execute_line("cc hello.c");
+        assert_eq!(unavailable.status, 126);
+        assert!(unavailable
+            .stderr
+            .contains("toolchain provider is unavailable"));
+        assert_eq!(session.execute_line("command -v cc").stdout, "cc\n");
+
+        session.set_toolchain_provider(Box::new(RecordingToolchainProvider {
+            kind: ToolchainKind::C,
+        }));
+        let compiled = session.execute_line("clang hello.c --target=wasm32-wasi");
+        assert_eq!(compiled.status, 0);
+        assert_eq!(compiled.stdout, "compiled hello.c\n");
+        assert_eq!(
+            session.execute_line("cat hello.wasm").stdout,
+            "fake-compiled-artifact"
+        );
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn observes_cooperative_cancellation_at_command_boundaries() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
@@ -3938,6 +4053,7 @@ mod tests {
         let mut history = Vec::new();
         let registry = super::CommandRegistry::default();
         let runtime = rune_wasm::WasmRunner::default();
+        let toolchains = super::ToolchainProviders::default();
         let network = super::DisabledNetworkProvider;
         let clipboard = super::DisabledClipboardProvider;
         let opener = super::DisabledOpenProvider;
@@ -3958,6 +4074,7 @@ mod tests {
                 python_runtime: &runtime,
                 lua_runtime: &runtime,
                 javascript_runtime: &runtime,
+                toolchains: &toolchains,
                 network: &network,
                 clipboard: &clipboard,
                 opener: &opener,
@@ -3984,6 +4101,7 @@ mod tests {
         let mut history = Vec::new();
         let registry = super::CommandRegistry::default();
         let runtime = rune_wasm::WasmRunner::default();
+        let toolchains = super::ToolchainProviders::default();
         let network = super::DisabledNetworkProvider;
         let clipboard = super::DisabledClipboardProvider;
         let opener = super::DisabledOpenProvider;
@@ -4008,6 +4126,7 @@ mod tests {
             python_runtime: &runtime,
             lua_runtime: &runtime,
             javascript_runtime: &runtime,
+            toolchains: &toolchains,
             network: &network,
             clipboard: &clipboard,
             opener: &opener,

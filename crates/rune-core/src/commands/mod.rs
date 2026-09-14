@@ -16,6 +16,7 @@ mod python;
 pub(super) mod shell;
 mod test;
 mod text;
+mod toolchain;
 mod utilities;
 mod wasm;
 mod xargs;
@@ -74,6 +75,16 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: filesystem::cat,
     },
     CommandDefinition {
+        name: "c++",
+        summary: "compile bounded C++ through an explicit toolchain provider",
+        handler: toolchain::cpp,
+    },
+    CommandDefinition {
+        name: "cc",
+        summary: "compile bounded C through an explicit toolchain provider",
+        handler: toolchain::c,
+    },
+    CommandDefinition {
         name: "cksum",
         summary: "print a bounded POSIX CRC checksum",
         handler: utilities::cksum,
@@ -127,6 +138,16 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "curl",
         summary: "make a bounded HTTP request through the host network grant",
         handler: network::curl,
+    },
+    CommandDefinition {
+        name: "clang",
+        summary: "compile bounded C through an explicit toolchain provider",
+        handler: toolchain::c,
+    },
+    CommandDefinition {
+        name: "clang++",
+        summary: "compile bounded C++ through an explicit toolchain provider",
+        handler: toolchain::cpp,
     },
     CommandDefinition {
         name: "nslookup",
@@ -387,6 +408,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "tar",
         summary: "create, list, or extract bounded USTAR archives",
         handler: archive::tar,
+    },
+    CommandDefinition {
+        name: "tex",
+        summary: "render bounded TeX through an explicit toolchain provider",
+        handler: toolchain::tex,
     },
     CommandDefinition {
         name: "tee",

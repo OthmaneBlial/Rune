@@ -382,7 +382,10 @@ C, C++, and TeX: source input, arguments, environment, stdin, cancellation,
 captured diagnostics, and relative generated artifacts are validated before
 materialization. The default providers are explicitly unavailable; no clang,
 C++ compiler, TeX engine, or large toolchain payload is installed or claimed
-yet.
+yet. The `cc`, `c++`, `clang`, `clang++`, and `tex` entry points therefore
+return an explicit provider-unavailable status until a real provider is
+installed and reviewed; they are not counted as supported compilation or
+document-rendering commands above.
 
 No a-Shell compatibility area is marked `supported` without behavior and test
 evidence. See [`compat/a-shell-compatibility.json`](compat/a-shell-compatibility.json).

@@ -356,6 +356,11 @@ version.
 The execution form bypasses aliases for one target and dispatches through the
 same Rust registry or verified package manifest path; it never probes host
 executables.
+The registry also exposes `cc`, `c++`, `clang`, `clang++`, and `tex` as
+provider-backed entry points. They validate source files and dispatch only to
+an explicit Rust `ToolchainProvider`; with the default disabled providers they
+return status 126 and never start a host compiler. Generated files can enter
+the VFS only as validated relative artifacts from an installed provider.
 
 Native completion asks the Rust session for replacement tokens. At the start
 of a line it returns built-in and installed-package command names; for
