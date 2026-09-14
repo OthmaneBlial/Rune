@@ -4556,6 +4556,38 @@ mod tests {
     }
 
     #[test]
+    fn nested_shell_and_function_emit_aggregate_output_once() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let definition = session.execute_script("emit() {\nprintf fn-ok\n}");
+        assert_eq!(definition.status, 0);
+
+        for (command, expected) in [("sh -c 'printf sh-ok'", "sh-ok"), ("emit", "fn-ok")] {
+            let mut sink = RecordingEventSink::default();
+            let output = session.execute_line_with_events(command, &mut sink);
+            assert_eq!(output.stdout, expected);
+            assert_eq!(
+                sink.events
+                    .iter()
+                    .filter_map(|event| match event {
+                        CommandEvent::Output { stdout, .. } => Some(stdout.as_str()),
+                        CommandEvent::Status { .. } => None,
+                    })
+                    .collect::<String>(),
+                expected
+            );
+            assert_eq!(
+                sink.events
+                    .iter()
+                    .filter(|event| matches!(event, CommandEvent::Output { .. }))
+                    .count(),
+                1
+            );
+        }
+        std::fs::remove_dir_all(root).expect("root removed");
+    }
+
+    #[test]
     fn executes_real_filesystem_workflow() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
