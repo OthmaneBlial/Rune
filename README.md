@@ -43,7 +43,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
 `apropos`, `help`, `history`, `sleep`, `uname`, `which`, `whoami`, `xargs`, `pbcopy`, `pbpaste`,
 `test`, `[`, `source`, `.`, `sh`, `dash`, `return`, `local`, `shift`, `set`, `exit`,
-`newWindow`, `new-window`, `pickFolder`, `open`, `openurl`, `play`, `view`, and the short bookmark aliases `s`,
+`newWindow`, `new-window`, `pickFolder`, `open`, `openurl`, `play`, `view`, `z`, and the short bookmark aliases `s`,
 `g`, `l`, `p`, `r`, and `d` against a
 bounded filesystem,
 including basic `*`/`?` pathname
@@ -375,6 +375,10 @@ bounded security-scoped bookmarks. Full entitlement, picker, and device/runtime
 behavior remain unverified without the Apple toolchain.
 Bookmark names are limited to 64 characters, a session holds at most 256
 bookmarks, and serialized bookmark data is limited to 256 KiB.
+`z KEYWORD ...` provides bounded frequency-ranked directory jumping from the
+same confined VFS. It prefers previously visited directories, falls back to
+matching direct child directories, ignores directories that no longer exist,
+and persists at most 1,024 usage records (256 KiB) per session.
 
 Named Rust sessions keep their virtual working directory, history, and
 bookmarks independent under `~/.rune/sessions/{id}/session.state`. When the
@@ -612,6 +616,7 @@ result.
 - [x] Bounded text-only terminal screen persistence
 - [x] Session-local virtual directory bookmarks
 - [x] Rust bookmark shortcuts `s`, `g`, `l`, `p`, `r`, and `d`
+- [x] Bounded frequency-ranked `z` directory navigation
 - [x] Bounded portable utility commands
 - [x] Bounded long-format and human-readable `ls` metadata
 - [x] Bounded virtual filesystem metadata and usage commands

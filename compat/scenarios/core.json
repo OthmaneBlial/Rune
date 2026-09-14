@@ -48,6 +48,12 @@
       "normalization": ["crlf", "trailing-newline", "sandbox-root"]
     },
     {
+      "id": "shell/directory-jump",
+      "command": "mkdir -p projects/alpha archives/alpha && cd projects && cd alpha && cd ../.. && cd archives && cd alpha && cd ../.. && cd projects && cd alpha && cd ../.. && z alpha && pwd",
+      "stdin": "",
+      "normalization": ["crlf", "trailing-newline"]
+    },
+    {
       "id": "shell/stderr-status",
       "command": "cat missing.txt",
       "stdin": "",

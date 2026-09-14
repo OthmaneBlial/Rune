@@ -315,6 +315,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: bookmarks::jump,
     },
     CommandDefinition {
+        name: "z",
+        summary: "jump to a frequently visited matching directory",
+        handler: bookmarks::z,
+    },
+    CommandDefinition {
         name: "jsc",
         summary: "run a bounded sandbox JavaScript file",
         handler: javascript::jsc,

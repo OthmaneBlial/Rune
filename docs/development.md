@@ -200,6 +200,10 @@ is decoded while reading.
 The `xargs` tests verify bounded whitespace and NUL splitting, batch sizing,
 empty-input suppression, safe quoting, and execution through the ordinary Rust
 command planner; full platform-specific xargs compatibility remains unverified.
+The `z` tests verify frequency-ranked navigation, stale-directory filtering,
+direct-child fallback, usage validation, and persistence of the bounded virtual
+directory usage map. They do not claim full a-Shell `z` or shell-autocomplete
+compatibility.
 The text pipeline tests also verify bounded regular-expression grep, `-e`,
 fixed-string `fgrep`, invalid-pattern rejection, `sort -n`, combined `-nru`
 flags, and deduplicated numeric output; field keys, locale collation, and full

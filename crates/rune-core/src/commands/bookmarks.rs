@@ -5,6 +5,10 @@ use crate::{
     MAX_BOOKMARK_PATH_BYTES,
 };
 
+const MAX_Z_KEYWORDS: usize = 8;
+const MAX_Z_KEYWORD_BYTES: usize = 64;
+const MAX_Z_QUERY_BYTES: usize = 256;
+
 pub(super) fn bookmark(context: &mut CommandContext<'_>) -> CommandOutput {
     if context.args.len() != 1 {
         return usage("bookmark", "usage: bookmark NAME");
@@ -54,6 +58,103 @@ pub(super) fn jump(context: &mut CommandContext<'_>) -> CommandOutput {
     match context.fs.change_dir(&path) {
         Ok(()) => CommandOutput::success(""),
         Err(error) => fs_failure("jump", &error),
+    }
+}
+
+/// Change to the most frequently visited confined directory matching the
+/// supplied keywords. This is a bounded Rust-owned equivalent of a-Shell's
+/// `z` command; it never searches or changes the host working directory.
+pub(super) fn z(context: &mut CommandContext<'_>) -> CommandOutput {
+    if context.args.is_empty() {
+        return usage("z", "usage: z KEYWORD ...");
+    }
+    if context.args.len() > MAX_Z_KEYWORDS
+        || context.args.iter().any(|keyword| {
+            keyword.is_empty()
+                || keyword.len() > MAX_Z_KEYWORD_BYTES
+                || keyword.chars().any(char::is_control)
+        })
+        || context.args.iter().map(String::len).sum::<usize>() > MAX_Z_QUERY_BYTES
+    {
+        return CommandOutput::failure(
+            2,
+            format!(
+                "z: use 1-{MAX_Z_KEYWORDS} non-empty keywords, each at most {MAX_Z_KEYWORD_BYTES} bytes and {MAX_Z_QUERY_BYTES} bytes total\n"
+            ),
+        );
+    }
+
+    if context.args.len() == 1 {
+        let direct = context.args[0].as_str();
+        if context
+            .fs
+            .metadata(direct)
+            .is_ok_and(|metadata| metadata.is_directory)
+        {
+            return change_directory(context, direct);
+        }
+    }
+
+    let mut candidates = context
+        .directory_usage
+        .iter()
+        .filter(|(path, count)| **count > 0 && keywords_match(path, context.args))
+        .filter_map(|(path, count)| {
+            context
+                .fs
+                .metadata(path)
+                .ok()
+                .filter(|metadata| metadata.is_directory)
+                .map(|_| (path.clone(), *count))
+        })
+        .collect::<Vec<_>>();
+
+    if candidates.is_empty() {
+        let current_directory = context.fs.current_dir_display();
+        if let Ok(entries) = context.fs.list(None) {
+            candidates = entries
+                .into_iter()
+                .filter(|entry| entry.is_directory)
+                .map(|entry| child_path(&current_directory, &entry.name))
+                .filter(|path| keywords_match(path, context.args))
+                .map(|path| (path, 0))
+                .collect();
+        }
+    }
+
+    candidates.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    let Some((path, _)) = candidates.into_iter().next() else {
+        return CommandOutput::failure(
+            1,
+            format!("z: no directory matches {}\n", context.args.join(" ")),
+        );
+    };
+    change_directory(context, &path)
+}
+
+fn change_directory(context: &mut CommandContext<'_>, path: &str) -> CommandOutput {
+    match context.fs.change_dir(path) {
+        Ok(()) => CommandOutput::success(""),
+        Err(error) => fs_failure("z", &error),
+    }
+}
+
+fn keywords_match(path: &str, keywords: &[String]) -> bool {
+    let mut remainder = path;
+    for keyword in keywords {
+        let Some(offset) = remainder.find(keyword) else {
+            return false;
+        };
+        remainder = &remainder[offset + keyword.len()..];
+    }
+    true
+}
+
+fn child_path(parent: &str, name: &str) -> String {
+    if parent == "~" {
+        format!("~/{name}")
+    } else {
+        format!("{parent}/{name}")
     }
 }
 

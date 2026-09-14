@@ -81,6 +81,8 @@ const MAX_BOOKMARKS: usize = 256;
 const MAX_BOOKMARK_NAME_CHARS: usize = 64;
 const MAX_BOOKMARK_PATH_BYTES: usize = 64 * 1024;
 const MAX_BOOKMARK_BYTES: usize = 256 * 1024;
+const MAX_DIRECTORY_USAGE_ENTRIES: usize = 1_024;
+const MAX_DIRECTORY_USAGE_BYTES: usize = 256 * 1024;
 /// Maximum payload accepted by the explicit native file-transfer boundary.
 pub const MAX_FILE_TRANSFER_BYTES: usize = 16 * 1024 * 1024;
 const OUTPUT_TRUNCATION_MARKER: &str = "\n[rune: output truncated at 1048576 bytes]\n";
@@ -147,12 +149,13 @@ fn supports_path_completion(command: &str) -> bool {
             | "xargs"
             | "xxd"
             | "zip"
+            | "z"
             | "."
     )
 }
 
 fn directories_only_for_completion(command: &str) -> bool {
-    matches!(command, "cd" | "mkdir" | "rmdir")
+    matches!(command, "cd" | "mkdir" | "rmdir" | "z")
 }
 
 fn completion_command_segment(input: &str) -> Option<&str> {
@@ -508,6 +511,7 @@ pub struct CommandContext<'a> {
     pub(crate) env: &'a mut BTreeMap<String, String>,
     pub(crate) aliases: &'a mut BTreeMap<String, String>,
     pub(crate) bookmarks: &'a mut BTreeMap<String, String>,
+    pub(crate) directory_usage: &'a mut BTreeMap<String, u32>,
     pub(crate) config: &'a mut TerminalConfig,
     pub(crate) history: &'a mut Vec<String>,
     pub(crate) command_definitions: &'a [CommandDefinition],
@@ -536,6 +540,7 @@ pub struct Session {
     environment: BTreeMap<String, String>,
     aliases: BTreeMap<String, String>,
     bookmarks: BTreeMap<String, String>,
+    directory_usage: BTreeMap<String, u32>,
     config: TerminalConfig,
     history: Vec<String>,
     history_limit: usize,
@@ -581,6 +586,7 @@ impl Session {
             environment,
             aliases: BTreeMap::new(),
             bookmarks: BTreeMap::new(),
+            directory_usage: BTreeMap::new(),
             config: TerminalConfig::default(),
             history: Vec::new(),
             history_limit: 1_000,
@@ -661,6 +667,7 @@ impl Session {
         if let Some(terminal) = state.terminal.as_ref() {
             session.terminal_screen.restore_persisted_state(terminal);
         }
+        session.directory_usage = state.directory_usage;
         session.load_startup_profile();
         session.history = state.history;
         session.apply_history_limit();
@@ -746,13 +753,17 @@ impl Session {
             .environment_persistence()
             .then_some(&self.environment);
         let terminal = self.terminal_screen.persisted_state();
+        let state = persistence::SessionStateView {
+            current_directory: &directory,
+            history: &self.history,
+            bookmarks: &self.bookmarks,
+            directory_usage: &self.directory_usage,
+            environment: persisted_environment,
+            terminal: &terminal,
+        };
         persistence::save(
             self.filesystem.as_mut(),
-            &directory,
-            &self.history,
-            &self.bookmarks,
-            persisted_environment,
-            &terminal,
+            &state,
             self.state_session_id.as_deref(),
         )?;
         self.config.save(self.filesystem.as_mut())
@@ -1989,6 +2000,7 @@ impl Session {
             env: &mut self.environment,
             aliases: &mut self.aliases,
             bookmarks: &mut self.bookmarks,
+            directory_usage: &mut self.directory_usage,
             config: &mut self.config,
             history: &mut self.history,
             command_definitions: self.registry.definitions(),
@@ -2670,6 +2682,7 @@ impl Session {
         let previous_environment = self.environment.clone();
         let previous_aliases = self.aliases.clone();
         let previous_bookmarks = self.bookmarks.clone();
+        let previous_directory_usage = self.directory_usage.clone();
         let previous_config = self.config.clone();
         let previous_history = self.history.clone();
         let previous_history_limit = self.history_limit;
@@ -2701,6 +2714,7 @@ impl Session {
         self.environment = previous_environment;
         self.aliases = previous_aliases;
         self.bookmarks = previous_bookmarks;
+        self.directory_usage = previous_directory_usage;
         self.config = previous_config;
         self.history = previous_history;
         self.history_limit = previous_history_limit;
@@ -3230,8 +3244,34 @@ impl Session {
         if current_directory != previous_directory {
             self.environment
                 .insert("OLDPWD".to_string(), previous_directory);
+            self.record_directory_usage(current_directory.clone());
         }
         self.update_pwd();
+    }
+
+    fn record_directory_usage(&mut self, directory: String) {
+        if directory.len() > MAX_BOOKMARK_PATH_BYTES {
+            return;
+        }
+        if let Some(count) = self.directory_usage.get_mut(&directory) {
+            *count = count.saturating_add(1);
+            return;
+        }
+        if self.directory_usage.len() >= MAX_DIRECTORY_USAGE_ENTRIES {
+            let least_used = self
+                .directory_usage
+                .iter()
+                .min_by(|(left_path, left_count), (right_path, right_count)| {
+                    left_count
+                        .cmp(right_count)
+                        .then_with(|| left_path.cmp(right_path))
+                })
+                .map(|(path, _)| path.clone());
+            if let Some(path) = least_used {
+                self.directory_usage.remove(&path);
+            }
+        }
+        self.directory_usage.insert(directory, 1);
     }
 }
 
@@ -5636,6 +5676,7 @@ mod tests {
         assert_eq!(session.execute_line("cd docs").status, 0);
         assert_eq!(session.execute_line("bookmark project").status, 0);
         assert_eq!(session.execute_line("cd ~").status, 0);
+        assert_eq!(session.completion_candidates("z do"), vec!["docs/"]);
         assert_eq!(session.completion_candidates("cd ~pro"), vec!["~project/"]);
         assert_eq!(
             session.apply_completion("cd ~pro", "~project/"),
@@ -6716,6 +6757,7 @@ true
         let mut environment = std::collections::BTreeMap::new();
         let mut aliases = std::collections::BTreeMap::new();
         let mut bookmarks = std::collections::BTreeMap::new();
+        let mut directory_usage = std::collections::BTreeMap::new();
         let mut config = super::TerminalConfig::default();
         let mut history = Vec::new();
         let registry = super::CommandRegistry::default();
@@ -6734,6 +6776,7 @@ true
                 env: &mut environment,
                 aliases: &mut aliases,
                 bookmarks: &mut bookmarks,
+                directory_usage: &mut directory_usage,
                 config: &mut config,
                 history: &mut history,
                 command_definitions: registry.definitions(),
@@ -6764,6 +6807,7 @@ true
         let mut environment = std::collections::BTreeMap::new();
         let mut aliases = std::collections::BTreeMap::new();
         let mut bookmarks = std::collections::BTreeMap::new();
+        let mut directory_usage = std::collections::BTreeMap::new();
         let mut config = super::TerminalConfig::default();
         let mut history = Vec::new();
         let registry = super::CommandRegistry::default();
@@ -6786,6 +6830,7 @@ true
             env: &mut environment,
             aliases: &mut aliases,
             bookmarks: &mut bookmarks,
+            directory_usage: &mut directory_usage,
             config: &mut config,
             history: &mut history,
             command_definitions: registry.definitions(),
@@ -6913,6 +6958,59 @@ true
         assert!(invalid
             .stderr
             .contains("deletemark: missing: bookmark not found"));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn jumps_to_the_most_frequently_visited_matching_directory() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(
+            session
+                .execute_line("mkdir -p projects/alpha archives/alpha")
+                .status,
+            0
+        );
+        assert_eq!(session.execute_line("cd projects && cd alpha").status, 0);
+        assert_eq!(session.execute_line("cd ../..").status, 0);
+        assert_eq!(session.execute_line("cd archives && cd alpha").status, 0);
+        assert_eq!(session.execute_line("cd ../..").status, 0);
+        assert_eq!(session.execute_line("cd projects && cd alpha").status, 0);
+        assert_eq!(session.execute_line("cd ../..").status, 0);
+
+        assert_eq!(session.execute_line("mkdir -p stale/alpha").status, 0);
+        for _ in 0..4 {
+            assert_eq!(session.execute_line("cd stale && cd alpha").status, 0);
+            assert_eq!(session.execute_line("cd ../..").status, 0);
+        }
+        assert_eq!(session.execute_line("rm -r stale").status, 0);
+
+        let jumped = session.execute_line("z alpha");
+        assert_eq!(jumped.status, 0, "{jumped:?}");
+        assert_eq!(session.current_directory(), "~/projects/alpha");
+        assert_eq!(session.directory_usage.get("~/projects/alpha"), Some(&3));
+
+        let no_match = session.execute_line("z missing");
+        assert_eq!(no_match.status, 1);
+        assert_eq!(no_match.stderr, "z: no directory matches missing\n");
+        let invalid = session.execute_line("z");
+        assert_eq!(invalid.status, 2);
+        assert!(invalid.stderr.contains("usage: z KEYWORD ..."));
+
+        session.persist().expect("directory usage persisted");
+        let restored = Session::restore(SandboxedFileSystem::new(&root).expect("root reopened"));
+        assert_eq!(restored.directory_usage.get("~/projects/alpha"), Some(&3));
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn z_falls_back_to_matching_direct_children_without_usage_history() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        assert_eq!(session.execute_line("mkdir archive").status, 0);
+        let output = session.execute_line("z chi");
+        assert_eq!(output.status, 0, "{output:?}");
+        assert_eq!(session.current_directory(), "~/archive");
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

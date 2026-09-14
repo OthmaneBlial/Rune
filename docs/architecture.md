@@ -502,6 +502,13 @@ aliases. They call the same Rust handlers and therefore share validation,
 limits, cwd updates, and persistence; Rune keeps them always available rather
 than copying a-Shell's preference toggles into the core.
 
+The `z KEYWORD ...` command is a separate bounded navigation surface. The
+session records virtual directories after successful cwd changes, ranks live
+matches by saturating visit count and stable path order, and falls back to
+matching direct child directories when no recorded path matches. Usage records
+are capped before session serialization and are never resolved as host paths by
+the command.
+
 The `wasm MODULE [arg ...]` built-in reads the module through the virtual
 filesystem and invokes WASI preview1 `_start` in the Rust runtime. The guest
 receives argv, the session environment, stdin, and stderr, plus explicit

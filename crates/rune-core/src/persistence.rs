@@ -3,7 +3,10 @@ use std::collections::BTreeMap;
 use rune_fs::{FsError, VirtualFileSystem};
 
 use super::terminal::PersistedTerminal;
-use super::{MAX_BOOKMARKS, MAX_BOOKMARK_BYTES};
+use super::{
+    MAX_BOOKMARKS, MAX_BOOKMARK_BYTES, MAX_BOOKMARK_PATH_BYTES, MAX_DIRECTORY_USAGE_BYTES,
+    MAX_DIRECTORY_USAGE_ENTRIES,
+};
 
 const STATE_DIRECTORY: &str = "~/.rune";
 const STATE_PATH: &str = "~/.rune/session.state";
@@ -15,8 +18,11 @@ pub(super) const MAX_HISTORY_BYTES: usize = 4 * 1024 * 1024;
 pub(super) const MAX_ENVIRONMENT_ENTRIES: usize = 1_024;
 pub(super) const MAX_ENVIRONMENT_BYTES: usize = 1024 * 1024;
 const MAX_ENVIRONMENT_NAME_BYTES: usize = 256;
-const MAX_SESSION_STATE_BYTES: usize =
-    MAX_HISTORY_BYTES + MAX_BOOKMARK_BYTES + MAX_ENVIRONMENT_BYTES + 1_024;
+const MAX_SESSION_STATE_BYTES: usize = MAX_HISTORY_BYTES
+    + MAX_BOOKMARK_BYTES
+    + MAX_DIRECTORY_USAGE_BYTES
+    + MAX_ENVIRONMENT_BYTES
+    + 1_024;
 pub(super) const MAX_TERMINAL_STATE_BYTES: usize = 1024 * 1024;
 pub(super) const PROFILE_PATH: &str = "~/.rune_profile";
 const COMPAT_PROFILE_PATH: &str = "~/.profile";
@@ -29,8 +35,18 @@ pub(super) struct SessionState {
     pub current_directory: Option<String>,
     pub history: Vec<String>,
     pub bookmarks: BTreeMap<String, String>,
+    pub directory_usage: BTreeMap<String, u32>,
     pub environment: BTreeMap<String, String>,
     pub terminal: Option<PersistedTerminal>,
+}
+
+pub(super) struct SessionStateView<'a> {
+    pub current_directory: &'a str,
+    pub history: &'a [String],
+    pub bookmarks: &'a BTreeMap<String, String>,
+    pub directory_usage: &'a BTreeMap<String, u32>,
+    pub environment: Option<&'a BTreeMap<String, String>>,
+    pub terminal: &'a PersistedTerminal,
 }
 
 pub(super) fn load(filesystem: &dyn VirtualFileSystem, session_id: Option<&str>) -> SessionState {
@@ -51,11 +67,7 @@ pub(super) fn load(filesystem: &dyn VirtualFileSystem, session_id: Option<&str>)
 
 pub(super) fn save(
     filesystem: &mut dyn VirtualFileSystem,
-    current_directory: &str,
-    history: &[String],
-    bookmarks: &BTreeMap<String, String>,
-    environment: Option<&BTreeMap<String, String>>,
-    terminal: &PersistedTerminal,
+    state: &SessionStateView<'_>,
     session_id: Option<&str>,
 ) -> Result<(), FsError> {
     let (state_directory, state_path) = state_paths(session_id);
@@ -63,7 +75,13 @@ pub(super) fn save(
         Ok(()) | Err(FsError::AlreadyExists(_)) => {}
         Err(error) => return Err(error),
     }
-    let content = serialize(current_directory, history, bookmarks, environment);
+    let content = serialize(
+        state.current_directory,
+        state.history,
+        state.bookmarks,
+        state.directory_usage,
+        state.environment,
+    );
     if content.len() > MAX_SESSION_STATE_BYTES {
         return Err(FsError::Io {
             operation: "serialize session".to_string(),
@@ -72,7 +90,7 @@ pub(super) fn save(
         });
     }
     let terminal_path = terminal_state_paths(session_id).1;
-    let terminal_content = serialize_terminal(terminal);
+    let terminal_content = serialize_terminal(state.terminal);
     if terminal_content.len() > MAX_TERMINAL_STATE_BYTES {
         return Err(FsError::Io {
             operation: "serialize terminal".to_string(),
@@ -162,6 +180,7 @@ fn serialize(
     current_directory: &str,
     history: &[String],
     bookmarks: &BTreeMap<String, String>,
+    directory_usage: &BTreeMap<String, u32>,
     environment: Option<&BTreeMap<String, String>>,
 ) -> String {
     let mut content = format!("{STATE_HEADER}\ncwd={}\n", escape(current_directory));
@@ -197,6 +216,33 @@ fn serialize(
         content.push_str(&escaped_name);
         content.push('\t');
         content.push_str(&escaped_path);
+        content.push('\n');
+    }
+    let mut directory_usage_records = directory_usage
+        .iter()
+        .filter(|(_, count)| **count > 0)
+        .collect::<Vec<_>>();
+    directory_usage_records.sort_by(|(left_path, left_count), (right_path, right_count)| {
+        right_count
+            .cmp(left_count)
+            .then_with(|| left_path.cmp(right_path))
+    });
+    let mut directory_usage_bytes = 0_usize;
+    for (index, (path, count)) in directory_usage_records.into_iter().enumerate() {
+        if index >= MAX_DIRECTORY_USAGE_ENTRIES {
+            break;
+        }
+        let escaped_path = escape(path);
+        let record_bytes =
+            "directory=".len() + escaped_path.len() + 1 + count.to_string().len() + 1;
+        if directory_usage_bytes.saturating_add(record_bytes) > MAX_DIRECTORY_USAGE_BYTES {
+            break;
+        }
+        directory_usage_bytes += record_bytes;
+        content.push_str("directory=");
+        content.push_str(&escaped_path);
+        content.push('\t');
+        content.push_str(&count.to_string());
         content.push('\n');
     }
     if let Some(environment) = environment {
@@ -238,6 +284,7 @@ fn parse(content: &str) -> Option<SessionState> {
     let mut state = SessionState::default();
     let mut history_bytes = 0_usize;
     let mut bookmark_bytes = 0_usize;
+    let mut directory_usage_bytes = 0_usize;
     let mut environment_bytes = 0_usize;
     for line in lines {
         let (key, raw_value) = line.split_once('=')?;
@@ -269,6 +316,27 @@ fn parse(content: &str) -> Option<SessionState> {
                     return None;
                 }
                 state.bookmarks.insert(name, path);
+            }
+            "directory" => {
+                if state.directory_usage.len() >= MAX_DIRECTORY_USAGE_ENTRIES {
+                    return None;
+                }
+                let record_bytes = "directory=".len() + raw_value.len() + 1;
+                if directory_usage_bytes.saturating_add(record_bytes) > MAX_DIRECTORY_USAGE_BYTES {
+                    return None;
+                }
+                directory_usage_bytes += record_bytes;
+                let (raw_path, raw_count) = raw_value.split_once('\t')?;
+                let path = unescape(raw_path)?;
+                let count = raw_count.parse::<u32>().ok()?;
+                if path.is_empty()
+                    || path.len() > MAX_BOOKMARK_PATH_BYTES
+                    || count == 0
+                    || state.directory_usage.contains_key(&path)
+                {
+                    return None;
+                }
+                state.directory_usage.insert(path, count);
             }
             "environment" => {
                 if state.environment.len() >= MAX_ENVIRONMENT_ENTRIES {
@@ -414,7 +482,8 @@ fn unescape(value: &str) -> Option<String> {
 mod tests {
     use super::{
         parse, parse_terminal, serialize, serialize_terminal, MAX_BOOKMARK_BYTES,
-        MAX_ENVIRONMENT_BYTES, MAX_HISTORY_BYTES, MAX_TERMINAL_STATE_BYTES,
+        MAX_DIRECTORY_USAGE_BYTES, MAX_DIRECTORY_USAGE_ENTRIES, MAX_ENVIRONMENT_BYTES,
+        MAX_HISTORY_BYTES, MAX_TERMINAL_STATE_BYTES,
     };
     use crate::terminal::PersistedTerminal;
     use std::collections::BTreeMap;
@@ -427,12 +496,35 @@ mod tests {
             "~/work",
             &["echo 100%".to_string(), "echo tab\tvalue".to_string()],
             &bookmarks,
+            &BTreeMap::new(),
             None,
         );
         let state = parse(&content).expect("valid state");
         assert_eq!(state.current_directory.as_deref(), Some("~/work"));
         assert_eq!(state.history, ["echo 100%", "echo tab\tvalue"]);
         assert_eq!(state.bookmarks["project"], "~/work");
+    }
+
+    #[test]
+    fn round_trips_bounded_directory_usage() {
+        let mut directory_usage = BTreeMap::new();
+        directory_usage.insert("~/projects/rune".to_string(), 7);
+        directory_usage.insert("~/tmp".to_string(), 2);
+        let content = serialize("~", &[], &BTreeMap::new(), &directory_usage, None);
+        let state = parse(&content).expect("valid directory usage state");
+        assert_eq!(state.directory_usage, directory_usage);
+        assert!(content.contains("directory=~/projects/rune\t7\n"));
+    }
+
+    #[test]
+    fn bounds_serialized_directory_usage_by_count_and_bytes() {
+        let directory_usage = (0..MAX_DIRECTORY_USAGE_ENTRIES + 128)
+            .map(|index| (format!("~/directory-{index:04}"), 1))
+            .collect::<BTreeMap<_, _>>();
+        let content = serialize("~", &[], &BTreeMap::new(), &directory_usage, None);
+        assert!(content.len() <= MAX_DIRECTORY_USAGE_BYTES + 64);
+        let state = parse(&content).expect("bounded directory usage should remain valid");
+        assert!(state.directory_usage.len() <= MAX_DIRECTORY_USAGE_ENTRIES);
     }
 
     #[test]
@@ -450,7 +542,7 @@ mod tests {
         let commands = (0..2_000)
             .map(|index| format!("echo {}", "x".repeat(4_096 + index % 8)))
             .collect::<Vec<_>>();
-        let content = serialize("~", &commands, &BTreeMap::new(), None);
+        let content = serialize("~", &commands, &BTreeMap::new(), &BTreeMap::new(), None);
         assert!(content.len() <= MAX_HISTORY_BYTES + 64);
         let state = parse(&content).expect("bounded state should remain valid");
         assert!(state.history.len() < commands.len());
@@ -467,7 +559,7 @@ mod tests {
                 )
             })
             .collect::<BTreeMap<_, _>>();
-        let content = serialize("~", &[], &bookmarks, None);
+        let content = serialize("~", &[], &bookmarks, &BTreeMap::new(), None);
         assert!(content.len() <= MAX_HISTORY_BYTES + MAX_BOOKMARK_BYTES + 64);
         let state = parse(&content).expect("bounded state should remain valid");
         assert!(state.bookmarks.len() < bookmarks.len());
@@ -479,7 +571,13 @@ mod tests {
         let mut environment = BTreeMap::new();
         environment.insert("EDITOR".to_string(), "rune-edit\tmode".to_string());
         environment.insert("HOME".to_string(), "~/unsafe-override".to_string());
-        let content = serialize("~", &[], &BTreeMap::new(), Some(&environment));
+        let content = serialize(
+            "~",
+            &[],
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            Some(&environment),
+        );
         let state = parse(&content).expect("valid environment state");
         assert_eq!(
             state.environment.get("EDITOR"),
