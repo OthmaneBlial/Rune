@@ -31,6 +31,8 @@ typedef struct {
     size_t column;
     // Whether the Rust terminal requests that the native renderer draw a caret.
     bool visible;
+    // 0 means no override; 1 block, 2 underline, 3 bar.
+    uint8_t shape;
 } RuneTerminalCursor;
 
 typedef void (*RuneEventCallback)(const RuneEvent *event, void *user_data);

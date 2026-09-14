@@ -97,6 +97,17 @@ int main(void) {
     rune_string_free(show_cursor.stdout_data);
     rune_string_free(show_cursor.stderr_data);
 
+    RuneOutput underline_cursor = rune_session_execute(session, "printf '\033[3 q'");
+    RuneTerminalCursor shaped_cursor = rune_session_terminal_cursor(session);
+    if (underline_cursor.status != 0 || shaped_cursor.shape != 2) {
+        rune_string_free(underline_cursor.stdout_data);
+        rune_string_free(underline_cursor.stderr_data);
+        rune_session_destroy(session);
+        return fail("DECSCUSR cursor shape did not cross the public ABI");
+    }
+    rune_string_free(underline_cursor.stdout_data);
+    rune_string_free(underline_cursor.stderr_data);
+
     EventObservation observation = {"ffi-event", 0, 0, 0};
     RuneOutput streamed = rune_session_execute_with_events(
         session,

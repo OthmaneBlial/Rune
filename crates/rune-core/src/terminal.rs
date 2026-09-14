@@ -33,6 +33,7 @@ struct AlternateScreenBackup {
     scroll_top: usize,
     scroll_bottom: usize,
     last_written: Option<char>,
+    cursor_shape: u8,
 }
 
 /// A bounded, text-only terminal state suitable for session persistence.
@@ -54,6 +55,7 @@ pub struct TerminalScreen {
     cursor_column: usize,
     cursor_visible: bool,
     last_written: Option<char>,
+    cursor_shape: u8,
     alternate_backup: Option<AlternateScreenBackup>,
     saved_cursor: (usize, usize),
     scroll_top: usize,
@@ -81,6 +83,7 @@ impl TerminalScreen {
             cursor_column: 0,
             cursor_visible: true,
             last_written: None,
+            cursor_shape: 0,
             alternate_backup: None,
             saved_cursor: (0, 0),
             scroll_top: 0,
@@ -106,6 +109,7 @@ impl TerminalScreen {
         self.cursor_column = 0;
         self.cursor_visible = true;
         self.last_written = None;
+        self.cursor_shape = 0;
         self.saved_cursor = (0, 0);
         self.scroll_top = 0;
         self.scroll_bottom = self.rows - 1;
@@ -126,6 +130,7 @@ impl TerminalScreen {
             scroll_top: self.scroll_top,
             scroll_bottom: self.scroll_bottom,
             last_written: self.last_written,
+            cursor_shape: self.cursor_shape,
         });
         self.cells = vec![vec![' '; self.columns]; self.rows];
         self.cursor_row = 0;
@@ -134,6 +139,7 @@ impl TerminalScreen {
         self.scroll_top = 0;
         self.scroll_bottom = self.rows - 1;
         self.last_written = None;
+        self.cursor_shape = 0;
     }
 
     fn leave_alternate_screen(&mut self) {
@@ -164,6 +170,7 @@ impl TerminalScreen {
         self.scroll_top = backup.scroll_top.min(self.rows - 1);
         self.scroll_bottom = backup.scroll_bottom.min(self.rows - 1).max(self.scroll_top);
         self.last_written = backup.last_written;
+        self.cursor_shape = backup.cursor_shape;
     }
 
     /// Returns the visible rows through the last non-blank row.
@@ -203,6 +210,13 @@ impl TerminalScreen {
     #[must_use]
     pub fn cursor_visible(&self) -> bool {
         self.cursor_visible
+    }
+
+    /// Returns the optional DECSCUSR shape override: 0 means no override,
+    /// 1 is block, 2 is underline, and 3 is bar.
+    #[must_use]
+    pub fn cursor_shape(&self) -> u8 {
+        self.cursor_shape
     }
 
     /// Returns the current bounded grid dimensions as `(columns, rows)`.
@@ -370,7 +384,7 @@ impl TerminalScreen {
     }
 
     fn apply_csi(&mut self, parameters: &str, final_character: char) {
-        let values = parse_parameters(parameters);
+        let values = parse_parameters(parameters.trim_end_matches(' '));
         let first = |default: usize| values.first().copied().unwrap_or(default);
         let count = || {
             values
@@ -432,6 +446,13 @@ impl TerminalScreen {
             'l' if values.first() == Some(&25) => self.cursor_visible = false,
             'h' if values.first() == Some(&1049) => self.enter_alternate_screen(),
             'l' if values.first() == Some(&1049) => self.leave_alternate_screen(),
+            'q' => match first(0) {
+                0 => self.cursor_shape = 0,
+                1 | 2 => self.cursor_shape = 1,
+                3 | 4 => self.cursor_shape = 2,
+                5 | 6 => self.cursor_shape = 3,
+                _ => {}
+            },
             'r' => self.set_scroll_region(&values),
             's' => self.saved_cursor = self.cursor_position(),
             'u' => self.restore_cursor(),
@@ -746,6 +767,21 @@ mod tests {
         screen.feed("\x1b[?1049l");
         assert_eq!(screen.snapshot(), "prim");
         assert_eq!(screen.cursor_position(), (0, 4));
+    }
+
+    #[test]
+    fn tracks_bounded_decsusr_cursor_shapes() {
+        let mut screen = TerminalScreen::new(8, 2);
+        assert_eq!(screen.cursor_shape(), 0);
+
+        screen.feed("\x1b[1 q");
+        assert_eq!(screen.cursor_shape(), 1);
+        screen.feed("\x1b[4 q");
+        assert_eq!(screen.cursor_shape(), 2);
+        screen.feed("\x1b[6 q");
+        assert_eq!(screen.cursor_shape(), 3);
+        screen.feed("\x1b[0 q");
+        assert_eq!(screen.cursor_shape(), 0);
     }
 
     #[test]

@@ -63,6 +63,7 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var terminalSnapshot = ""
     @Published public private(set) var terminalCursorPosition = (row: 0, column: 0)
     @Published public private(set) var terminalCursorVisible = true
+    @Published public private(set) var terminalCursorShape: String?
     @Published public private(set) var sessionSnapshot: RuneSessionSnapshot? = nil
     @Published public private(set) var requestedAction: RuneSessionAction = .none
 
@@ -547,12 +548,14 @@ public final class RuneTerminalModel: ObservableObject {
             terminalSnapshot = ""
             terminalCursorPosition = (row: 0, column: 0)
             terminalCursorVisible = true
+            terminalCursorShape = nil
             sessionSnapshot = nil
             return
         }
         terminalSnapshot = session.terminalSnapshot
         terminalCursorPosition = session.terminalCursorPosition
         terminalCursorVisible = session.terminalCursorVisible
+        terminalCursorShape = session.terminalCursorShape
         sessionSnapshot = session.sessionSnapshot
     }
 
@@ -810,7 +813,7 @@ public struct RuneTerminalView: View {
                         fontSize: model.fontSize,
                         foreground: palette.foreground,
                         cursorColor: palette.cursorColor(named: model.cursorColor),
-                        cursorShape: model.cursorShape,
+                        cursorShape: model.terminalCursorShape ?? model.cursorShape,
                         onResize: { size in model.resizeTerminal(for: size) }
                     )
                     .padding(18)

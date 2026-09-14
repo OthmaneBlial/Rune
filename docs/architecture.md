@@ -293,7 +293,9 @@ alternate screen buffer (`CSI ?1049h`/`CSI ?1049l`);
 `rune_session_terminal_snapshot` and `rune_session_terminal_cursor` expose
 its visible text, zero-based caret position, and bounded cursor visibility
 state (`CSI ?25l` / `CSI ?25h`) through the C ABI. Visibility is ephemeral and
-returns to visible on a full terminal reset.
+returns to visible on a full terminal reset. Bounded DECSCUSR shape requests
+(`CSI Ps q`) are exposed as an optional block, underline, or bar override;
+unsupported shape values leave the native preference unchanged.
 The source-only native surface measures its viewport and calls
 `rune_session_resize_terminal`; Rust clamps dimensions and retains the most
 relevant rows without persisting ephemeral layout size.

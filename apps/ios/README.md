@@ -88,7 +88,10 @@ character/line insertion and erasure. `RuneFFISession.terminalSnapshot` and
 `RuneFFISession.terminalCursorPosition` and
 `RuneFFISession.terminalCursorVisible` expose the
 visible text, caret position, and bounded `CSI ?25l` / `CSI ?25h` visibility
-state through the C ABI. The terminal view can switch to a source-only
+state through the C ABI. `RuneFFISession.terminalCursorShape` maps bounded
+DECSCUSR `CSI Ps q` requests to block, underline, or bar when a terminal
+program asks for a temporary shape override; the saved user setting remains
+the fallback. The terminal view can switch to a source-only
 Rust screen surface that draws this bounded text and caret; the styled,
 line-oriented transcript remains the default, and Apple runtime rendering
 still needs validation. The screen surface reports bounded row and column

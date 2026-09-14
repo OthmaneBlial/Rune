@@ -307,6 +307,18 @@ public final class RuneFFISession: @unchecked Sendable {
         }
     }
 
+    /// Returns the optional terminal-requested cursor shape override.
+    public var terminalCursorShape: String? {
+        withLock {
+            switch rune_session_terminal_cursor(handle.map(UnsafeRawPointer.init)).shape {
+            case 1: return "block"
+            case 2: return "underline"
+            case 3: return "bar"
+            default: return nil
+            }
+        }
+    }
+
     public func execute(_ command: String) -> RuneCommandResult {
         withLock {
             let raw = command.withCString { rune_session_execute(handle, $0) }

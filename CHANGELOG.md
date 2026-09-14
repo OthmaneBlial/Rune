@@ -4,6 +4,13 @@ All notable public changes to Rune are documented here. The project is
 pre-1.0; entries describe verified repository behavior and do not imply an
 iOS runtime release.
 
+## [Unreleased]
+
+### Added
+
+- Bounded DECSCUSR cursor-shape requests (`CSI Ps q`) from the Rust terminal
+  grid through the public C FFI to the source-only SwiftUI caret renderer.
+
 ## [0.1.0-alpha.3] - 2026-09-14
 
 ### Added

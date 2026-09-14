@@ -246,7 +246,8 @@ behavior, or Apple runtime integration.
 
 The Rust terminal suite also covers cursor-preserving character erasure
 (`CSI X`), bounded cursor visibility controls (`CSI ?25l` / `CSI ?25h`), and
-last-character repetition (`CSI b`),
+last-character repetition (`CSI b`), bounded DECSCUSR cursor-shape requests
+(`CSI Ps q`),
 alongside alternate-screen switching (`CSI ?1049h` / `CSI ?1049l`), cursor
 addressing, insert/delete operations, scroll
 regions, forward/backward tab stops (`CSI I`/`CSI Z`), split control sequences,
