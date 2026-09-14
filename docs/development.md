@@ -309,7 +309,8 @@ temporary root and removes only that root on exit.
 Run `./scripts/bench.sh` for local timing samples of a warm CLI startup, a
 confined filesystem pipeline, and bounded `tree` rendering. The script builds
 the CLI first, uses an exact temporary VFS root, reports `real`/`user`/`sys`
-durations, and cleans only that root; its output is not evidence of Apple
+durations, and cleans only that root. See [Performance notes](performance.md)
+for the dated baseline and its limits; this output is not evidence of Apple
 device performance.
 
 ## Commit boundaries

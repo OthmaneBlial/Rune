@@ -42,6 +42,7 @@ this disk-constrained workspace.
   <a href="https://othmaneblial.github.io/Rune/">Website</a> ·
   <a href="https://othmaneblial.github.io/Rune/media/rune-cli-demo.mp4">Watch the real CLI demo</a> ·
   <a href="https://othmaneblial.github.io/Rune/docs.html">Documentation</a> ·
+  <a href="docs/performance.md">Performance</a> ·
   <a href="ROADMAP.md">Roadmap</a> ·
   <a href="https://github.com/OthmaneBlial/Rune/issues">Issues</a>
 </p>
