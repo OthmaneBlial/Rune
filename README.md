@@ -8,6 +8,29 @@ the FFI boundary; SwiftUI provides the native presentation layer. It is an
 independent implementation, not a web terminal and not a feature-parity claim
 for a-Shell.
 
+## Development Progress
+
+**Overall progress: 43%**
+
+This is an engineering estimate of the product path toward a validated iPhone
+and iPad terminal, not a percentage of lines of code. Portable Rust behavior is
+ahead of the Apple runtime because the latter is intentionally source-only in
+this disk-constrained workspace.
+
+| Area | Progress |
+| --- | ---: |
+| Rust core and session model | 68% |
+| Shell grammar and execution planning | 58% |
+| Built-in command surface | 52% |
+| Confined filesystem and security policy | 62% |
+| Persistence and command history | 55% |
+| Terminal state and ANSI handling | 45% |
+| Rust/Swift FFI contracts | 55% |
+| SwiftUI/UIKit source boundary | 38% |
+| WASM, scripting, and toolchain runtimes | 28% |
+| Direct a-Shell comparison | 5% |
+| Apple runtime, packaging, and release validation | 10% |
+
 <p align="center">
   <a href="https://othmaneblial.github.io/Rune/"><img src="https://img.shields.io/badge/project_site-Rune-e85d2a?style=flat-square" alt="Rune project site"></a>
   <a href="https://github.com/OthmaneBlial/Rune/releases"><img src="https://img.shields.io/github/v/release/OthmaneBlial/Rune?include_prereleases&style=flat-square&color=0ea5a8" alt="Latest Rune release"></a>
