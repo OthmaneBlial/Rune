@@ -30,11 +30,11 @@ scripts/ffi-smoke.sh
 echo "==> CLI metadata"
 rune_cli_version="$(target/debug/rune-cli --version)"
 test "$rune_cli_version" = "rune-cli 0.1.0"
-target/debug/rune-cli --help | grep -F -- "usage: rune [--root PATH] [-c COMMAND | --script PATH]" >/dev/null
+target/debug/rune-cli --help | grep -F -- "usage: rune [--root PATH] [-c COMMAND | --script PATH [--script-arg VALUE ...]]" >/dev/null
 rune_cli_smoke_root="$(mktemp -d "${TMPDIR:-/tmp}/rune-cli-smoke.XXXXXX")"
 target/debug/rune-cli --root "$rune_cli_smoke_root" -c \
-  "mkdir -p 'folder name'; printf '%s\\n' 'printf script-ok' > 'folder name/script file.rune'" >/dev/null
-test "$(target/debug/rune-cli --root "$rune_cli_smoke_root" --script "folder name/script file.rune")" = "script-ok"
+  "mkdir -p 'folder name'; printf '%s\\n' 'printf \"%s\" \"\$1\"' > 'folder name/script file.rune'" >/dev/null
+test "$(target/debug/rune-cli --root "$rune_cli_smoke_root" --script "folder name/script file.rune" --script-arg script-ok)" = "script-ok"
 if target/debug/rune-cli --root "$rune_cli_smoke_root" -c true --script \
   "folder name/script file.rune" >/dev/null 2>&1; then
   echo "rune: --command and --script conflict was accepted" >&2

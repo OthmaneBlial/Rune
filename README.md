@@ -171,12 +171,14 @@ target/debug/rune-cli --version
 To run a Rust-planned script stored inside the confined root:
 
 ~~~bash
-target/debug/rune-cli --root /tmp/rune-root --script project/profile.rune
+target/debug/rune-cli --root /tmp/rune-root --script project/profile.rune \
+  --script-arg development
 ~~~
 
 `--script` resolves a virtual path through Rune's filesystem and executes it
 with the same bounded `source` planner used by the native bridge. It never
-launches the host shell.
+launches the host shell. Repeat `--script-arg VALUE` to pass bounded positional
+arguments to the script (`$0`, `$1`, and so on).
 
 ### Check the source-only iOS boundary
 

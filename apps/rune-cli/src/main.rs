@@ -66,6 +66,7 @@ fn arguments() -> Result<(PathBuf, Option<String>), String> {
         .map_err(|error| format!("cannot read current directory: {error}"))?;
     let mut command = None;
     let mut script = None;
+    let mut script_args = Vec::new();
     let mut args = std::env::args().skip(1);
     while let Some(argument) = args.next() {
         match argument.as_str() {
@@ -85,13 +86,18 @@ fn arguments() -> Result<(PathBuf, Option<String>), String> {
                 let value = args
                     .next()
                     .ok_or_else(|| "--script requires a virtual path".to_string())?;
-                if value.is_empty() || value.chars().any(char::is_control) {
-                    return Err("--script path must contain printable characters".to_string());
-                }
+                validate_script_argument(&value, "path")?;
                 script = Some(value);
             }
+            "--script-arg" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--script-arg requires a value".to_string())?;
+                validate_script_argument(&value, "value")?;
+                script_args.push(value);
+            }
             "-h" | "--help" => {
-                println!("usage: rune [--root PATH] [-c COMMAND | --script PATH]");
+                println!("usage: rune [--root PATH] [-c COMMAND | --script PATH [--script-arg VALUE ...]]");
                 std::process::exit(0);
             }
             "-V" | "--version" => {
@@ -101,13 +107,29 @@ fn arguments() -> Result<(PathBuf, Option<String>), String> {
             unknown => return Err(format!("unknown argument: {unknown}")),
         }
     }
-    if command.is_some() && script.is_some() {
+    if command.is_some() && (script.is_some() || !script_args.is_empty()) {
         return Err("-c/--command and --script are mutually exclusive".to_string());
     }
     if let Some(path) = script {
-        command = Some(format!("source {}", quote_shell_word(&path)));
+        let mut source = format!("source {}", quote_shell_word(&path));
+        for argument in script_args {
+            source.push(' ');
+            source.push_str(&quote_shell_word(&argument));
+        }
+        command = Some(source);
+    } else if !script_args.is_empty() {
+        return Err("--script-arg requires --script".to_string());
     }
     Ok((root, command))
+}
+
+fn validate_script_argument(value: &str, label: &str) -> Result<(), String> {
+    if value.is_empty() || value.chars().any(char::is_control) {
+        return Err(format!(
+            "--script {label} must contain printable characters"
+        ));
+    }
+    Ok(())
 }
 
 fn quote_shell_word(value: &str) -> String {
