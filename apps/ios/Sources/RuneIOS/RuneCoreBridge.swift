@@ -6,6 +6,12 @@ public enum RuneExecutionEventKind: Int32, Sendable {
     case status = 2
 }
 
+public enum RuneSessionAction: Int32, Sendable {
+    case none = 0
+    case exit = 1
+    case newWindow = 2
+}
+
 public struct RuneExecutionEvent: Sendable {
     public let kind: RuneExecutionEventKind
     public let stdout: String
@@ -180,6 +186,13 @@ public final class RuneFFISession: @unchecked Sendable {
         guard columns > 0, rows > 0 else { return false }
         return withLock {
             rune_session_resize_terminal(handle, numericCast(columns), numericCast(rows)) == 0
+        }
+    }
+
+    /// Consumes one host-facing action requested by a Rust command.
+    public func takeAction() -> RuneSessionAction {
+        withLock {
+            RuneSessionAction(rawValue: rune_session_take_action(handle)) ?? .none
         }
     }
 

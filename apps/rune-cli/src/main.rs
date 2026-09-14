@@ -1,7 +1,7 @@
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::PathBuf;
 
-use rune_core::{CommandEvent, CommandOutput, EventSink, Session};
+use rune_core::{CommandEvent, CommandOutput, EventSink, Session, SessionAction};
 use rune_fs::SandboxedFileSystem;
 
 struct CliEventSink {
@@ -103,6 +103,9 @@ fn repl(session: &mut Session, interactive: bool) -> io::Result<()> {
             break;
         }
         let _ = execute_and_print(session, &line);
+        if matches!(session.take_action(), Some(SessionAction::Exit)) {
+            break;
+        }
     }
     Ok(())
 }

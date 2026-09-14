@@ -16,6 +16,16 @@ pub(super) fn echo(context: &mut CommandContext<'_>) -> CommandOutput {
     CommandOutput::success(stdout)
 }
 
+/// Handled by the session so the native host can consume a close request.
+pub(super) fn exit(_context: &mut CommandContext<'_>) -> CommandOutput {
+    usage("exit", "usage: exit")
+}
+
+/// Handled by the session so the native host can open a new window.
+pub(super) fn new_window(_context: &mut CommandContext<'_>) -> CommandOutput {
+    usage("newWindow", "usage: newWindow")
+}
+
 /// `source` and `.` are dispatched by the session because they need access to
 /// the recursive script executor. The registry handler keeps their metadata
 /// available to `help`, completion, and `which`.

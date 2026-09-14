@@ -17,10 +17,11 @@ use rune_core::{
     ClipboardError, ClipboardProvider, CommandEvent, CommandOutput, DisabledClipboardProvider,
     DisabledNetworkProvider, DisabledOpenProvider, DisabledToolchainProvider, EventSink,
     NetworkError, NetworkProvider, NetworkRequest, NetworkResponse, OpenError, OpenProvider,
-    OpenRequest, Session, ToolchainArtifact, ToolchainError, ToolchainKind, ToolchainOutput,
-    ToolchainProvider, ToolchainRequest, MAX_CLIPBOARD_BYTES, MAX_FILE_TRANSFER_BYTES,
-    MAX_NETWORK_BODY_BYTES, MAX_TOOLCHAIN_ARTIFACTS, MAX_TOOLCHAIN_ARTIFACT_BYTES,
-    MAX_TOOLCHAIN_ARTIFACT_PATH_BYTES, MAX_TOOLCHAIN_MEDIA_TYPE_BYTES, MAX_TOOLCHAIN_OUTPUT_BYTES,
+    OpenRequest, Session, SessionAction, ToolchainArtifact, ToolchainError, ToolchainKind,
+    ToolchainOutput, ToolchainProvider, ToolchainRequest, MAX_CLIPBOARD_BYTES,
+    MAX_FILE_TRANSFER_BYTES, MAX_NETWORK_BODY_BYTES, MAX_TOOLCHAIN_ARTIFACTS,
+    MAX_TOOLCHAIN_ARTIFACT_BYTES, MAX_TOOLCHAIN_ARTIFACT_PATH_BYTES,
+    MAX_TOOLCHAIN_MEDIA_TYPE_BYTES, MAX_TOOLCHAIN_OUTPUT_BYTES,
 };
 use rune_fs::{FsError, SandboxedFileSystem};
 
@@ -67,6 +68,9 @@ pub type RuneEventCallback =
 
 pub const RUNE_EVENT_OUTPUT: i32 = 1;
 pub const RUNE_EVENT_STATUS: i32 = 2;
+pub const RUNE_SESSION_ACTION_NONE: i32 = 0;
+pub const RUNE_SESSION_ACTION_EXIT: i32 = 1;
+pub const RUNE_SESSION_ACTION_NEW_WINDOW: i32 = 2;
 
 /// Bounded response storage exchanged with a native network callback.
 #[repr(C)]
@@ -1069,6 +1073,23 @@ pub extern "C" fn rune_session_resize_terminal(
     0
 }
 
+/// Consumes one host-facing action requested by a Rust command. Returns
+/// [`RUNE_SESSION_ACTION_NONE`] when there is no pending action.
+#[no_mangle]
+pub extern "C" fn rune_session_take_action(handle: *mut c_void) -> i32 {
+    if handle.is_null() {
+        return RUNE_SESSION_ACTION_NONE;
+    }
+    // SAFETY: Swift serializes access to the opaque session handle and does
+    // not call this after rune_session_destroy.
+    let session = unsafe { &mut *handle.cast::<RuneSession>() };
+    match session.core.take_action() {
+        Some(SessionAction::Exit) => RUNE_SESSION_ACTION_EXIT,
+        Some(SessionAction::NewWindow) => RUNE_SESSION_ACTION_NEW_WINDOW,
+        None => RUNE_SESSION_ACTION_NONE,
+    }
+}
+
 /// Executes one Rune command line and persists the session state before
 /// returning. A persistence failure is reported on stderr and changes a
 /// successful command's status to 1.
@@ -1522,11 +1543,13 @@ mod tests {
         rune_session_resize_terminal, rune_session_set_clipboard_callbacks,
         rune_session_set_configuration, rune_session_set_network_callback,
         rune_session_set_open_callback, rune_session_set_toolchain_callback,
-        rune_session_startup_output, rune_session_terminal_cursor, rune_session_terminal_snapshot,
-        rune_string_free, RuneClipboardResponse, RuneEvent, RuneNetworkResponse,
-        RuneTerminalCursor, RuneToolchainArtifactBuffer, RuneToolchainEnvironmentEntry,
-        RuneToolchainResponse, RuneToolchainSlice, RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS,
-        RUNE_OPEN_FILE, RUNE_OPEN_URL, RUNE_TOOLCHAIN_C,
+        rune_session_startup_output, rune_session_take_action, rune_session_terminal_cursor,
+        rune_session_terminal_snapshot, rune_string_free, RuneClipboardResponse, RuneEvent,
+        RuneNetworkResponse, RuneTerminalCursor, RuneToolchainArtifactBuffer,
+        RuneToolchainEnvironmentEntry, RuneToolchainResponse, RuneToolchainSlice,
+        RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS, RUNE_OPEN_FILE, RUNE_OPEN_URL,
+        RUNE_SESSION_ACTION_EXIT, RUNE_SESSION_ACTION_NEW_WINDOW, RUNE_SESSION_ACTION_NONE,
+        RUNE_TOOLCHAIN_C,
     };
     use rune_core::MAX_EVENT_CHUNK_BYTES;
     use std::ffi::{c_void, CStr, CString};
@@ -2644,6 +2667,48 @@ mod tests {
         unsafe { rune_string_free(empty) };
         assert!(rune_session_diagnostics(std::ptr::null()).is_null());
         assert_eq!(rune_session_clear_diagnostics(std::ptr::null_mut()), 1);
+
+        rune_session_destroy(handle);
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn c_abi_transfers_host_facing_session_actions_once() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rune-ffi-actions-test-{suffix}"));
+        std::fs::create_dir_all(&root).expect("test root created");
+        let root_string = CString::new(root.to_string_lossy().as_bytes()).expect("valid root");
+        let handle = rune_session_new(root_string.as_ptr());
+        assert!(!handle.is_null());
+
+        let exit = CString::new("exit").expect("valid command");
+        let output = rune_session_execute(handle, exit.as_ptr());
+        assert_eq!(output.status, 0);
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+        assert_eq!(rune_session_take_action(handle), RUNE_SESSION_ACTION_EXIT);
+        assert_eq!(rune_session_take_action(handle), RUNE_SESSION_ACTION_NONE);
+
+        let new_window = CString::new("newWindow").expect("valid command");
+        let output = rune_session_execute(handle, new_window.as_ptr());
+        assert_eq!(output.status, 0);
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+        assert_eq!(
+            rune_session_take_action(handle),
+            RUNE_SESSION_ACTION_NEW_WINDOW
+        );
+        assert_eq!(
+            rune_session_take_action(std::ptr::null_mut()),
+            RUNE_SESSION_ACTION_NONE
+        );
 
         rune_session_destroy(handle);
         std::fs::remove_dir_all(root).expect("test root removed");

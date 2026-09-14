@@ -183,6 +183,13 @@ key. This is source/API evidence only:
 tab rendering, lifecycle behavior, scene restoration, and Apple runtime
 integration remain unverified.
 
+The Rust `exit` and `newWindow` commands return one-shot host-session actions
+over the same narrow FFI. The workspace consumes them separately from terminal
+output: `exit` closes the selected tab or dismisses the last window, while
+`newWindow` opens a fresh typed window route with an independent Rust session
+namespace. This is source/API evidence only; SwiftUI lifecycle and Apple
+runtime behavior remain unverified.
+
 ## Current evidence
 
 RuneOpenBridge.swift provides the source-only UIKit adapter for the Rust

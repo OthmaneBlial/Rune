@@ -62,6 +62,7 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var completionSelection: Int? = nil
     @Published public private(set) var terminalSnapshot = ""
     @Published public private(set) var terminalCursorPosition = (row: 0, column: 0)
+    @Published public private(set) var requestedAction: RuneSessionAction = .none
 
     private var session: RuneFFISession?
     private var scopedFolder: RuneScopedFolder?
@@ -214,6 +215,7 @@ public final class RuneTerminalModel: ObservableObject {
             command = ""
             terminalColumns = 0
             terminalRows = 0
+            requestedAction = .none
             clearTranscript()
             initializationError = nil
             append(nextSession.takeStartupOutput())
@@ -345,6 +347,12 @@ public final class RuneTerminalModel: ObservableObject {
         }
     }
 
+    /// Acknowledges a host-facing action after the containing workspace has
+    /// routed it to the window or tab controller.
+    public func acknowledgeRequestedAction() {
+        requestedAction = .none
+    }
+
     /// Updates a validated Rust-owned setting without routing the change
     /// through shell text or adding it to command history.
     public func setConfiguration(key: String, value: String) {
@@ -399,6 +407,10 @@ public final class RuneTerminalModel: ObservableObject {
         history = session.history()
         refreshConfiguration()
         refreshTerminalState(from: session)
+        let requestedAction = session.takeAction()
+        if requestedAction != .none {
+            self.requestedAction = requestedAction
+        }
         isExecuting = false
         executionTask = nil
     }
@@ -650,8 +662,14 @@ public struct RuneTerminalView: View {
     @State private var isShowingHistorySearch = false
     @State private var historyQuery = ""
     @State private var isShowingRustScreen = false
+    private let onSessionAction: ((RuneSessionAction) -> Void)?
 
-    public init(rootURL: URL? = nil, sessionID: String? = nil) {
+    public init(
+        rootURL: URL? = nil,
+        sessionID: String? = nil,
+        onSessionAction: ((RuneSessionAction) -> Void)? = nil
+    ) {
+        self.onSessionAction = onSessionAction
         _model = StateObject(wrappedValue: RuneTerminalModel(rootURL: rootURL, sessionID: sessionID))
     }
 
@@ -1006,6 +1024,11 @@ public struct RuneTerminalView: View {
         }
         .onAppear { inputFocused = true }
         .onDisappear { model.cancel() }
+        .onChange(of: model.requestedAction) { _, action in
+            guard action != .none else { return }
+            model.acknowledgeRequestedAction()
+            onSessionAction?(action)
+        }
         .onChange(of: scenePhase) { _, phase in
             model.scenePhaseChanged(phase)
         }

@@ -42,7 +42,8 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 `true`, `false`, `ar`, `awk`, `compress`, `cut`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `gzip`, `gunzip`, `sort`, `uniq`, `uncompress`, `wc`, `wasm`, `pkg`, `tar`, `type`, `command`,
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
 `apropos`, `help`, `history`, `sleep`, `uname`, `which`, `whoami`, `xargs`, `pbcopy`, `pbpaste`,
-`test`, `[`, `source`, `.`, `sh`, `dash`, `return`, `local`, `shift`, and `set` against a
+`test`, `[`, `source`, `.`, `sh`, `dash`, `return`, `local`, `shift`, `set`, `exit`,
+`newWindow`, and `new-window` against a
 bounded filesystem,
 including basic `*`/`?` pathname
 expansion with quote and hidden-file rules,
@@ -380,6 +381,13 @@ tab from a bounded route-specific key. SwiftUI rendering, scene restoration,
 iPad runtime behavior, and Apple runtime behavior remain unverified without an
 Apple build toolchain.
 
+The Rust shell also exposes `exit` and `newWindow` as one-shot host-session
+actions. The FFI transfers those actions separately from stdout/stderr/status;
+the source-only Swift workspace closes the current tab/window for `exit` and
+opens an independent window route for `newWindow`. The CLI consumes `exit` to
+leave its REPL and has no window host for `newWindow`. Action routing is
+source-level evidence until an Apple runtime is available.
+
 Directory changes update the Rust-owned `PWD` and `OLDPWD` values. `cd -`
 returns to the previous directory and prints the resulting virtual path, while
 bookmark jumps and aliases that change directories use the same state update.
@@ -414,8 +422,8 @@ and paste actions through the native model; the UIKit command editor also
 routes hardware Tab, Escape, and Ctrl-C through those same Rust-backed
 actions. Display-clear resets and persists
 the Rust terminal grid without creating a history entry. The workspace also exposes Cmd-N
-for a new independent window. Only command execution and shell
-state cross the Rust boundary. A currently running synchronous Rust operation
+for a new independent window. Command execution, shell state, and one-shot
+host-session actions cross the Rust boundary. A currently running synchronous Rust operation
 may still finish before its next boundary; inactive scenes and disappearing
 terminal views request cancellation, but background execution, cancellation,
 and Apple runtime behavior are not device-validated here.
@@ -635,6 +643,7 @@ result.
 - [x] Explicit host URL/file opening capability with bounded open/openurl
 - [x] Rust-namespaced sessions and source-only terminal tabs
 - [x] Source-only typed iPad window routing
+- [x] Source-only Rust `exit`/`newWindow` host-action routing
 - [x] Source-only native keyboard shortcuts
 - [ ] iPad multi-window behavior
 - [x] Source-only command/script/file and named-session App Intent declarations

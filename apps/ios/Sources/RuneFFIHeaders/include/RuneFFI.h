@@ -37,6 +37,9 @@ typedef void (*RuneEventCallback)(const RuneEvent *event, void *user_data);
 #define RUNE_EVENT_STATUS 2
 // Maximum UTF-8 payload in one output event from the Rust core.
 #define RUNE_EVENT_CHUNK_BYTES 16384
+#define RUNE_SESSION_ACTION_NONE 0
+#define RUNE_SESSION_ACTION_EXIT 1
+#define RUNE_SESSION_ACTION_NEW_WINDOW 2
 
 typedef struct {
     int32_t status_code;
@@ -194,6 +197,8 @@ RuneOutput rune_session_reset_configuration(void *handle);
 RuneOutput rune_session_clear_terminal(void *handle);
 // Resize the bounded Rust-owned terminal grid for the native viewport.
 int32_t rune_session_resize_terminal(void *handle, size_t columns, size_t rows);
+// Consume a host-facing action requested by a Rust command.
+int32_t rune_session_take_action(void *handle);
 RuneOutput rune_session_put_file(
     void *handle,
     const char *path,

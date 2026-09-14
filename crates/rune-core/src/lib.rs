@@ -307,6 +307,13 @@ pub struct CommandOutput {
     pub status: i32,
 }
 
+/// A host-facing session action requested by a Rust command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionAction {
+    Exit,
+    NewWindow,
+}
+
 impl CommandOutput {
     #[must_use]
     pub fn success(stdout: impl Into<String>) -> Self {
@@ -510,6 +517,7 @@ pub struct Session {
     script_parameters: Vec<String>,
     terminal_screen: TerminalScreen,
     diagnostics: DiagnosticLog,
+    pending_action: Option<SessionAction>,
 }
 
 impl Session {
@@ -554,6 +562,7 @@ impl Session {
             script_parameters: Vec::new(),
             terminal_screen: TerminalScreen::default(),
             diagnostics: DiagnosticLog::default(),
+            pending_action: None,
         };
         session.update_pwd();
         session
@@ -736,6 +745,12 @@ impl Session {
     /// Clears the in-memory diagnostic log without changing session state.
     pub fn clear_diagnostics(&mut self) {
         self.diagnostics.clear();
+    }
+
+    /// Consumes one host-facing action requested by a Rust command.
+    #[must_use]
+    pub fn take_action(&mut self) -> Option<SessionAction> {
+        self.pending_action.take()
     }
 
     /// Returns the current virtual directory, useful to native frontends.
@@ -1295,7 +1310,10 @@ impl Session {
                     if output.status == CANCELLED_STATUS {
                         break;
                     }
-                    if self.loop_control.is_some() || self.function_return.is_some() {
+                    if self.pending_action.is_some()
+                        || self.loop_control.is_some()
+                        || self.function_return.is_some()
+                    {
                         break;
                     }
                     continue;
@@ -1323,7 +1341,10 @@ impl Session {
             output.status = line_output.status;
             limit_output(&mut output);
             line_index += 1;
-            if self.loop_control.is_some() || self.function_return.is_some() {
+            if self.pending_action.is_some()
+                || self.loop_control.is_some()
+                || self.function_return.is_some()
+            {
                 break;
             }
         }
@@ -1943,6 +1964,9 @@ impl Session {
                 output.status
             );
         }
+        // A startup profile initializes shell state; host actions are only
+        // meaningful for an explicit interactive command submission.
+        self.pending_action = None;
     }
 
     fn execute_plan(
@@ -1979,6 +2003,9 @@ impl Session {
             output.stdout.push_str(&pipeline_output.stdout);
             output.stderr.push_str(&pipeline_output.stderr);
             output.status = pipeline_output.status;
+            if self.pending_action.is_some() {
+                break;
+            }
         }
         self.last_status = output.status;
         output
@@ -2005,6 +2032,9 @@ impl Session {
             stdin = result.stdout;
             stderr.push_str(&result.stderr);
             status = result.status;
+            if self.pending_action.is_some() {
+                break;
+            }
         }
         CommandOutput {
             stdout: stdin,
@@ -2113,6 +2143,10 @@ impl Session {
     ) -> CommandOutput {
         match program {
             "break" | "continue" => self.execute_loop_control(program, arguments),
+            "exit" => self.execute_session_action(program, arguments, SessionAction::Exit),
+            "newWindow" | "new-window" => {
+                self.execute_session_action(program, arguments, SessionAction::NewWindow)
+            }
             "return" => self.execute_function_return(arguments),
             "local" => self.execute_local(arguments),
             "shift" => self.execute_shift(arguments),
@@ -2174,6 +2208,19 @@ impl Session {
         } else {
             LoopControl::Continue
         });
+        CommandOutput::success("")
+    }
+
+    fn execute_session_action(
+        &mut self,
+        command: &str,
+        arguments: &[String],
+        action: SessionAction,
+    ) -> CommandOutput {
+        if !arguments.is_empty() {
+            return usage(command, &format!("usage: {command}"));
+        }
+        self.pending_action = Some(action);
         CommandOutput::success("")
     }
 
@@ -4078,16 +4125,16 @@ fn package_runtime_failure(command: &str, error: &rune_package::PackageError) ->
 #[cfg(test)]
 mod tests {
     use super::{
-        persistence::MAX_HISTORY_BYTES, ClipboardError, ClipboardProvider, CommandEvent, EventSink,
-        NetworkError, NetworkMethod, NetworkProvider, NetworkRequest, NetworkResponse, OpenError,
-        OpenProvider, OpenRequest, OpenTargetKind, Session, TerminalConfig, ToolchainArtifact,
-        ToolchainError, ToolchainKind, ToolchainOutput, ToolchainProvider, ToolchainRequest,
-        CANCELLED_STATUS, MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS, MAX_CLIPBOARD_BYTES,
-        MAX_COMMAND_INPUT_BYTES, MAX_EVENT_CHUNK_BYTES, MAX_FILE_TRANSFER_BYTES, MAX_FOR_VALUES,
-        MAX_FUNCTIONS, MAX_FUNCTION_ARGUMENTS, MAX_FUNCTION_DEPTH, MAX_FUNCTION_NAME_BYTES,
-        MAX_LOCAL_VARIABLES, MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_CONTROL_DEPTH,
-        MAX_SCRIPT_LINES, MAX_SOURCE_ARGUMENTS, MAX_SOURCE_DEPTH, MAX_WHILE_ITERATIONS,
-        OUTPUT_TRUNCATION_MARKER,
+        persistence::MAX_HISTORY_BYTES, ClipboardError, ClipboardProvider, CommandEvent,
+        CommandOutput, EventSink, NetworkError, NetworkMethod, NetworkProvider, NetworkRequest,
+        NetworkResponse, OpenError, OpenProvider, OpenRequest, OpenTargetKind, Session,
+        SessionAction, TerminalConfig, ToolchainArtifact, ToolchainError, ToolchainKind,
+        ToolchainOutput, ToolchainProvider, ToolchainRequest, CANCELLED_STATUS, MAX_BOOKMARKS,
+        MAX_BOOKMARK_NAME_CHARS, MAX_CLIPBOARD_BYTES, MAX_COMMAND_INPUT_BYTES,
+        MAX_EVENT_CHUNK_BYTES, MAX_FILE_TRANSFER_BYTES, MAX_FOR_VALUES, MAX_FUNCTIONS,
+        MAX_FUNCTION_ARGUMENTS, MAX_FUNCTION_DEPTH, MAX_FUNCTION_NAME_BYTES, MAX_LOCAL_VARIABLES,
+        MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_CONTROL_DEPTH, MAX_SCRIPT_LINES,
+        MAX_SOURCE_ARGUMENTS, MAX_SOURCE_DEPTH, MAX_WHILE_ITERATIONS, OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
     use std::fmt::Write as _;
@@ -7965,6 +8012,34 @@ true
     }
 
     #[test]
+    fn routes_host_session_actions_without_mixing_them_into_command_output() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+
+        let exit = session.execute_line("exit");
+        assert_eq!(exit, CommandOutput::success(""));
+        assert_eq!(session.take_action(), Some(SessionAction::Exit));
+        assert_eq!(session.take_action(), None);
+
+        let invalid = session.execute_line("exit now");
+        assert_eq!(invalid.status, 2);
+        assert_eq!(session.take_action(), None);
+
+        let exit_sequence = session.execute_line("exit; echo should-not-run");
+        assert_eq!(exit_sequence, CommandOutput::success(""));
+        assert_eq!(session.take_action(), Some(SessionAction::Exit));
+
+        let new_window = session.execute_line("new-window; echo should-not-run");
+        assert_eq!(new_window, CommandOutput::success(""));
+        assert_eq!(session.take_action(), Some(SessionAction::NewWindow));
+        assert_eq!(
+            session.execute_line("which newWindow").stdout,
+            "newWindow: builtin\n"
+        );
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
     fn lists_bounded_metadata_with_long_and_human_readable_modes() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
@@ -8154,6 +8229,26 @@ true
             "profile:later\n"
         );
 
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn drops_host_actions_from_startup_profiles_before_interactive_use() {
+        let root = test_root();
+        std::fs::create_dir_all(&root).expect("root created");
+        std::fs::write(root.join(".rune_profile"), b"exit\necho should-not-run\n")
+            .expect("profile written");
+
+        let mut session = Session::restore(SandboxedFileSystem::new(&root).expect("root opened"));
+        let startup = session.take_startup_output();
+        assert_eq!(startup.stdout, "");
+        assert_eq!(startup.stderr, "");
+        assert_eq!(session.take_action(), None);
+        assert_eq!(
+            session.execute_line("echo interactive").stdout,
+            "interactive\n"
+        );
+        assert_eq!(session.take_action(), None);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

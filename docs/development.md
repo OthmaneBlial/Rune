@@ -141,6 +141,11 @@ working directories and history do not leak between Rust or FFI handles.
 History-search tests verify newest-first, case-insensitive matches, query bounds,
 and the absence of history mutation; the FFI test covers the owned string
 returned to the source-only native bridge.
+Host-session action tests verify that argument-free `exit` and `newWindow`
+commands produce no command output, invalid arguments remain usage errors, and
+the C ABI transfers each action exactly once. The source-only Swift workspace
+routes those values to tab/window policy; Apple runtime behavior is not inferred
+from this test.
 File-transfer tests verify confined paths, the 16 MiB boundary, and binary
 payloads containing NUL bytes across the Rust/FFI boundary.
 Event tests verify Rust pipeline/status emission, UTF-8-safe 16 KiB chunking,

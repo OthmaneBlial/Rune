@@ -220,6 +220,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::echo,
     },
     CommandDefinition {
+        name: "exit",
+        summary: "request that the host close this terminal session",
+        handler: shell::exit,
+    },
+    CommandDefinition {
         name: "env",
         summary: "print the session environment",
         handler: shell::env,
@@ -343,6 +348,16 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "mv",
         summary: "move one file or directory",
         handler: filesystem::mv,
+    },
+    CommandDefinition {
+        name: "newWindow",
+        summary: "request that the host open an independent terminal window",
+        handler: shell::new_window,
+    },
+    CommandDefinition {
+        name: "new-window",
+        summary: "request that the host open an independent terminal window",
+        handler: shell::new_window,
     },
     CommandDefinition {
         name: "open",

@@ -244,6 +244,16 @@ legacy key.
 This is source/API evidence for routing; it does not yet prove SwiftUI
 lifecycle behavior, scene restoration, or device runtime behavior.
 
+Host-session actions use a separate one-shot signal rather than being encoded
+as terminal output. Rust recognizes argument-free `exit` and `newWindow` (with
+the bounded `new-window` spelling), records the action on the session, and
+exposes it through `rune_session_take_action`; the C ABI returns `none`, `exit`,
+or `new-window` and consumes each value once. The Swift workspace routes
+`exit` to tab close/window dismissal and `newWindow` to a new typed window
+route. The CLI consumes `exit` for REPL termination and deliberately ignores
+`newWindow` because it has no window host. This keeps shell semantics in Rust
+and presentation/window policy in the host.
+
 Interactive command calls use a lock-protected Swift FFI handle and run away
 from the SwiftUI main actor. The cancellation method intentionally bypasses
 that lock and signals Rust's atomic request flag; the next command, pipeline,

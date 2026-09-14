@@ -32,6 +32,7 @@ public struct RuneWorkspaceView: View {
     private static let maximumTitleCharacters = 64
 
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var tabs: [RuneWorkspaceTab]
     @State private var selectedTabID: UUID
@@ -65,7 +66,13 @@ public struct RuneWorkspaceView: View {
         VStack(spacing: 0) {
             tabBar
             if let selectedTab = tabs.first(where: { $0.id == selectedTabID }) {
-                RuneTerminalView(rootURL: selectedTab.rootURL, sessionID: selectedTab.sessionID)
+                RuneTerminalView(
+                    rootURL: selectedTab.rootURL,
+                    sessionID: selectedTab.sessionID,
+                    onSessionAction: { action in
+                        handle(action, from: selectedTab)
+                    }
+                )
                     .id(selectedTab.id)
             } else {
                 Text("Rune session unavailable")
@@ -166,6 +173,21 @@ public struct RuneWorkspaceView: View {
             selectedTabID = tabs[min(index, tabs.count - 1)].id
         }
         persistTabs()
+    }
+
+    private func handle(_ action: RuneSessionAction, from tab: RuneWorkspaceTab) {
+        switch action {
+        case .none:
+            break
+        case .exit:
+            if tabs.count > 1 {
+                close(tab)
+            } else {
+                dismiss()
+            }
+        case .newWindow:
+            openWindow(value: RuneWindowRoute(sessionID: UUID().uuidString.lowercased()))
+        }
     }
 
     private func persistTabs() {
