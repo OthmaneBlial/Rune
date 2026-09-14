@@ -567,6 +567,7 @@ result.
 - [x] Bounded recursive `find` traversal with type/depth filters
 - [x] Bounded regular-expression `sed` substitutions
 - [x] Bounded terminal output channels
+- [x] Rust-owned bounded terminal cursor grid and ANSI screen snapshot
 - [x] Session-local virtual directory bookmarks
 - [x] Bounded portable utility commands
 - [x] Bounded long-format and human-readable `ls` metadata

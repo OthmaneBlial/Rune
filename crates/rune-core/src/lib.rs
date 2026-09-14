@@ -355,6 +355,11 @@ struct TrackingEventSink<'a> {
     output_emitted: bool,
 }
 
+struct TerminalEventSink<'a> {
+    sink: &'a mut dyn EventSink,
+    screen: &'a mut TerminalScreen,
+}
+
 struct ScriptExecutionContext<'a> {
     record_history: bool,
     source_depth: usize,
@@ -387,6 +392,16 @@ impl EventSink for TrackingEventSink<'_> {
     fn emit(&mut self, event: CommandEvent) {
         if matches!(event, CommandEvent::Output { .. }) {
             self.output_emitted = true;
+        }
+        self.sink.emit(event);
+    }
+}
+
+impl EventSink for TerminalEventSink<'_> {
+    fn emit(&mut self, event: CommandEvent) {
+        if let CommandEvent::Output { stdout, stderr } = &event {
+            self.screen.feed(stdout);
+            self.screen.feed(stderr);
         }
         self.sink.emit(event);
     }
@@ -823,11 +838,6 @@ impl Session {
         self.terminal_screen.snapshot()
     }
 
-    fn feed_terminal_output(&mut self, output: &CommandOutput) {
-        self.terminal_screen.feed(&output.stdout);
-        self.terminal_screen.feed(&output.stderr);
-    }
-
     /// Returns the current registry metadata for UI completion/help.
     #[must_use]
     pub fn commands(&self) -> &[CommandDefinition] {
@@ -1060,9 +1070,9 @@ impl Session {
     /// Executes one parsed command line and returns separate output channels.
     pub fn execute_line(&mut self, input: &str) -> CommandOutput {
         let mut sink = NoopEventSink;
-        let output = self.execute_line_internal(input, true, 0, "", &mut sink);
-        self.feed_terminal_output(&output);
-        output
+        self.execute_with_terminal(&mut sink, |session, sink| {
+            session.execute_line_internal(input, true, 0, "", sink)
+        })
     }
 
     /// Executes one command line and emits bounded output/status events.
@@ -1071,9 +1081,9 @@ impl Session {
         input: &str,
         sink: &mut dyn EventSink,
     ) -> CommandOutput {
-        let output = self.execute_line_internal(input, true, 0, "", sink);
-        self.feed_terminal_output(&output);
-        output
+        self.execute_with_terminal(sink, |session, sink| {
+            session.execute_line_internal(input, true, 0, "", sink)
+        })
     }
 
     /// Executes a bounded newline-delimited automation script.
@@ -1085,9 +1095,9 @@ impl Session {
     /// status is the status of the last executed construct.
     pub fn execute_script(&mut self, script: &str) -> CommandOutput {
         let mut sink = NoopEventSink;
-        let output = self.execute_script_internal(script, true, 0, "", &mut sink);
-        self.feed_terminal_output(&output);
-        output
+        self.execute_with_terminal(&mut sink, |session, sink| {
+            session.execute_script_internal(script, true, 0, "", sink)
+        })
     }
 
     /// Executes a bounded script and emits events for each executed line.
@@ -1096,8 +1106,24 @@ impl Session {
         script: &str,
         sink: &mut dyn EventSink,
     ) -> CommandOutput {
-        let output = self.execute_script_internal(script, true, 0, "", sink);
-        self.feed_terminal_output(&output);
+        self.execute_with_terminal(sink, |session, sink| {
+            session.execute_script_internal(script, true, 0, "", sink)
+        })
+    }
+
+    fn execute_with_terminal<F>(&mut self, sink: &mut dyn EventSink, execute: F) -> CommandOutput
+    where
+        F: FnOnce(&mut Self, &mut dyn EventSink) -> CommandOutput,
+    {
+        let mut screen = std::mem::take(&mut self.terminal_screen);
+        let output = {
+            let mut terminal_sink = TerminalEventSink {
+                sink,
+                screen: &mut screen,
+            };
+            execute(self, &mut terminal_sink)
+        };
+        self.terminal_screen = screen;
         output
     }
 
@@ -1818,8 +1844,9 @@ impl Session {
         }
         let script = lines.join("\n");
         let mut sink = NoopEventSink;
-        let output = self.execute_script_internal(&script, false, 0, "", &mut sink);
-        self.feed_terminal_output(&output);
+        let output = self.execute_with_terminal(&mut sink, |session, sink| {
+            session.execute_script_internal(&script, false, 0, "", sink)
+        });
         self.startup_output.stdout.push_str(&output.stdout);
         self.startup_output.stderr.push_str(&output.stderr);
         if output.status != 0 {
@@ -4134,6 +4161,7 @@ mod tests {
                 },
             ]
         );
+        assert_eq!(session.terminal_snapshot(), "first\nlast");
 
         sink.events.clear();
         let parse_error = session.execute_line_with_events("echo 'unfinished", &mut sink);
@@ -4189,6 +4217,16 @@ mod tests {
         assert_eq!(session.terminal_snapshot(), "ready\nnext");
         assert_eq!(session.execute_line("clear").status, 0);
         assert!(session.terminal_snapshot().is_empty());
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn feeds_the_rust_terminal_snapshot_once_per_streamed_script_event() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let output = session.execute_script("printf 'first\\n'\nprintf 'second'");
+        assert_eq!(output.status, 0);
+        assert_eq!(session.terminal_snapshot(), "first\nsecond");
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
