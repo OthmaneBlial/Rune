@@ -6,3 +6,6 @@ contact_links:
   - name: Documentation and validation guide
     url: https://othmaneblial.github.io/Rune/docs.html
     about: Read the project documentation and source-only validation boundaries.
+  - name: Support guide
+    url: https://github.com/OthmaneBlial/Rune/blob/main/SUPPORT.md
+    about: Choose the right issue path and provide a useful reproducible report.

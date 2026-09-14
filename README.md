@@ -319,7 +319,7 @@ gates are:
 
 ## Contributing
 
-Start with [CONTRIBUTING.md](CONTRIBUTING.md), then run ./scripts/ci.sh
+Start with [CONTRIBUTING.md](CONTRIBUTING.md) and [SUPPORT.md](SUPPORT.md), then run ./scripts/ci.sh
 before opening a pull request. Focused Rust tests, VFS/security reviews,
 compatibility observations, Swift source improvements, and documentation are
 all useful contributions. Please keep claims scoped to the evidence in the
