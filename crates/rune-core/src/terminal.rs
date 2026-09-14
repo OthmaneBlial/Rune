@@ -183,22 +183,26 @@ impl TerminalScreen {
     fn apply_csi(&mut self, parameters: &str, final_character: char) {
         let values = parse_parameters(parameters);
         let first = |default: usize| values.first().copied().unwrap_or(default);
+        let count = || {
+            values
+                .first()
+                .copied()
+                .filter(|value| *value != 0)
+                .unwrap_or(1)
+        };
         match final_character {
-            'A' => self.cursor_row = self.cursor_row.saturating_sub(first(1)),
-            'B' | 'e' => self.cursor_down(first(1)),
+            'A' => self.cursor_row = self.cursor_row.saturating_sub(count()),
+            'B' | 'e' => self.cursor_down(count()),
             'C' | 'a' => {
-                self.cursor_column = self
-                    .cursor_column
-                    .saturating_add(first(1))
-                    .min(self.columns);
+                self.cursor_column = self.cursor_column.saturating_add(count()).min(self.columns);
             }
-            'D' => self.cursor_column = self.cursor_column.saturating_sub(first(1)),
+            'D' => self.cursor_column = self.cursor_column.saturating_sub(count()),
             'E' => {
-                self.cursor_down(first(1));
+                self.cursor_down(count());
                 self.cursor_column = 0;
             }
             'F' => {
-                self.cursor_row = self.cursor_row.saturating_sub(first(1));
+                self.cursor_row = self.cursor_row.saturating_sub(count());
                 self.cursor_column = 0;
             }
             'G' | '`' => self.cursor_column = first(1).saturating_sub(1).min(self.columns),
@@ -219,9 +223,9 @@ impl TerminalScreen {
             }
             'J' => self.erase_display(first(0)),
             'K' => self.erase_line(first(0)),
-            'P' => self.delete_characters(first(1)),
-            '@' => self.insert_characters(first(1)),
-            'X' => self.erase_characters(first(1)),
+            'P' => self.delete_characters(count()),
+            '@' => self.insert_characters(count()),
+            'X' => self.erase_characters(count()),
             'r' => self.set_scroll_region(&values),
             's' => self.saved_cursor = self.cursor_position(),
             'u' => self.restore_cursor(),
@@ -268,8 +272,16 @@ impl TerminalScreen {
     }
 
     fn set_scroll_region(&mut self, values: &[usize]) {
-        let top = values.first().copied().unwrap_or(1);
-        let bottom = values.get(1).copied().unwrap_or(self.rows);
+        let top = values
+            .first()
+            .copied()
+            .filter(|value| *value != 0)
+            .unwrap_or(1);
+        let bottom = values
+            .get(1)
+            .copied()
+            .filter(|value| *value != 0)
+            .unwrap_or(self.rows);
         if top == 0 || bottom == 0 || top > bottom || bottom > self.rows {
             return;
         }
@@ -410,6 +422,17 @@ mod tests {
         screen.feed("\x1bc");
         screen.feed("reset");
         assert_eq!(screen.snapshot(), "reset");
+    }
+
+    #[test]
+    fn treats_zero_csi_counts_as_the_default_single_step() {
+        let mut screen = TerminalScreen::new(8, 2);
+        screen.feed("abc");
+        screen.feed("\x1b[0D\x1b[0X");
+        assert_eq!(screen.snapshot(), "ab");
+        screen.reset();
+        screen.feed("abc\x1b[1G\x1b[0@z");
+        assert_eq!(screen.snapshot(), "zabc");
     }
 
     #[test]
