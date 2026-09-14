@@ -113,15 +113,16 @@ value lists, multiline `if`/`elif`/`else` branches, nested conditions, and
 missing closing markers. Multiline `while`/`until` tests cover state changes,
 body status, and the 1,024-iteration limit; control-flow depth is bounded,
 and case tests cover exact patterns, wildcards, alternatives, and unmatched
-selectors. Function tests cover multiline definitions, positional arguments,
+selectors. Function tests cover multiline and inline definitions, positional arguments,
 shared state, redefinition, nested definitions, recursion and argument limits,
-and isolation across `sh -c`; return status and early-exit tests cover explicit,
+and isolation across `sh -c`; inline definitions are also parsed through the
+same planner. Return status and early-exit tests cover explicit,
 implicit, invalid, and loop-nested returns. Function-local tests cover scoped
 assignment, restoration, nested dynamic visibility, and the declaration limit.
 Positional-parameter tests cover `set --`, `shift`, `$0` preservation, and
 invalid, excessive, or out-of-range counts.
-One-line function and control-flow bodies remain
-outside the bounded grammar. Loop-control tests cover `break`, `continue`, rejection
+One-line loop/control-flow bodies remain outside the bounded grammar. Loop-control
+tests cover `break`, `continue`, rejection
 outside loops, and isolation across `sh -c`; argument-bearing loop controls
 remain unsupported.
 Shell parser tests cover quoted and nested `$(...)` forms and unclosed

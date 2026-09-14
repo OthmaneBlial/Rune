@@ -184,12 +184,13 @@ Rust planner; each loop accepts at most 256 values and leaves its final loop
 variable in the session environment. Multiline `if/elif/else/fi` branches use
 the same planner for their conditions and selected body, with control-flow
 nesting capped at 16 levels. Multiline `while` and `until` loops use the same
-condition/body path and stop after 1,024 body iterations. Multiline
+condition/body path and stop after 1,024 body iterations. Multiline or bounded inline
 `NAME() { ... }` function definitions and calls use the same Rust planner,
 share the current session state, preserve bounded positional parameters, and
 cap the session at 256 definitions, 64 call arguments, and 16 recursive calls.
 Function definitions and calls are isolated from nested `sh -c` and command
-substitution execution. One-line function or loop bodies remain outside the
+substitution execution. Inline function bodies use the same Rust planner and
+semicolon-separated command sequencing. One-line loop bodies remain outside the
 subset. Multiline `case WORD in`
 branches support exact patterns, `*`/`?`, and simple `|` alternatives through a
 Rust-owned matcher; character classes and other POSIX pattern forms remain

@@ -1046,24 +1046,22 @@ impl Session {
         context: &mut ScriptExecutionContext<'_>,
     ) -> Result<Option<(usize, CommandOutput)>, String> {
         let line = lines[line_index];
+        if let Some((name, body)) = parse_inline_function_definition(line)? {
+            if context.record_history {
+                self.record_history_line(line.trim());
+            }
+            self.register_function(name, body)?;
+            self.last_status = 0;
+            return Ok(Some((line_index + 1, CommandOutput::success(""))));
+        }
         if is_function_header_line(line) {
             let name = parse_function_header(line)?
                 .ok_or_else(|| "invalid function header".to_string())?;
             let (body_start, body_end) = function_body_range(lines, line_index)?;
-            if !self.functions.contains_key(&name) && self.functions.len() >= MAX_FUNCTIONS {
-                return Err(format!(
-                    "function definition limit exceeds {MAX_FUNCTIONS} functions"
-                ));
-            }
             if context.record_history {
                 self.record_history_line(line.trim());
             }
-            self.functions.insert(
-                name,
-                FunctionDefinition {
-                    body: lines[body_start..body_end].join("\n"),
-                },
-            );
+            self.register_function(name, lines[body_start..body_end].join("\n"))?;
             self.last_status = 0;
             return Ok(Some((body_end + 1, CommandOutput::success(""))));
         }
@@ -1202,6 +1200,16 @@ impl Session {
         self.loop_depth -= 1;
         self.last_status = output.status;
         output
+    }
+
+    fn register_function(&mut self, name: String, body: String) -> Result<(), String> {
+        if !self.functions.contains_key(&name) && self.functions.len() >= MAX_FUNCTIONS {
+            return Err(format!(
+                "function definition limit exceeds {MAX_FUNCTIONS} functions"
+            ));
+        }
+        self.functions.insert(name, FunctionDefinition { body });
+        Ok(())
     }
 
     fn execute_function(
@@ -1541,6 +1549,26 @@ impl Session {
         if let Some(output) = self.take_cancellation() {
             self.last_status = output.status;
             return output;
+        }
+        match parse_inline_function_definition(line) {
+            Ok(Some((name, body))) => {
+                if record_history {
+                    self.record_history_line(line);
+                }
+                if let Err(error) = self.register_function(name, body) {
+                    let output = CommandOutput::failure(2, format!("rune: parse: {error}\n"));
+                    self.last_status = output.status;
+                    return output;
+                }
+                self.last_status = 0;
+                return CommandOutput::success("");
+            }
+            Ok(None) => {}
+            Err(error) => {
+                let output = CommandOutput::failure(2, format!("rune: parse: {error}\n"));
+                self.last_status = output.status;
+                return output;
+            }
         }
         if record_history {
             self.record_history_line(line);
@@ -2943,12 +2971,34 @@ fn is_function_header_line(line: &str) -> bool {
     line.trim().ends_with("() {")
 }
 
+fn parse_inline_function_definition(line: &str) -> Result<Option<(String, String)>, String> {
+    let trimmed = line.trim();
+    let Some((raw_name, body)) = trimmed.split_once("() {") else {
+        return Ok(None);
+    };
+    if raw_name
+        .chars()
+        .any(|character| character.is_whitespace() || matches!(character, '\'' | '"'))
+    {
+        return Ok(None);
+    }
+    let Some(body) = body.strip_suffix('}') else {
+        return Ok(None);
+    };
+    let name = parse_function_name(raw_name)?;
+    Ok(Some((name, body.trim().to_string())))
+}
+
 fn parse_function_header(line: &str) -> Result<Option<String>, String> {
     let trimmed = line.trim();
     let Some(name) = trimmed.strip_suffix("() {") else {
         return Ok(None);
     };
-    let name = name.trim();
+    Ok(Some(parse_function_name(name)?))
+}
+
+fn parse_function_name(raw_name: &str) -> Result<String, String> {
+    let name = raw_name.trim();
     if !is_valid_script_variable(name) {
         return Err(format!("invalid function name: {name}"));
     }
@@ -2957,7 +3007,7 @@ fn parse_function_header(line: &str) -> Result<Option<String>, String> {
             "function name exceeds the {MAX_FUNCTION_NAME_BYTES}-byte limit"
         ));
     }
-    Ok(Some(name.to_string()))
+    Ok(name.to_string())
 }
 
 fn is_case_clause_header(line: &str) -> bool {
@@ -5794,6 +5844,18 @@ mod tests {
     fn executes_bounded_script_functions_through_the_rust_planner() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        let inline_definition = session.execute_line("inline() { echo inline-$1; }");
+        assert_eq!(inline_definition.status, 0, "{inline_definition:?}");
+        assert_eq!(
+            session.execute_line("inline value").stdout,
+            "inline-value\n"
+        );
+
+        let inline_script =
+            session.execute_script("script_inline() { echo inline-$1; }\nscript_inline value");
+        assert_eq!(inline_script.status, 0, "{inline_script:?}");
+        assert_eq!(inline_script.stdout, "inline-value\n");
+
         let greeting =
             session.execute_script("greet() {\necho \"hello $1/$#/$@\"\n}\ngreet rune one\n");
         assert_eq!(greeting.status, 0, "{greeting:?}");

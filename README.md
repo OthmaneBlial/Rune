@@ -129,16 +129,17 @@ arguments.
 `sh -c SCRIPT` and `dash -c SCRIPT` execute an inline bounded script through
 that same Rust planner, with an optional `$0` name and up to 64 positional
 arguments; they never start a host shell.
-Multiline automation scripts also support bounded `for NAME in VALUE ...; do`
+Automation scripts also support bounded `for NAME in VALUE ...; do`
 loops, including nested loops; each loop accepts at most 256 expanded values
 and keeps the loop variable in the Rust session. They also support multiline
 `if/elif/else/fi` branches whose conditions run through the same Rust planner;
 control-flow nesting is capped at 16 levels. Multiline `case WORD in` branches
 support exact patterns, `*`/`?`, and simple `|` alternatives. Multiline
-`NAME() { ... }` function definitions support bounded positional arguments and
-shared session state; at most 256 functions, 64 arguments per call, and 16
-recursive calls are allowed. POSIX character classes and one-line function or
-control-flow bodies remain outside this subset. `while` and `until` stop after
+`NAME() { ... }` function definitions support multiline and bounded inline
+bodies, bounded positional arguments, and shared session state; at most 256
+functions, 64 arguments per call, and 16 recursive calls are allowed. POSIX
+character classes and one-line loop/control-flow bodies remain outside this
+subset. `while` and `until` stop after
 at most 1,024 body iterations and
 return a bounded status-2 error if the limit is reached. Loop bodies can use
 argument-free `break` and `continue`; they are rejected outside a Rust-planned
@@ -531,7 +532,7 @@ result.
 - [x] Bounded multiline `if`/`elif`/`else` branches in Rust-planned scripts
 - [x] Bounded multiline `while`/`until` loops in Rust-planned scripts
 - [x] Bounded multiline `case` branches in Rust-planned scripts
-- [x] Bounded multiline shell function definitions and calls in Rust-planned scripts
+- [x] Bounded multiline/inline shell function definitions and calls in Rust-planned scripts
 - [x] Bounded function `return [STATUS]` in Rust-planned scripts
 - [x] Bounded function-local `local NAME[=VALUE]` variables
 - [x] Bounded script/function positional `shift [COUNT]`
