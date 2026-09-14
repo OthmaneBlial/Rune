@@ -314,6 +314,7 @@ fn parse_archive(bytes: &[u8]) -> Result<Vec<ArMember>, String> {
     }
     let mut offset = AR_MAGIC.len();
     let mut members = Vec::new();
+    let mut gnu_long_name_table = None;
     while offset < bytes.len() {
         if bytes.len() - offset < AR_HEADER_BYTES {
             return Err("archive contains a truncated member header".to_string());
@@ -334,7 +335,14 @@ fn parse_archive(bytes: &[u8]) -> Result<Vec<ArMember>, String> {
             return Err("archive member has invalid padding".to_string());
         }
         let raw_name = trim_ascii(&header[0..16]);
-        let (name, payload_start) = if let Some(length) = raw_name.strip_prefix("#1/") {
+        let (name, payload_start) = if raw_name == "//" {
+            gnu_long_name_table = Some(bytes[data_start..data_end].to_vec());
+            offset = data_end + (size % 2);
+            if offset > bytes.len() {
+                return Err("archive is missing member padding".to_string());
+            }
+            continue;
+        } else if let Some(length) = raw_name.strip_prefix("#1/") {
             let name_length = length
                 .parse::<usize>()
                 .map_err(|_| "archive extended member name length is not decimal".to_string())?;
@@ -349,6 +357,16 @@ fn parse_archive(bytes: &[u8]) -> Result<Vec<ArMember>, String> {
                 .map_err(|_| "archive extended member name is not UTF-8".to_string())?;
             let name = trim_ascii(extended_name);
             (name, name_end)
+        } else if let Some(reference) = raw_name.strip_prefix('/').filter(|value| !value.is_empty())
+        {
+            let table = gnu_long_name_table.as_deref().ok_or_else(|| {
+                "GNU long-name reference appears before its long-name table".to_string()
+            })?;
+            let name_offset = reference
+                .parse::<usize>()
+                .map_err(|_| "GNU long-name reference is not decimal".to_string())?;
+            let name = gnu_long_name(table, name_offset)?;
+            (name, data_start)
         } else {
             let name = raw_name.strip_suffix('/').unwrap_or(raw_name);
             (name, data_start)
@@ -393,6 +411,22 @@ fn is_ar_metadata_member(name: &str) -> bool {
         name,
         "/" | "//" | "__.SYMDEF" | "__.SYMDEF SORTED" | "__.SYMDEF_64" | "__.SYMDEF_64 SORTED"
     )
+}
+
+fn gnu_long_name(table: &[u8], offset: usize) -> Result<&str, String> {
+    let bytes = table
+        .get(offset..)
+        .ok_or_else(|| "GNU long-name reference is outside its table".to_string())?;
+    let end = bytes
+        .windows(2)
+        .position(|window| window == b"/\n")
+        .or_else(|| bytes.iter().position(|byte| *byte == b'\n'))
+        .ok_or_else(|| "GNU long-name table entry is not terminated".to_string())?;
+    let name_bytes = &bytes[..end];
+    std::str::from_utf8(name_bytes)
+        .map_err(|_| "GNU long-name table entry is not UTF-8".to_string())?;
+    let name = trim_ascii(name_bytes);
+    Ok(name)
 }
 
 fn parse_decimal_field(field: &[u8]) -> Result<usize, String> {
@@ -460,18 +494,35 @@ mod tests {
     }
 
     #[test]
-    fn reads_symbol_indexes_and_bsd_extended_member_names() {
+    fn reads_external_symbol_indexes_and_extended_member_names() {
         let mut archive = AR_MAGIC.to_vec();
         append_member(&mut archive, "/", b"symbol-index");
         append_member(&mut archive, "#1/20", b"__.SYMDEF SORTED\0\0\0\0");
+        append_member(&mut archive, "//", b"a-gnu-object-member.o/\n");
+        append_member(&mut archive, "/0", b"gnu-data");
         append_member(&mut archive, "#1/8", b"note.o\0\0data");
 
         assert_eq!(
             parse_archive(&archive).expect("external ar profile parsed"),
-            vec![ArMember {
-                name: "note.o".to_string(),
-                bytes: b"data".to_vec(),
-            }]
+            vec![
+                ArMember {
+                    name: "a-gnu-object-member.o".to_string(),
+                    bytes: b"gnu-data".to_vec(),
+                },
+                ArMember {
+                    name: "note.o".to_string(),
+                    bytes: b"data".to_vec(),
+                }
+            ]
         );
+    }
+
+    #[test]
+    fn rejects_unresolved_gnu_long_name_references() {
+        let mut archive = AR_MAGIC.to_vec();
+        append_member(&mut archive, "/0", b"object-data");
+
+        let error = parse_archive(&archive).expect_err("missing GNU table rejected");
+        assert!(error.contains("before its long-name table"));
     }
 }

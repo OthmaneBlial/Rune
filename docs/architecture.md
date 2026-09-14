@@ -465,9 +465,9 @@ Member names are limited to 255 bytes; names longer than the inline 15-byte
 field use BSD extended-name records. `ar -rcs` rebuilds or replaces members,
 `ar t` lists all or named members, and `ar x` extracts them through the VFS
 after preflighting destinations. Member payloads remain binary-safe. Rune
-reads common external symbol-index and BSD extended-name records but does not
-generate or preserve symbol indexes; GNU long-name tables, directories, and
-linker semantics remain outside the profile.
+reads common external symbol-index, BSD extended-name, and GNU long-name-table
+records but emits only BSD extended names and does not generate or preserve
+symbol indexes; directories and linker semantics remain outside the profile.
 
 The `xargs` layer is coordinated by `rune-core` because it must invoke the
 existing parser and execution planner for each bounded batch. Its Rust-owned
