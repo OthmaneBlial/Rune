@@ -32,6 +32,9 @@ progress is not mistaken for a shipped application.
       FFI with a host C consumer smoke test.
 - [x] Source-only SwiftUI/UIKit bridge, native capability callbacks, tabs,
       window routing, accessibility labels, and App Intent declarations.
+- [x] Public README, real CLI demo, project site, alpha releases, verified
+      checksums, contribution templates, support guidance, and security
+      automation for the evidence-backed source preview.
 - [~] Direct a-Shell behavioral observations; scenarios and normalization rules
       exist, but the reference comparison remains pending.
 - [~] Native Apple build, simulator/device execution, signing, and release
