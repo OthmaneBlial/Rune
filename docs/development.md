@@ -116,7 +116,9 @@ and case tests cover exact patterns, wildcards, alternatives, and unmatched
 selectors. Function tests cover multiline definitions, positional arguments,
 shared state, redefinition, nested definitions, recursion and argument limits,
 and isolation across `sh -c`; return status and early-exit tests cover explicit,
-implicit, invalid, and loop-nested returns. One-line function and control-flow bodies remain
+implicit, invalid, and loop-nested returns. Function-local tests cover scoped
+assignment, restoration, nested dynamic visibility, and the declaration limit.
+One-line function and control-flow bodies remain
 outside the bounded grammar. Loop-control tests cover `break`, `continue`, rejection
 outside loops, and isolation across `sh -c`; argument-bearing loop controls
 remain unsupported.

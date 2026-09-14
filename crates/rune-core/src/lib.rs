@@ -68,6 +68,8 @@ const MAX_FUNCTIONS: usize = 256;
 const MAX_FUNCTION_NAME_BYTES: usize = 64;
 const MAX_FUNCTION_ARGUMENTS: usize = 64;
 const MAX_FUNCTION_DEPTH: usize = 16;
+const MAX_LOCAL_VARIABLES: usize = 64;
+const MAX_LOCAL_NAME_BYTES: usize = 64;
 pub(crate) const CANCELLED_STATUS: i32 = 130;
 const MAX_BOOKMARKS: usize = 256;
 const MAX_BOOKMARK_NAME_CHARS: usize = 64;
@@ -443,6 +445,7 @@ pub struct Session {
     functions: BTreeMap<String, FunctionDefinition>,
     function_depth: usize,
     function_return: Option<i32>,
+    function_local_bindings: Vec<BTreeMap<String, Option<String>>>,
     state_session_id: Option<String>,
     script_parameters: Vec<String>,
 }
@@ -484,6 +487,7 @@ impl Session {
             functions: BTreeMap::new(),
             function_depth: 0,
             function_return: None,
+            function_local_bindings: Vec::new(),
             state_session_id: None,
             script_parameters: Vec::new(),
         };
@@ -1238,6 +1242,7 @@ impl Session {
         parameters.extend(arguments.iter().cloned());
         self.script_parameters = parameters;
         self.function_depth += 1;
+        self.function_local_bindings.push(BTreeMap::new());
         let output = self.execute_script_internal(
             &definition.body,
             record_history,
@@ -1247,6 +1252,14 @@ impl Session {
         );
         let returned_status = self.function_return.take();
         self.function_return = previous_return;
+        let local_bindings = self.function_local_bindings.pop().unwrap_or_default();
+        for (variable, previous_value) in local_bindings {
+            if let Some(previous_value) = previous_value {
+                self.environment.insert(variable, previous_value);
+            } else {
+                self.environment.remove(&variable);
+            }
+        }
         self.function_depth -= 1;
         self.script_parameters = previous_parameters;
         let mut output = output;
@@ -1255,6 +1268,47 @@ impl Session {
         }
         self.last_status = output.status;
         output
+    }
+
+    fn execute_local(&mut self, arguments: &[String]) -> CommandOutput {
+        if self.function_depth == 0 || self.function_local_bindings.is_empty() {
+            return CommandOutput::failure(2, "local: only valid inside a function\n");
+        }
+        if arguments.is_empty() || arguments.len() > MAX_LOCAL_VARIABLES {
+            return usage(
+                "local",
+                &format!("usage: local NAME[=VALUE] ... (up to {MAX_LOCAL_VARIABLES} variables)"),
+            );
+        }
+        let mut assignments = Vec::with_capacity(arguments.len());
+        for argument in arguments {
+            let (name, value) = argument
+                .split_once('=')
+                .map_or((argument.as_str(), ""), |(name, value)| (name, value));
+            if !is_valid_script_variable(name) {
+                return CommandOutput::failure(
+                    2,
+                    format!("local: invalid variable name: {name}\n"),
+                );
+            }
+            if name.len() > MAX_LOCAL_NAME_BYTES {
+                return CommandOutput::failure(
+                    2,
+                    format!("local: variable name exceeds the {MAX_LOCAL_NAME_BYTES}-byte limit\n"),
+                );
+            }
+            assignments.push((name.to_string(), value.to_string()));
+        }
+        for (name, value) in assignments {
+            let previous_value = self.environment.get(&name).cloned();
+            if let Some(frame) = self.function_local_bindings.last_mut() {
+                frame.entry(name.clone()).or_insert(previous_value);
+            } else {
+                return CommandOutput::failure(2, "local: function frame is unavailable\n");
+            }
+            self.environment.insert(name, value);
+        }
+        CommandOutput::success("")
     }
 
     fn execute_while_loop(
@@ -1744,6 +1798,7 @@ impl Session {
         match program {
             "break" | "continue" => self.execute_loop_control(program, arguments),
             "return" => self.execute_function_return(arguments),
+            "local" => self.execute_local(arguments),
             "source" | "." => self.execute_source(
                 program,
                 arguments,
@@ -1907,6 +1962,9 @@ impl Session {
         if program == "return" {
             return self.execute_function_return(command_arguments);
         }
+        if program == "local" {
+            return self.execute_local(command_arguments);
+        }
         if self.functions.contains_key(program) {
             return self.execute_function(
                 program,
@@ -1977,9 +2035,11 @@ impl Session {
         let previous_functions = std::mem::take(&mut self.functions);
         let previous_function_depth = self.function_depth;
         let previous_function_return = self.function_return.take();
+        let previous_local_bindings = std::mem::take(&mut self.function_local_bindings);
         self.loop_depth = 0;
         self.function_depth = 0;
         self.function_return = None;
+        self.function_local_bindings = Vec::new();
         let output = self.execute_script_internal(
             script,
             record_history,
@@ -1993,6 +2053,7 @@ impl Session {
         self.functions = previous_functions;
         self.function_depth = previous_function_depth;
         self.function_return = previous_function_return;
+        self.function_local_bindings = previous_local_bindings;
         output
     }
 
@@ -2127,11 +2188,13 @@ impl Session {
         let previous_functions = std::mem::take(&mut self.functions);
         let previous_function_depth = self.function_depth;
         let previous_function_return = self.function_return.take();
+        let previous_local_bindings = std::mem::take(&mut self.function_local_bindings);
 
         self.command_substitution_depth += 1;
         self.loop_depth = 0;
         self.function_depth = 0;
         self.function_return = None;
+        self.function_local_bindings = Vec::new();
         let mut sink = NoopEventSink;
         let mut output = self.execute_plan(&plan, false, source_depth, "", &mut sink);
         self.command_substitution_depth = previous_depth;
@@ -2140,6 +2203,7 @@ impl Session {
         self.functions = previous_functions;
         self.function_depth = previous_function_depth;
         self.function_return = previous_function_return;
+        self.function_local_bindings = previous_local_bindings;
         let _ = self.filesystem.change_dir(&previous_directory);
         self.environment = previous_environment;
         self.aliases = previous_aliases;
@@ -3580,9 +3644,9 @@ mod tests {
         ToolchainError, ToolchainKind, ToolchainOutput, ToolchainProvider, ToolchainRequest,
         CANCELLED_STATUS, MAX_BOOKMARKS, MAX_BOOKMARK_NAME_CHARS, MAX_CLIPBOARD_BYTES,
         MAX_COMMAND_INPUT_BYTES, MAX_FILE_TRANSFER_BYTES, MAX_FOR_VALUES, MAX_FUNCTIONS,
-        MAX_FUNCTION_ARGUMENTS, MAX_FUNCTION_DEPTH, MAX_FUNCTION_NAME_BYTES, MAX_OUTPUT_BYTES,
-        MAX_SCRIPT_BYTES, MAX_SCRIPT_CONTROL_DEPTH, MAX_SCRIPT_LINES, MAX_SOURCE_DEPTH,
-        MAX_WHILE_ITERATIONS, OUTPUT_TRUNCATION_MARKER,
+        MAX_FUNCTION_ARGUMENTS, MAX_FUNCTION_DEPTH, MAX_FUNCTION_NAME_BYTES, MAX_LOCAL_VARIABLES,
+        MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_CONTROL_DEPTH, MAX_SCRIPT_LINES,
+        MAX_SOURCE_DEPTH, MAX_WHILE_ITERATIONS, OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
     use std::fmt::Write as _;
@@ -5703,6 +5767,42 @@ mod tests {
         );
         assert_eq!(stateful.status, 0, "{stateful:?}");
         assert_eq!(stateful.stdout, "rune\n");
+
+        let local_scope = session.execute_script(
+            "export SCOPE=outer\nscoped() {\nlocal SCOPE=inner NEW_VALUE\necho \"$SCOPE:$NEW_VALUE\"\n}\nscoped\necho \"$SCOPE:$NEW_VALUE\"",
+        );
+        assert_eq!(local_scope.status, 0, "{local_scope:?}");
+        assert_eq!(local_scope.stdout, "inner:\nouter:\n");
+
+        let nested_local_scope = session.execute_script(
+            "inner_scope() {\nlocal SCOPE=inner\necho \"$SCOPE\"\n}\nouter_scope() {\nlocal SCOPE=outer\ninner_scope\necho \"$SCOPE\"\n}\nouter_scope\necho \"$SCOPE\"",
+        );
+        assert_eq!(nested_local_scope.status, 0, "{nested_local_scope:?}");
+        assert_eq!(nested_local_scope.stdout, "inner\nouter\nouter\n");
+
+        std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn bounds_script_function_control_and_namespace_limits() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+
+        let outside_local = session.execute_script("local SCOPE=value");
+        assert_eq!(outside_local.status, 2);
+        assert!(outside_local
+            .stderr
+            .contains("local: only valid inside a function"));
+
+        let too_many_locals = (0..=MAX_LOCAL_VARIABLES)
+            .map(|index| format!("LOCAL_{index}=value"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let local_limit = session.execute_script(&format!(
+            "too_many_locals() {{\nlocal {too_many_locals}\n}}\ntoo_many_locals"
+        ));
+        assert_eq!(local_limit.status, 2);
+        assert!(local_limit.stderr.contains("up to 64 variables"));
 
         let redefined = session.execute_script("greet() {\necho replacement\n}\ngreet");
         assert_eq!(redefined.status, 0, "{redefined:?}");

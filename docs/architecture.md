@@ -195,6 +195,9 @@ signals consumed by the innermost Rust-planned loop. Functions also accept
 `return [STATUS]`, bounded to 0–255, with an omitted status reusing the
 preceding command status. Command substitutions and `sh -c` executions isolate
 these control signals from their caller.
+`local NAME[=VALUE]` creates a function-scoped binding, capped at 64
+declarations per call; the previous value (or absence) is restored when that
+function returns, while non-local session changes remain shared.
 
 The Apple source layer declares command, script, and named-session command App
 Intents that construct a normal `RuneFFISession` rooted at the app Documents

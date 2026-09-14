@@ -75,6 +75,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::return_command,
     },
     CommandDefinition {
+        name: "local",
+        summary: "set bounded function-local variables",
+        handler: shell::local_command,
+    },
+    CommandDefinition {
         name: "realpath",
         summary: "print the confined canonical path of an existing file",
         handler: utilities::realpath,

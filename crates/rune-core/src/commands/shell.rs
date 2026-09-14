@@ -68,6 +68,12 @@ pub(super) fn return_command(_context: &mut CommandContext<'_>) -> CommandOutput
     usage("return", "usage: return [STATUS]")
 }
 
+/// `local` is dispatched by the session so it can restore function-local
+/// variables at the Rust-planned function boundary.
+pub(super) fn local_command(_context: &mut CommandContext<'_>) -> CommandOutput {
+    usage("local", "usage: local NAME[=VALUE] ...")
+}
+
 pub(super) fn uname(context: &mut CommandContext<'_>) -> CommandOutput {
     let mut selected = Vec::new();
     for argument in context.args {

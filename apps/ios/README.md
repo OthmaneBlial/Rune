@@ -23,6 +23,8 @@ planner and registry while
 preserving combined stdout, stderr, and the last status. Argument-free
 `break`/`continue` are consumed by the innermost Rust-planned loop, and
 `return [STATUS]` exits the current Rust-planned function with a bounded status.
+`local NAME[=VALUE]` is scoped to the current Rust-planned function and is
+restored when that function returns.
 Native
 Shortcuts registration remains unverified and is not included here.
 
