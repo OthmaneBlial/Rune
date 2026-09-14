@@ -1,11 +1,11 @@
-#include "RuneFFI.h"
-
 #include <errno.h>
 #include <ftw.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+#include "RuneFFI.h"
 
 static int fail(const char *message) {
     fprintf(stderr, "ffi smoke failed: %s\n", message);
