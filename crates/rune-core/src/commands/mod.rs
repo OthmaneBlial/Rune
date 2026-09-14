@@ -85,6 +85,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::shift_command,
     },
     CommandDefinition {
+        name: "set",
+        summary: "set bounded script positional arguments",
+        handler: shell::set_command,
+    },
+    CommandDefinition {
         name: "realpath",
         summary: "print the confined canonical path of an existing file",
         handler: utilities::realpath,

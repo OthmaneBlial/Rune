@@ -118,8 +118,8 @@ shared state, redefinition, nested definitions, recursion and argument limits,
 and isolation across `sh -c`; return status and early-exit tests cover explicit,
 implicit, invalid, and loop-nested returns. Function-local tests cover scoped
 assignment, restoration, nested dynamic visibility, and the declaration limit.
-Positional-parameter tests cover `shift`, `$0` preservation, and invalid or
-out-of-range counts.
+Positional-parameter tests cover `set --`, `shift`, `$0` preservation, and
+invalid, excessive, or out-of-range counts.
 One-line function and control-flow bodies remain
 outside the bounded grammar. Loop-control tests cover `break`, `continue`, rejection
 outside loops, and isolation across `sh -c`; argument-bearing loop controls

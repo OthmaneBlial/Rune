@@ -80,6 +80,12 @@ pub(super) fn shift_command(_context: &mut CommandContext<'_>) -> CommandOutput 
     usage("shift", "usage: shift [COUNT]")
 }
 
+/// `set --` is dispatched by the session so it can replace the active
+/// Rust-planned script or function positional parameter frame.
+pub(super) fn set_command(_context: &mut CommandContext<'_>) -> CommandOutput {
+    usage("set", "usage: set -- [ARG ...]")
+}
+
 pub(super) fn uname(context: &mut CommandContext<'_>) -> CommandOutput {
     let mut selected = Vec::new();
     for argument in context.args {

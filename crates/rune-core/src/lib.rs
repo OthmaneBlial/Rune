@@ -1801,6 +1801,7 @@ impl Session {
             "return" => self.execute_function_return(arguments),
             "local" => self.execute_local(arguments),
             "shift" => self.execute_shift(arguments),
+            "set" => self.execute_set(arguments),
             "source" | "." => self.execute_source(
                 program,
                 arguments,
@@ -1916,6 +1917,25 @@ impl Session {
         CommandOutput::success("")
     }
 
+    fn execute_set(&mut self, arguments: &[String]) -> CommandOutput {
+        if arguments.first().map(String::as_str) != Some("--")
+            || arguments.len().saturating_sub(1) > MAX_SOURCE_ARGUMENTS
+        {
+            return usage(
+                "set",
+                &format!(
+                    "usage: set -- [ARG ...] (up to {MAX_SOURCE_ARGUMENTS} positional arguments)"
+                ),
+            );
+        }
+        let name = self.script_parameters.first().cloned().unwrap_or_default();
+        let mut parameters = Vec::with_capacity(arguments.len());
+        parameters.push(name);
+        parameters.extend(arguments.iter().skip(1).cloned());
+        self.script_parameters = parameters;
+        CommandOutput::success("")
+    }
+
     fn execute_registered_or_installed(
         &mut self,
         program: &str,
@@ -2001,6 +2021,9 @@ impl Session {
         }
         if program == "shift" {
             return self.execute_shift(command_arguments);
+        }
+        if program == "set" {
+            return self.execute_set(command_arguments);
         }
         if self.functions.contains_key(program) {
             return self.execute_function(
@@ -3683,7 +3706,7 @@ mod tests {
         MAX_COMMAND_INPUT_BYTES, MAX_FILE_TRANSFER_BYTES, MAX_FOR_VALUES, MAX_FUNCTIONS,
         MAX_FUNCTION_ARGUMENTS, MAX_FUNCTION_DEPTH, MAX_FUNCTION_NAME_BYTES, MAX_LOCAL_VARIABLES,
         MAX_OUTPUT_BYTES, MAX_SCRIPT_BYTES, MAX_SCRIPT_CONTROL_DEPTH, MAX_SCRIPT_LINES,
-        MAX_SOURCE_DEPTH, MAX_WHILE_ITERATIONS, OUTPUT_TRUNCATION_MARKER,
+        MAX_SOURCE_ARGUMENTS, MAX_SOURCE_DEPTH, MAX_WHILE_ITERATIONS, OUTPUT_TRUNCATION_MARKER,
     };
     use rune_fs::SandboxedFileSystem;
     use std::fmt::Write as _;
@@ -5847,6 +5870,17 @@ mod tests {
         assert_eq!(nested_local_scope.status, 0, "{nested_local_scope:?}");
         assert_eq!(nested_local_scope.stdout, "inner\nouter\nouter\n");
 
+        let function_parameters = session.execute_script(
+            "set_parameters() {\nset -- inner value\necho \"$0:$#:$1:$2\"\n}\nset_parameters outer",
+        );
+        assert_eq!(function_parameters.status, 0, "{function_parameters:?}");
+        assert_eq!(function_parameters.stdout, "set_parameters:2:inner:value\n");
+
+        let reset_parameters =
+            session.execute_script("set -- first second\necho \"$#:$1:$2\"\nshift\necho \"$#:$1\"");
+        assert_eq!(reset_parameters.status, 0, "{reset_parameters:?}");
+        assert_eq!(reset_parameters.stdout, "2:first:second\n1:second\n");
+
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
@@ -5903,6 +5937,20 @@ mod tests {
         assert!(invalid_return
             .stderr
             .contains("status must be an integer from 0 through 255"));
+
+        let invalid_set = session.execute_script("set first");
+        assert_eq!(invalid_set.status, 2);
+        assert!(invalid_set.stderr.contains("usage: set -- [ARG ...]"));
+
+        let too_many_set_arguments = (0..=MAX_SOURCE_ARGUMENTS)
+            .map(|index| format!("arg{index}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let rejected_set = session.execute_script(&format!("set -- {too_many_set_arguments}"));
+        assert_eq!(rejected_set.status, 2);
+        assert!(rejected_set
+            .stderr
+            .contains("up to 64 positional arguments"));
 
         let isolated_shell = session.execute_script("sh -c 'greet'");
         assert_eq!(isolated_shell.status, 127, "{isolated_shell:?}");
