@@ -134,7 +134,8 @@ rendering architecture evidence, not a measured Apple frame-time or device
 memory result.
 The archive integration tests create nested files, list and extract plain and
 gzip-compressed USTAR archives into new confined destinations, and reject
-unsupported tar compression flags and escaping archive members. ZIP coverage creates Deflate entries when beneficial,
+unsupported tar compression flags, missing member filters, and escaping archive
+members. ZIP coverage creates Deflate entries when beneficial,
 reads stored or Deflate ZIP32 entries, validates optional data descriptors and
 CRC32, and bounds the total
 uncompressed payload; ZIP64, PAX, and encrypted archives remain unsupported.

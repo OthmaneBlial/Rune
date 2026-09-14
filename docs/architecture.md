@@ -446,7 +446,8 @@ The archive command layer implements deliberately narrow stored/Deflate ZIP32 an
 USTAR profiles, with optional bounded gzip wrapping for tar. ZIP creation writes
 UTF-8 entries and CRC32 values through the VFS;
 USTAR creation writes regular-file and directory headers, using the standard
-name/prefix fields for longer paths. Both recursive traversals are bounded to
+name/prefix fields for longer paths. Tar list/extract filters preserve archive
+order and match exact members or descendants of a named directory. Both recursive traversals are bounded to
 10,000 entries and complete archives to 64 MiB. ZIP extraction rejects
 encryption, unsupported compression methods, mismatched data descriptors, multi-disk records,
 duplicate names, absolute paths, and dot or parent components, then verifies each

@@ -22,7 +22,7 @@ working iOS application or a feature-parity claim.
 | Shell tokenizer/parser | 75% |
 | Command runtime | 99% |
 | Sandboxed filesystem | 70% |
-| Archives | 75% |
+| Archives | 77% |
 | Sessions/history | 70% |
 | Configuration | 75% |
 | WASM | 52% |
@@ -264,6 +264,8 @@ symbol tables. ZIP uses stored or Deflate ZIP32 entries through the VFS, verifie
 CRC32, and accepts validated data descriptors before extraction. Tar uses UTF-8
 USTAR entries with long names split across the standard name/prefix fields;
 `tar -z` adds bounded gzip compression for create, list, and extract flows.
+Tar list/extract also accept exact member filters, including directory
+prefixes, and reject missing filters without writing partial output.
 Gzip and `.Z` LZW are file-to-file Rust backends: they keep the source, refuse
 binary stdin/stdout mode and refuse to overwrite destinations, and cap both
 input and decompressed output at 64 MiB. These commands reject absolute or

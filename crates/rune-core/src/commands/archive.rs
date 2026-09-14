@@ -177,8 +177,8 @@ fn tar_create(context: &mut CommandContext<'_>, parsed: &TarArguments<'_>) -> Co
 }
 
 fn tar_list(context: &mut CommandContext<'_>, parsed: &TarArguments<'_>) -> CommandOutput {
-    if parsed.destination.is_some() || !parsed.paths.is_empty() {
-        return archive_failure_for("tar", "listing accepts only an archive path");
+    if parsed.destination.is_some() {
+        return archive_failure_for("tar", "-C is only supported with extraction");
     }
     let archive = match context.fs.read(parsed.archive) {
         Ok(bytes) => bytes,
@@ -188,13 +188,14 @@ fn tar_list(context: &mut CommandContext<'_>, parsed: &TarArguments<'_>) -> Comm
         Ok(entries) => entries,
         Err(error) => return archive_failure_for("tar", &error),
     };
-    entry_names(&entries)
+    let selected = match select_tar_entries(&entries, &parsed.paths) {
+        Ok(selected) => selected,
+        Err(error) => return archive_failure_for("tar", &error),
+    };
+    entry_names_at(&entries, &selected)
 }
 
 fn tar_extract(context: &mut CommandContext<'_>, parsed: &TarArguments<'_>) -> CommandOutput {
-    if !parsed.paths.is_empty() {
-        return archive_failure_for("tar", "extract accepts no member filters");
-    }
     let destination = parsed.destination.as_deref().unwrap_or(".");
     let archive = match context.fs.read(parsed.archive) {
         Ok(bytes) => bytes,
@@ -204,10 +205,15 @@ fn tar_extract(context: &mut CommandContext<'_>, parsed: &TarArguments<'_>) -> C
         Ok(entries) => entries,
         Err(error) => return archive_failure_for("tar", &error),
     };
+    let selected = match select_tar_entries(&entries, &parsed.paths) {
+        Ok(selected) => selected,
+        Err(error) => return archive_failure_for("tar", &error),
+    };
     if let Err(error) = context.fs.make_directory(destination, true) {
         return fs_failure("tar", &error);
     }
-    for entry in &entries {
+    for index in &selected {
+        let entry = &entries[*index];
         if let Some(output) = context.take_cancellation() {
             return output;
         }
@@ -237,11 +243,11 @@ fn tar_extract(context: &mut CommandContext<'_>, parsed: &TarArguments<'_>) -> C
         }
     }
     if parsed.verbose {
-        return entry_names(&entries);
+        return entry_names_at(&entries, &selected);
     }
     CommandOutput::success(format!(
         "extracted {} entries into {destination}\n",
-        entries.len()
+        selected.len()
     ))
 }
 
@@ -252,6 +258,49 @@ fn entry_names(entries: &[ArchiveEntry]) -> CommandOutput {
         output.push('\n');
     }
     CommandOutput::success(output)
+}
+
+fn entry_names_at(entries: &[ArchiveEntry], indices: &[usize]) -> CommandOutput {
+    let mut output = String::new();
+    for index in indices {
+        output.push_str(&entries[*index].name);
+        output.push('\n');
+    }
+    CommandOutput::success(output)
+}
+
+fn select_tar_entries(entries: &[ArchiveEntry], filters: &[&str]) -> Result<Vec<usize>, String> {
+    if filters.is_empty() {
+        return Ok((0..entries.len()).collect());
+    }
+    let normalized = filters
+        .iter()
+        .map(|filter| {
+            validate_archive_name(filter)?;
+            Ok(filter.trim_end_matches('/'))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    for (filter, normalized_filter) in filters.iter().zip(&normalized) {
+        let prefix = format!("{normalized_filter}/");
+        if !entries
+            .iter()
+            .any(|entry| entry.name == *normalized_filter || entry.name.starts_with(&prefix))
+        {
+            return Err(format!("tar member not found: {filter}"));
+        }
+    }
+    Ok(entries
+        .iter()
+        .enumerate()
+        .filter_map(|(index, entry)| {
+            normalized
+                .iter()
+                .any(|filter| {
+                    entry.name == *filter || entry.name.starts_with(&format!("{filter}/"))
+                })
+                .then_some(index)
+        })
+        .collect())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

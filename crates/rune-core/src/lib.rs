@@ -3507,6 +3507,16 @@ mod tests {
         assert_eq!(listing.status, 0);
         assert!(listing.stdout.contains("source/\n"));
         assert!(listing.stdout.contains("source/nested/note.txt\n"));
+        let filtered_listing = session.execute_line("tar -tf bundle.tar source/nested");
+        assert_eq!(filtered_listing.status, 0, "{filtered_listing:?}");
+        assert!(filtered_listing.stdout.contains("source/nested/note.txt\n"));
+        assert!(!filtered_listing.stdout.contains("source/empty.txt\n"));
+        assert_eq!(
+            session
+                .execute_line("tar -tf bundle.tar does-not-exist")
+                .status,
+            1
+        );
 
         let compressed = session.execute_line("tar -czf compressed.tar source");
         assert_eq!(compressed.status, 0, "{compressed:?}");
@@ -3518,6 +3528,21 @@ mod tests {
             .contains("source/nested/note.txt\n"));
 
         assert_eq!(session.execute_line("rm -r source").status, 0);
+        let filtered_extracted =
+            session.execute_line("tar -xf bundle.tar source/nested/note.txt -C filtered");
+        assert_eq!(filtered_extracted.status, 0, "{filtered_extracted:?}");
+        assert_eq!(
+            session
+                .execute_line("cat filtered/source/nested/note.txt")
+                .stdout,
+            "tar-data\n"
+        );
+        assert_eq!(
+            session
+                .execute_line("test -e filtered/source/empty.txt")
+                .status,
+            1
+        );
         let extracted = session.execute_line("tar -xf bundle.tar -C restored");
         assert_eq!(extracted.status, 0);
         assert_eq!(
