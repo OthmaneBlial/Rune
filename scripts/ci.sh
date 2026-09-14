@@ -11,6 +11,10 @@ python3 scripts/test_compatibility_runner.py
 
 echo "==> shell script syntax"
 bash -n scripts/ci.sh scripts/demo.sh scripts/bench.sh scripts/package-cli.sh
+if scripts/package-cli.sh '../unsafe' >/dev/null 2>&1; then
+  echo "package-cli accepted an unsafe version" >&2
+  exit 1
+fi
 
 echo "==> cargo fmt --check"
 cargo fmt --all -- --check

@@ -6,7 +6,7 @@ cd "$project_root"
 
 release_version="${1:-}"
 output_directory="${2:-dist/release}"
-if [[ -z "$release_version" || "$release_version" == -* ]]; then
+if [[ -z "$release_version" || ! "$release_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
   echo "usage: $0 VERSION [OUTPUT_DIRECTORY]" >&2
   echo "example: $0 0.1.0-alpha.7" >&2
   exit 2
