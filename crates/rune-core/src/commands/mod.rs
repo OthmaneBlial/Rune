@@ -195,6 +195,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: network::nslookup,
     },
     CommandDefinition {
+        name: "host",
+        summary: "resolve a bounded DNS name through host DNS-over-HTTPS",
+        handler: network::host,
+    },
+    CommandDefinition {
         name: "whois",
         summary: "fetch a bounded domain record through host HTTPS RDAP",
         handler: network::whois,

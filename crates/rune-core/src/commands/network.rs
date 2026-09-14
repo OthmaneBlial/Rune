@@ -19,9 +19,19 @@ const DNS_RECORD_TYPES: &[&str] = &[
 /// opening DNS sockets in the portable core. The host network provider still
 /// owns the actual HTTPS transport.
 pub(super) fn nslookup(context: &mut CommandContext<'_>) -> CommandOutput {
-    let options = match parse_nslookup_args(context.args) {
+    dns_lookup(context, "nslookup")
+}
+
+/// Resolve one name through the same bounded `DoH` surface under the common
+/// `host` command name used by a-Shell and other Unix environments.
+pub(super) fn host(context: &mut CommandContext<'_>) -> CommandOutput {
+    dns_lookup(context, "host")
+}
+
+fn dns_lookup(context: &mut CommandContext<'_>, command: &str) -> CommandOutput {
+    let options = match parse_nslookup_args(context.args, command) {
         Ok(options) => options,
-        Err(message) => return usage("nslookup", &message),
+        Err(message) => return usage(command, &message),
     };
     let url = build_doh_url(&options.server, &options.host, &options.record_type);
     let request = NetworkRequest {
@@ -31,36 +41,36 @@ pub(super) fn nslookup(context: &mut CommandContext<'_>) -> CommandOutput {
         body: Vec::new(),
     };
     if let Err(error) = request.validate() {
-        return CommandOutput::failure(2, format!("nslookup: {error}\n"));
+        return CommandOutput::failure(2, format!("{command}: {error}\n"));
     }
     let response = match context.network.request(&request) {
         Ok(response) => response,
-        Err(error) => return CommandOutput::failure(1, format!("nslookup: {error}\n")),
+        Err(error) => return CommandOutput::failure(1, format!("{command}: {error}\n")),
     };
     if let Err(error) = response.validate() {
-        return CommandOutput::failure(1, format!("nslookup: {error}\n"));
+        return CommandOutput::failure(1, format!("{command}: {error}\n"));
     }
     if !(200..300).contains(&response.status_code) {
         return CommandOutput::failure(
             1,
             format!(
-                "nslookup: resolver returned HTTP status {}\n",
+                "{command}: resolver returned HTTP status {}\n",
                 response.status_code
             ),
         );
     }
 
     let Ok(document) = serde_json::from_slice::<serde_json::Value>(&response.body) else {
-        return CommandOutput::failure(1, "nslookup: invalid DNS JSON response\n");
+        return CommandOutput::failure(1, format!("{command}: invalid DNS JSON response\n"));
     };
     let Some(status) = document.get("Status").and_then(serde_json::Value::as_u64) else {
-        return CommandOutput::failure(1, "nslookup: DNS response has no status\n");
+        return CommandOutput::failure(1, format!("{command}: DNS response has no status\n"));
     };
     if status != 0 {
         return CommandOutput::failure(
             1,
             format!(
-                "nslookup: resolver returned DNS status {status} for {}\n",
+                "{command}: resolver returned DNS status {status} for {}\n",
                 options.host
             ),
         );
@@ -76,7 +86,10 @@ pub(super) fn nslookup(context: &mut CommandContext<'_>) -> CommandOutput {
                 continue;
             }
             if data.chars().any(char::is_control) {
-                return CommandOutput::failure(1, "nslookup: DNS response contains control data\n");
+                return CommandOutput::failure(
+                    1,
+                    format!("{command}: DNS response contains control data\n"),
+                );
             }
             stdout.push_str(data);
             stdout.push('\n');
@@ -86,7 +99,7 @@ pub(super) fn nslookup(context: &mut CommandContext<'_>) -> CommandOutput {
         return CommandOutput::failure(
             1,
             format!(
-                "nslookup: no {} records found for {}\n",
+                "{command}: no {} records found for {}\n",
                 options.record_type, options.host
             ),
         );
@@ -166,7 +179,7 @@ struct WhoisOptions {
     target: String,
 }
 
-fn parse_nslookup_args(args: &[String]) -> Result<NslookupOptions, String> {
+fn parse_nslookup_args(args: &[String], command: &str) -> Result<NslookupOptions, String> {
     let mut server = DEFAULT_DOH_SERVER.to_string();
     let mut record_type = "A".to_string();
     let mut host = None;
@@ -208,7 +221,9 @@ fn parse_nslookup_args(args: &[String]) -> Result<NslookupOptions, String> {
                     }
                 }
                 value if value.starts_with('-') => {
-                    return Err("usage: nslookup [--server SERVER] [-type=TYPE] HOST".to_string());
+                    return Err(format!(
+                        "usage: {command} [--server SERVER] [-type=TYPE] HOST"
+                    ));
                 }
                 value => set_nslookup_host(&mut host, value.to_string())?,
             }
@@ -219,7 +234,7 @@ fn parse_nslookup_args(args: &[String]) -> Result<NslookupOptions, String> {
     }
 
     let host =
-        host.ok_or_else(|| "usage: nslookup [--server SERVER] [-type=TYPE] HOST".to_string())?;
+        host.ok_or_else(|| format!("usage: {command} [--server SERVER] [-type=TYPE] HOST"))?;
     validate_dns_name(&host)?;
     if !server
         .get(.."https://".len())

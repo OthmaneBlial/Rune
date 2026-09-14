@@ -4684,9 +4684,13 @@ mod tests {
             session.history().last().map(String::as_str),
             Some("[redacted network command]")
         );
+        let host_resolved =
+            session.execute_line(&format!("host --server {server} -type=AAAA example.com"));
+        assert_eq!(host_resolved.status, 0, "{host_resolved:?}");
+        assert_eq!(host_resolved.stdout, "2001:db8::1\n2001:db8::2\n");
 
         let recorded = requests.lock().expect("request log lock");
-        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded.len(), 2);
         assert_eq!(recorded[0].method, NetworkMethod::Get);
         assert_eq!(
             recorded[0].url,
@@ -4697,6 +4701,7 @@ mod tests {
             [("Accept".to_string(), "application/dns-json".to_string())]
         );
         assert!(recorded[0].body.is_empty());
+        assert_eq!(recorded[1], recorded[0]);
         drop(recorded);
 
         let invalid_type = session.execute_line("nslookup -type=HTTPS example.com");

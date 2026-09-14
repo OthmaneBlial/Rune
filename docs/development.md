@@ -263,7 +263,8 @@ compatibility evidence.
 The network tests use an injected provider and verify method, URL, headers,
 request data, response output, raw VFS-file output, disabled-provider behavior,
 the bounded `nslookup` DNS-over-HTTPS query/answer path, resolver error
-handling, bounded HTTPS RDAP `whois` text output, and the C callback boundary.
+handling, the equivalent `host` DNS query path, bounded HTTPS RDAP `whois` text
+output, and the C callback boundary.
 They do not prove internet reachability, DNS/RDAP correctness of a live
 resolver, TLS, ATS, redirects, or Apple URLSession behavior. The native
 callback enforces the same 8 MiB response buffer while receiving data in

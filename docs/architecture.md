@@ -638,6 +638,9 @@ The bounded `whois DOMAIN` command uses the same boundary for an HTTPS RDAP
 request, validates the domain and endpoint, caps the response at 256 KiB, and
 rejects non-UTF-8 or terminal-control output. It does not create a traditional
 WHOIS port-43 socket in the portable core.
+The `host` command reuses the bounded DoH parser and explicit network provider
+used by `nslookup`; it is a command-name compatibility surface, not a socket or
+host-process escape hatch.
 
 The `test` and `[` built-ins are Rust-owned expression evaluators rather than
 delegation to a host shell. Their bounded grammar covers string and integer
