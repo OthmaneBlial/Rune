@@ -3353,6 +3353,10 @@ mod tests {
         let listing = session.execute_line("ar t bundle.a");
         assert_eq!(listing.status, 0);
         assert_eq!(listing.stdout, "first.o\nsecond.o\n");
+        let filtered_listing = session.execute_line("ar t bundle.a second.o");
+        assert_eq!(filtered_listing.status, 0, "{filtered_listing:?}");
+        assert_eq!(filtered_listing.stdout, "second.o\n");
+        assert_eq!(session.execute_line("ar t bundle.a missing.o").status, 1);
 
         assert_eq!(session.execute_line("rm first.o second.o").status, 0);
         let extracted = session.execute_line("ar x bundle.a");

@@ -461,8 +461,9 @@ preserve sources and refuse overwrites or binary stdout. ZIP64, PAX extensions,
 and broad external compatibility are not claimed.
 
 The `ar` command layer implements a bounded short-name archive profile for
-regular files. `ar -rcs` rebuilds or replaces members, `ar t` lists them, and
-`ar x` extracts them through the VFS. Member payloads remain binary-safe, but
+regular files. `ar -rcs` rebuilds or replaces members, `ar t` lists all or named
+members, and `ar x` extracts them through the VFS after preflighting destinations.
+Member payloads remain binary-safe, but
 symbol tables, long-name tables, directories, and linker semantics are outside
 the profile.
 

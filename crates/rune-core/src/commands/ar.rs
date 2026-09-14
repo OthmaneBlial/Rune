@@ -45,7 +45,7 @@ pub(super) fn ar(context: &mut CommandContext<'_>) -> CommandOutput {
 fn parse_arguments(args: &[String]) -> Result<ArArguments, String> {
     let Some(mode_argument) = args.first() else {
         return Err(
-            "usage: ar [-rcs] ARCHIVE FILE ... | ar t ARCHIVE | ar x ARCHIVE [MEMBER ...]"
+            "usage: ar [-rcs] ARCHIVE FILE ... | ar t ARCHIVE [MEMBER ...] | ar x ARCHIVE [MEMBER ...]"
                 .to_string(),
         );
     };
@@ -82,9 +82,6 @@ fn parse_arguments(args: &[String]) -> Result<ArArguments, String> {
         ArOperation::Create { .. } if members.is_empty() => {
             Err("creation requires at least one member file".to_string())
         }
-        ArOperation::List if !members.is_empty() => {
-            Err("listing does not accept member filters".to_string())
-        }
         _ => Ok(ArArguments {
             operation,
             archive: archive.clone(),
@@ -107,6 +104,9 @@ fn create(
         Err(error) => return fs_failure("ar", &error),
     };
     for path in &arguments.members {
+        if let Some(output) = context.take_cancellation() {
+            return output;
+        }
         let info = match context.fs.metadata(path) {
             Ok(info) => info,
             Err(error) => return fs_failure("ar", &error),
@@ -159,8 +159,23 @@ fn list(context: &mut CommandContext<'_>, arguments: &ArArguments) -> CommandOut
         Ok(members) => members,
         Err(error) => return ar_failure(&arguments.archive, &error),
     };
+    let selected = if arguments.members.is_empty() {
+        members.iter().collect::<Vec<_>>()
+    } else {
+        let mut selected = Vec::with_capacity(arguments.members.len());
+        for name in &arguments.members {
+            let Some(member) = members.iter().find(|member| member.name == *name) else {
+                return ar_failure(name, "member was not found");
+            };
+            selected.push(member);
+        }
+        selected
+    };
     let mut output = String::new();
-    for member in members {
+    for member in selected {
+        if let Some(output) = context.take_cancellation() {
+            return output;
+        }
         let _ = writeln!(output, "{}", member.name);
     }
     CommandOutput::success(output)
@@ -188,11 +203,17 @@ fn extract(context: &mut CommandContext<'_>, arguments: &ArArguments) -> Command
         selected
     };
     for member in &selected {
+        if let Some(output) = context.take_cancellation() {
+            return output;
+        }
         if context.fs.metadata(&member.name).is_ok() {
             return ar_failure(&member.name, "destination already exists");
         }
     }
     for member in &selected {
+        if let Some(output) = context.take_cancellation() {
+            return output;
+        }
         if let Err(error) = context.fs.write(&member.name, &member.bytes, false) {
             return fs_failure("ar", &error);
         }
