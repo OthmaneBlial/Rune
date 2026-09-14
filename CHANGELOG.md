@@ -25,6 +25,8 @@ iOS runtime release.
 - Rust workspace formatting, Clippy, tests, and build pass locally.
 - Swift package/header checks and host swiftc -typecheck pass when the
   existing Swift tools are available.
+- The local gate compiles and runs a C consumer against the public FFI header
+  and host library, including owned-result release checks.
 
 ### Known limitations
 
