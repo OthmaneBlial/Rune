@@ -218,6 +218,12 @@ char *rune_session_configuration(const void *handle);
 char *rune_session_commands(const void *handle);
 // Returns bounded command or sandbox-path replacement tokens.
 char *rune_session_complete(const void *handle, const char *input);
+// Applies one currently available replacement token through Rust.
+char *rune_session_apply_completion(
+    const void *handle,
+    const char *input,
+    const char *candidate
+);
 RuneOutput rune_session_startup_output(void *handle);
 void rune_string_free(char *value);
 void rune_file_bytes_free(uint8_t *data, size_t length);

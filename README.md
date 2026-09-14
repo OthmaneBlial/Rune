@@ -187,7 +187,8 @@ Alias expansion is bounded and currently accepts one command per alias value;
 compound alias values are rejected explicitly. The
 native source UI now asks Rust for bounded command and sandbox-path completion;
 the registry, session aliases, recent command names, and filesystem lookup
-remain Rust-owned and the bridge exposes only replacement tokens. Simple
+remain Rust-owned; the bridge exposes replacement tokens and delegates their
+application back to Rust. Simple
 separated `<`/`>` redirection targets use the same confined path completion,
 and simple command/path completion after one `|` is supported; quoted, escaped,
 option, and other compound-shell fragments remain deferred. Repeated Tab presses cycle through the candidates while preserving the

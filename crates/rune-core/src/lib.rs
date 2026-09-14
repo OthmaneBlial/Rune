@@ -185,7 +185,7 @@ fn is_completion_name(value: &str) -> bool {
         && value.len() <= 128
         && value.chars().all(|character| {
             character.is_ascii_alphanumeric()
-                || matches!(character, '_' | '-' | '.' | '+' | '/' | '[' | ']')
+                || matches!(character, '_' | '-' | '.' | '+' | '/' | '[' | ']' | '~')
         })
 }
 
@@ -845,6 +845,38 @@ impl Session {
         }
 
         self.path_completion_candidates(input)
+    }
+
+    /// Applies one Rust-owned completion candidate to the final whitespace
+    /// separated token in the input line.
+    ///
+    /// The candidate must be one of the bounded candidates returned for the
+    /// same input. This keeps replacement-range and suffix rules in the core
+    /// instead of duplicating shell text handling in native frontends.
+    #[must_use]
+    pub fn apply_completion(&self, input: &str, candidate: &str) -> Option<String> {
+        if input.len() > MAX_COMPLETION_INPUT_BYTES
+            || candidate.is_empty()
+            || candidate.len() > 128
+            || input
+                .chars()
+                .any(|character| ";&\\\"'#".contains(character))
+            || !is_completion_name(candidate)
+            || !self
+                .completion_candidates(input)
+                .iter()
+                .any(|value| value == candidate)
+        {
+            return None;
+        }
+        let token_start = input
+            .char_indices()
+            .rev()
+            .find(|(_, character)| character.is_whitespace())
+            .map_or(0, |(offset, character)| offset + character.len_utf8());
+        let prefix = &input[..token_start];
+        let suffix = if candidate.ends_with('/') { "" } else { " " };
+        Some(format!("{prefix}{candidate}{suffix}"))
     }
 
     fn command_completion_candidates(&self, prefix: &str) -> Vec<String> {
@@ -5187,6 +5219,10 @@ mod tests {
         );
         assert_eq!(session.execute_line("alias personal=echo").status, 0);
         assert_eq!(session.completion_candidates("pers"), vec!["personal"]);
+        assert_eq!(
+            session.apply_completion("ec", "echo"),
+            Some("echo ".to_string())
+        );
         assert!(session.completion_candidates("echo ").is_empty());
         assert_eq!(session.completion_candidates("ec | ca"), vec!["cat"]);
         assert_eq!(session.completion_candidates("echo | ca"), vec!["cat"]);
@@ -5199,9 +5235,23 @@ mod tests {
         assert_eq!(session.execute_line("echo notes > docs/notes.md").status, 0);
         assert_eq!(session.completion_candidates("cat do"), vec!["docs/"]);
         assert_eq!(
+            session.apply_completion("cat do", "docs/"),
+            Some("cat docs/".to_string())
+        );
+        assert_eq!(
+            session.apply_completion("cat ~/do", "~/docs/"),
+            Some("cat ~/docs/".to_string())
+        );
+        assert_eq!(
             session.completion_candidates("echo | cat do"),
             vec!["docs/"]
         );
+        assert_eq!(
+            session.apply_completion("echo | ca", "cat"),
+            Some("echo | cat ".to_string())
+        );
+        assert!(session.apply_completion("cat \"no", "docs/").is_none());
+        assert!(session.apply_completion("cat do", "missing").is_none());
         assert_eq!(
             session.completion_candidates("cat docs/n"),
             vec!["docs/notes.md"]

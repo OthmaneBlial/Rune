@@ -347,6 +347,26 @@ public final class RuneFFISession: @unchecked Sendable {
         }
     }
 
+    /// Applies one current Rust completion candidate and returns the full
+    /// replacement command. Token boundaries and suffix rules stay in Rust so
+    /// native frontends do not duplicate shell text handling.
+    public func completionReplacement(input: String, candidate: String) -> String? {
+        withLock {
+            let pointer = input.withCString { inputPointer in
+                candidate.withCString { candidatePointer in
+                    rune_session_apply_completion(
+                        handle.map(UnsafeRawPointer.init),
+                        inputPointer,
+                        candidatePointer
+                    )
+                }
+            }
+            guard let pointer else { return nil }
+            defer { rune_string_free(pointer) }
+            return String(cString: pointer)
+        }
+    }
+
     private func consume(_ raw: RuneOutput) -> RuneCommandResult {
         defer {
             rune_string_free(raw.stdout)

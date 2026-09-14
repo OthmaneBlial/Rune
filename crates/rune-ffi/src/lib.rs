@@ -1331,6 +1331,34 @@ pub extern "C" fn rune_session_complete(
     into_owned_c_string(&candidates.join("\n"))
 }
 
+/// Applies one Rust-owned completion candidate and returns the complete
+/// replacement command as an owned string. Null means invalid input or a
+/// candidate that is not currently available for the supplied command line.
+#[no_mangle]
+pub extern "C" fn rune_session_apply_completion(
+    handle: *const std::ffi::c_void,
+    input: *const c_char,
+    candidate: *const c_char,
+) -> *mut c_char {
+    let Some(input) = read_string(input) else {
+        return std::ptr::null_mut();
+    };
+    let Some(candidate) = read_string(candidate) else {
+        return std::ptr::null_mut();
+    };
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the pointer is read-only and owned by the Swift session.
+    let session = unsafe { &*handle.cast::<RuneSession>() };
+    session
+        .core
+        .apply_completion(&input, &candidate)
+        .map_or(std::ptr::null_mut(), |replacement| {
+            into_owned_c_string(&replacement)
+        })
+}
+
 /// Takes output generated while the session's `~/.rune_profile` was loaded.
 #[no_mangle]
 pub extern "C" fn rune_session_startup_output(handle: *mut std::ffi::c_void) -> RuneOutput {
@@ -1382,9 +1410,10 @@ pub unsafe extern "C" fn rune_file_bytes_free(data: *mut u8, length: usize) {
 #[cfg(test)]
 mod tests {
     use super::{
-        rune_file_bytes_free, rune_session_cancel, rune_session_commands, rune_session_complete,
-        rune_session_configuration, rune_session_current_directory, rune_session_destroy,
-        rune_session_execute, rune_session_execute_script, rune_session_execute_script_with_events,
+        rune_file_bytes_free, rune_session_apply_completion, rune_session_cancel,
+        rune_session_commands, rune_session_complete, rune_session_configuration,
+        rune_session_current_directory, rune_session_destroy, rune_session_execute,
+        rune_session_execute_script, rune_session_execute_script_with_events,
         rune_session_execute_with_events, rune_session_get_file, rune_session_history,
         rune_session_history_search, rune_session_new, rune_session_new_named,
         rune_session_new_with_layout, rune_session_put_file, rune_session_reset_configuration,
@@ -1722,6 +1751,12 @@ mod tests {
         assert_eq!(c_string(path_completions), "readme.txt");
         // SAFETY: path_completions was returned by rune_session_complete.
         unsafe { rune_string_free(path_completions) };
+        let completion_candidate = CString::new("echo").expect("valid completion candidate");
+        let replacement =
+            rune_session_apply_completion(handle, prefix.as_ptr(), completion_candidate.as_ptr());
+        assert_eq!(c_string(replacement), "echo ");
+        // SAFETY: replacement was returned by rune_session_apply_completion.
+        unsafe { rune_string_free(replacement) };
         let configuration = rune_session_configuration(handle);
         assert_eq!(
             c_string(configuration),

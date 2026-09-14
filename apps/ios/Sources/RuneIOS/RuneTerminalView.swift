@@ -523,14 +523,13 @@ public final class RuneTerminalModel: ObservableObject {
         in input: String,
         preservingCycle: Bool
     ) {
-        let tokenStart = input
-            .indices
-            .reversed()
-            .first(where: { input[$0].isWhitespace })
-            .map { input.index(after: $0) } ?? input.startIndex
-        let prefix = String(input[..<tokenStart])
-        let suffix = candidate.hasSuffix("/") ? "" : " "
-        let replacement = "\(prefix)\(candidate)\(suffix)"
+        guard let session,
+              let replacement = session.completionReplacement(
+                  input: input,
+                  candidate: candidate
+              ) else {
+            return
+        }
         if preservingCycle {
             preservingCompletionCycle = true
             command = replacement

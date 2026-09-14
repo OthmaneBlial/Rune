@@ -17,8 +17,8 @@ constraints. It is not a source dependency or an implementation template.
 - `rune-fs`: path resolution and filesystem policy. Commands receive this
   abstraction rather than reaching into Apple APIs directly.
 - `rune-core`: command registry, command context, session state, execution
-  results, and the bounded command/path completion query used by native
- frontends.
+  results, bounded command/path completion queries, and Rust-owned completion
+  replacement used by native frontends.
 - `rune-wasm`: bounded WASI preview1 execution with optional explicit
   capability-scoped preopens supplied by the session VFS.
 - `rune-package`: bounded versioned manifest parsing and SHA-256 artifact
@@ -421,9 +421,11 @@ commands it lists only entries in the bounded VFS, preserves virtual prefixes
 such as `~/` and `../`, marks directories with `/`, and caps results at eight.
 Simple separated `<`/`>` redirection targets use the same confined path list;
 simple command/path completion after one `|` uses the same Rust registry and
-VFS lookup. Quoted, escaped, option, and other compound-shell fragments are
-intentionally deferred until the completion grammar has structured replacement
-ranges. The Swift model keeps the original replacement input while cycling
+VFS lookup. Rust also validates the selected candidate and returns the complete
+replacement command through the C ABI. Quoted, escaped, option, and other
+compound-shell fragments are intentionally deferred until the completion grammar
+has structured replacement ranges. The Swift model keeps the original
+replacement input while cycling
 through the bounded candidates on repeated Tab presses, so selecting a second
 candidate does not append it to the first. Escape clears that transient editor
 state and does not become shell input.
