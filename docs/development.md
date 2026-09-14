@@ -130,8 +130,9 @@ rendering architecture evidence, not a measured Apple frame-time or device
 memory result.
 The archive integration tests create nested files, list and extract a USTAR
 archive into a new confined destination, and reject compressed tar flags and
-escaping archive members. ZIP coverage remains stored-only and does not
-establish compatibility with compressed, ZIP64, PAX, or encrypted archives.
+escaping archive members. ZIP coverage creates Deflate entries when beneficial,
+reads stored or Deflate ZIP32 entries, verifies CRC32, and bounds the total
+uncompressed payload; ZIP64, PAX, and encrypted archives remain unsupported.
 The gzip integration test verifies bounded file-to-file compression and
 decompression, source preservation, refusal of binary `-c` mode, and suffix
 validation. The LZW integration test also crosses a dictionary reset and

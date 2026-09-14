@@ -3266,7 +3266,7 @@ mod tests {
     }
 
     #[test]
-    fn creates_and_extracts_a_bounded_stored_zip_archive() {
+    fn creates_and_extracts_a_bounded_zip_archive() {
         let root = test_root();
         let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
         assert_eq!(session.execute_line("mkdir -p source/nested").status, 0);

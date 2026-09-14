@@ -1,6 +1,10 @@
 use std::collections::BTreeSet;
+use std::io::{Read as _, Write as _};
 
 use crate::{fs_failure, usage, CommandContext, CommandOutput};
+use flate2::read::DeflateDecoder;
+use flate2::write::DeflateEncoder;
+use flate2::Compression;
 
 const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES: usize = 10_000;
@@ -11,6 +15,15 @@ struct ArchiveEntry {
     name: String,
     bytes: Vec<u8>,
     directory: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ZipEntryMetadata {
+    flags: u16,
+    method: u16,
+    compressed_size: usize,
+    uncompressed_size: usize,
+    crc: u32,
 }
 
 pub(super) fn zip(context: &mut CommandContext<'_>) -> CommandOutput {
@@ -723,31 +736,38 @@ fn build_archive(entries: &[ArchiveEntry]) -> Result<Vec<u8>, String> {
         let name = entry.name.as_bytes();
         let name_length = u16::try_from(name.len()).map_err(|_| "file name is too long")?;
         let size = u32::try_from(entry.bytes.len()).map_err(|_| "entry is too large")?;
+        let (method, compressed) = if entry.directory {
+            (0, Vec::new())
+        } else {
+            compress_zip_entry(&entry.bytes)?
+        };
+        let compressed_size =
+            u32::try_from(compressed.len()).map_err(|_| "compressed entry is too large")?;
         let offset = u32::try_from(output.len()).map_err(|_| "archive is too large")?;
         let crc = crc32(&entry.bytes);
         push_u32(&mut output, 0x0403_4b50);
         push_u16(&mut output, 20);
         push_u16(&mut output, 0);
-        push_u16(&mut output, 0);
+        push_u16(&mut output, method);
         push_u16(&mut output, 0);
         push_u16(&mut output, 0);
         push_u32(&mut output, crc);
-        push_u32(&mut output, size);
+        push_u32(&mut output, compressed_size);
         push_u32(&mut output, size);
         push_u16(&mut output, name_length);
         push_u16(&mut output, 0);
         output.extend_from_slice(name);
-        output.extend_from_slice(&entry.bytes);
+        output.extend_from_slice(&compressed);
 
         push_u32(&mut central, 0x0201_4b50);
         push_u16(&mut central, 20);
         push_u16(&mut central, 20);
         push_u16(&mut central, 0);
-        push_u16(&mut central, 0);
+        push_u16(&mut central, method);
         push_u16(&mut central, 0);
         push_u16(&mut central, 0);
         push_u32(&mut central, crc);
-        push_u32(&mut central, size);
+        push_u32(&mut central, compressed_size);
         push_u32(&mut central, size);
         push_u16(&mut central, name_length);
         push_u16(&mut central, 0);
@@ -774,6 +794,24 @@ fn build_archive(entries: &[ArchiveEntry]) -> Result<Vec<u8>, String> {
         return Err("archive exceeds the 64 MiB limit".to_string());
     }
     Ok(output)
+}
+
+fn compress_zip_entry(bytes: &[u8]) -> Result<(u16, Vec<u8>), String> {
+    if bytes.is_empty() {
+        return Ok((0, Vec::new()));
+    }
+    let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
+    encoder
+        .write_all(bytes)
+        .map_err(|error| format!("ZIP compression failed: {error}"))?;
+    let compressed = encoder
+        .finish()
+        .map_err(|error| format!("ZIP compression failed: {error}"))?;
+    if compressed.len() < bytes.len() {
+        Ok((8, compressed))
+    } else {
+        Ok((0, bytes.to_vec()))
+    }
 }
 
 fn read_central_directory(archive: &[u8]) -> Result<Vec<ArchiveEntry>, String> {
@@ -803,6 +841,7 @@ fn read_central_directory(archive: &[u8]) -> Result<Vec<ArchiveEntry>, String> {
     let mut cursor = central_offset;
     let mut entries = Vec::with_capacity(entries_total);
     let mut names = BTreeSet::new();
+    let mut uncompressed_total = 0_usize;
     for _ in 0..entries_total {
         if cursor + 46 > central_end || read_u32(archive, cursor)? != 0x0201_4b50 {
             return Err("central directory entry is malformed".to_string());
@@ -834,10 +873,30 @@ fn read_central_directory(archive: &[u8]) -> Result<Vec<ArchiveEntry>, String> {
         if !names.insert(name.clone()) {
             return Err(format!("duplicate ZIP entry: {name}"));
         }
-        if flags != 0 || method != 0 || compressed_size != uncompressed_size {
+        if flags != 0
+            || !matches!(method, 0 | 8)
+            || (method == 0 && compressed_size != uncompressed_size)
+        {
             return Err(format!("unsupported ZIP entry: {name}"));
         }
-        let bytes = read_local_entry(archive, local_offset, &name, compressed_size, crc)?;
+        uncompressed_total = uncompressed_total
+            .checked_add(uncompressed_size)
+            .ok_or("uncompressed ZIP size overflows")?;
+        if uncompressed_total > MAX_ARCHIVE_BYTES {
+            return Err("uncompressed ZIP payload exceeds the 64 MiB limit".to_string());
+        }
+        let bytes = read_local_entry(
+            archive,
+            local_offset,
+            &name,
+            ZipEntryMetadata {
+                flags,
+                method,
+                compressed_size,
+                uncompressed_size,
+                crc,
+            },
+        )?;
         entries.push(ArchiveEntry {
             directory: name.ends_with('/'),
             name,
@@ -852,13 +911,14 @@ fn read_local_entry(
     archive: &[u8],
     offset: usize,
     name: &str,
-    size: usize,
-    expected_crc: u32,
+    metadata: ZipEntryMetadata,
 ) -> Result<Vec<u8>, String> {
     if offset + 30 > archive.len() || read_u32(archive, offset)? != 0x0403_4b50 {
         return Err(format!("local entry is malformed: {name}"));
     }
-    if read_u16(archive, offset + 6)? != 0 || read_u16(archive, offset + 8)? != 0 {
+    if read_u16(archive, offset + 6)? != metadata.flags
+        || read_u16(archive, offset + 8)? != metadata.method
+    {
         return Err(format!("unsupported local entry: {name}"));
     }
     let name_length = usize::from(read_u16(archive, offset + 26)?);
@@ -869,7 +929,7 @@ fn read_local_entry(
         .and_then(|value| value.checked_add(extra_length))
         .ok_or("local entry length overflows")?;
     let data_end = data_start
-        .checked_add(size)
+        .checked_add(metadata.compressed_size)
         .ok_or("local entry size overflows")?;
     let local_name = std::str::from_utf8(&archive[offset + 30..offset + 30 + name_length])
         .map_err(|_| "local entry name is not UTF-8".to_string())?;
@@ -878,9 +938,40 @@ fn read_local_entry(
             "local entry does not match central directory: {name}"
         ));
     }
-    let bytes = archive[data_start..data_end].to_vec();
-    if crc32(&bytes) != expected_crc {
+    let compressed = &archive[data_start..data_end];
+    let bytes = match metadata.method {
+        0 => compressed.to_vec(),
+        8 => decompress_zip_entry(compressed, metadata.uncompressed_size, name)?,
+        _ => return Err(format!("unsupported ZIP entry: {name}")),
+    };
+    if bytes.len() != metadata.uncompressed_size {
+        return Err(format!("uncompressed size mismatch: {name}"));
+    }
+    if crc32(&bytes) != metadata.crc {
         return Err(format!("CRC mismatch: {name}"));
+    }
+    Ok(bytes)
+}
+
+fn decompress_zip_entry(
+    compressed: &[u8],
+    expected_size: usize,
+    name: &str,
+) -> Result<Vec<u8>, String> {
+    let mut decoder = DeflateDecoder::new(compressed);
+    let mut bytes = Vec::with_capacity(expected_size);
+    let mut buffer = [0_u8; 8 * 1024];
+    loop {
+        let read = decoder
+            .read(&mut buffer)
+            .map_err(|error| format!("ZIP decompression failed for {name}: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        if bytes.len().saturating_add(read) > expected_size {
+            return Err(format!("uncompressed size exceeds ZIP header: {name}"));
+        }
+        bytes.extend_from_slice(&buffer[..read]);
     }
     Ok(bytes)
 }
@@ -986,7 +1077,10 @@ fn crc32(bytes: &[u8]) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_tar_archive, crc32, read_tar_archive, validate_archive_name, ArchiveEntry};
+    use super::{
+        build_archive, build_tar_archive, crc32, read_central_directory, read_tar_archive,
+        read_u16, validate_archive_name, ArchiveEntry,
+    };
 
     #[test]
     fn rejects_archive_names_that_can_escape_on_extraction() {
@@ -1008,6 +1102,20 @@ mod tests {
     #[test]
     fn computes_the_standard_crc32_vector() {
         assert_eq!(crc32(b"123456789"), 0xcbf4_3926);
+    }
+
+    #[test]
+    fn deflates_repetitive_zip_entries_and_round_trips_them() {
+        let entry = ArchiveEntry {
+            name: "repeated.txt".to_string(),
+            bytes: b"repeated content ".repeat(256),
+            directory: false,
+        };
+        let archive = build_archive(&[entry]).expect("ZIP archive built");
+        assert_eq!(read_u16(&archive, 8).expect("local method present"), 8);
+        let entries = read_central_directory(&archive).expect("ZIP archive read");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].bytes, b"repeated content ".repeat(256));
     }
 
     #[test]

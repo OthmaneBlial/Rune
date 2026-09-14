@@ -204,8 +204,8 @@ interpreter fuel, linear memory, tables, and captured output are bounded.
 For the three-root Apple layout, WASI receives `/` for Documents/home and
 explicit `/Library` and `/tmp` preopens; single-root and external-folder
 sessions receive only `/`. No arbitrary guest preopen is inherited.
-ZIP compression methods, broader WASI resource policy, and the broader Python
-stdlib/package surface remain planned; `.gz` and `.Z` file transforms are
+ZIP64 and broader WASI resource policy, and the broader Python stdlib/package
+surface remain planned; `.gz` and `.Z` file transforms are
 implemented as separate bounded Rust command layers.
 
 The package flow supports `pkg info MANIFEST|NAME [VERSION]`, `pkg verify
@@ -252,16 +252,16 @@ The Rust core also provides bounded `ar -rcs`/`ar t`/`ar x` member archives,
 zip -r ARCHIVE FILE ..., unzip ARCHIVE [DESTINATION], tar -cf/-tf/-xf ARCHIVE,
 gzip FILE ..., gunzip FILE.gz ..., compress FILE ..., and uncompress FILE.Z ...
 commands. `ar` stores regular files with short member names and does not emit
-symbol tables. ZIP uses stored ZIP32 entries through the VFS and verifies CRC32
-before extraction. Tar uses UTF-8
+symbol tables. ZIP uses stored or Deflate ZIP32 entries through the VFS and
+verifies CRC32 before extraction. Tar uses UTF-8
 USTAR entries with long names split across the standard name/prefix fields.
 Gzip and `.Z` LZW are file-to-file Rust backends: they keep the source, refuse
 binary stdin/stdout mode and refuse to overwrite destinations, and cap both
 input and decompressed output at 64 MiB. These commands reject absolute or
 parent-traversal archive names, links, unsupported entry types, and archives
-above 64 MiB or 10,000 entries. ZIP compression methods, ZIP64, PAX
-extensions, encrypted archives, and compatibility with every external
-producer remain unsupported until separately tested.
+above 64 MiB or 10,000 entries. ZIP64, PAX extensions, encrypted archives, and
+compatibility with every external producer remain unsupported until separately
+tested.
 
 The bounded `xargs` command consumes whitespace- or NUL-delimited stdin and
 invokes the normal Rust command planner in batches. `-n` limits each batch,
@@ -514,7 +514,7 @@ result.
 - [x] Bounded package metadata, integrity, local WASM installation, and local update
 - [x] Portable runtime request/output contract
 - [x] Bounded Rust-owned history, history-redaction, font, font-size, scrollback, toolbar-visible, theme, cursor-color, cursor-shape, background, and foreground configuration
-- [x] Bounded `ar` member archives plus stored ZIP/USTAR tar and gzip/.Z file transforms
+- [x] Bounded `ar` member archives plus stored/Deflate ZIP, USTAR tar, and gzip/.Z file transforms
 - [x] Explicit host HTTP capability and bounded `curl` transport boundary
 - [x] Bounded non-interactive `nslookup` through an explicit HTTPS DoH provider
 - [x] Bounded HTTPS RDAP `whois` query through the explicit network provider
