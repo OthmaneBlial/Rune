@@ -162,6 +162,32 @@ fn completion_command_segment(input: &str) -> Option<&str> {
     )
 }
 
+fn history_command_name(line: &str) -> Option<&str> {
+    line.split_whitespace()
+        .find(|token| !is_history_assignment(token))
+        .filter(|token| is_completion_name(token))
+}
+
+fn is_history_assignment(token: &str) -> bool {
+    let Some((name, _)) = token.split_once('=') else {
+        return false;
+    };
+    let mut characters = name.chars();
+    matches!(
+        characters.next(),
+        Some(character) if character == '_' || character.is_ascii_alphabetic()
+    ) && characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
+}
+
+fn is_completion_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric()
+                || matches!(character, '_' | '-' | '.' | '+' | '/' | '[' | ']')
+        })
+}
+
 struct InstalledCommand {
     name: String,
     package: String,
@@ -829,6 +855,19 @@ impl Session {
             .filter(|name| *name != prefix && name.starts_with(prefix))
             .map(str::to_owned)
             .collect::<Vec<_>>();
+        candidates.extend(
+            self.aliases
+                .keys()
+                .filter(|name| name.as_str() != prefix && name.starts_with(prefix))
+                .cloned(),
+        );
+        candidates.extend(
+            self.history
+                .iter()
+                .filter_map(|entry| history_command_name(entry))
+                .filter(|name| *name != prefix && name.starts_with(prefix))
+                .map(str::to_owned),
+        );
         if let Ok(installed_commands) = installed_commands_in_filesystem(self.filesystem.as_ref()) {
             candidates.extend(
                 installed_commands
@@ -5140,6 +5179,13 @@ mod tests {
             session.completion_candidates("  pr"),
             vec!["printenv", "printf"]
         );
+        assert_eq!(session.execute_line("unlisted-command").status, 127);
+        assert_eq!(
+            session.completion_candidates("unlisted"),
+            vec!["unlisted-command"]
+        );
+        assert_eq!(session.execute_line("alias personal=echo").status, 0);
+        assert_eq!(session.completion_candidates("pers"), vec!["personal"]);
         assert!(session.completion_candidates("echo ").is_empty());
         assert_eq!(session.completion_candidates("ec | ca"), vec!["cat"]);
         assert_eq!(session.completion_candidates("echo | ca"), vec!["cat"]);

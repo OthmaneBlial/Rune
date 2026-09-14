@@ -186,11 +186,11 @@ with output surfaced to the CLI/native boundary without polluting history.
 Alias expansion is bounded and currently accepts one command per alias value;
 compound alias values are rejected explicitly. The
 native source UI now asks Rust for bounded command and sandbox-path completion;
-the registry and filesystem lookup remain Rust-owned and the bridge exposes only
-replacement tokens. Simple separated `<`/`>` redirection targets use the same
-confined path completion, and simple command/path completion after one `|` is
-supported; quoted, escaped, option, and other compound-shell fragments remain
-deferred. Repeated Tab presses cycle through the candidates while preserving the
+the registry, session aliases, recent command names, and filesystem lookup
+remain Rust-owned and the bridge exposes only replacement tokens. Simple
+separated `<`/`>` redirection targets use the same confined path completion,
+and simple command/path completion after one `|` is supported; quoted, escaped,
+option, and other compound-shell fragments remain deferred. Repeated Tab presses cycle through the candidates while preserving the
 original replacement token, and Escape dismisses the completion state without
 injecting a control byte into the command line.
 It also has a focused command bar, keyboard-aware history controls (including

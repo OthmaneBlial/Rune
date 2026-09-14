@@ -414,7 +414,8 @@ return status 126 and never start a host compiler. Generated files can enter
 the VFS only as validated relative artifacts from an installed provider.
 
 Native completion asks the Rust session for replacement tokens. At the start
-of a line it returns built-in and installed-package command names; for
+of a line it returns built-in, session-alias, recent-history, and installed-
+package command names; for
 supported path-oriented
 commands it lists only entries in the bounded VFS, preserves virtual prefixes
 such as `~/` and `../`, marks directories with `/`, and caps results at eight.
