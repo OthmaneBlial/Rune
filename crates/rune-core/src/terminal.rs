@@ -1,9 +1,9 @@
 //! Bounded terminal-screen state for Rust-owned output handling.
 //!
 //! This is intentionally a small terminal grid rather than a claim of xterm
-//! compatibility. It provides the cursor and erase semantics needed by common
-//! command-line progress output while keeping all memory and parser state
-//! bounded and independent from Apple UI frameworks.
+//! compatibility. It provides the cursor, line insertion, scrolling, and erase
+//! semantics needed by common command-line progress output while keeping all
+//! memory and parser state bounded and independent from Apple UI frameworks.
 
 pub const DEFAULT_COLUMNS: usize = 120;
 pub const DEFAULT_ROWS: usize = 4_096;
@@ -271,6 +271,12 @@ impl TerminalScreen {
             }
             '7' => self.saved_cursor = self.cursor_position(),
             '8' => self.restore_cursor(),
+            'D' => self.index(),
+            'E' => {
+                self.cursor_column = 0;
+                self.index();
+            }
+            'M' => self.reverse_index(),
             'c' => self.reset(),
             _ => self.consume_ground(character),
         }
@@ -319,8 +325,12 @@ impl TerminalScreen {
             }
             'J' => self.erase_display(first(0)),
             'K' => self.erase_line(first(0)),
+            'L' => self.insert_lines(count()),
+            'M' => self.delete_lines(count()),
             'P' => self.delete_characters(count()),
             '@' => self.insert_characters(count()),
+            'S' => self.scroll_region_up_by(count()),
+            'T' => self.scroll_region_down_by(count()),
             'X' => self.erase_characters(count()),
             'r' => self.set_scroll_region(&values),
             's' => self.saved_cursor = self.cursor_position(),
@@ -341,12 +351,26 @@ impl TerminalScreen {
 
     fn line_feed(&mut self) {
         self.cursor_column = 0;
+        self.index();
+    }
+
+    fn index(&mut self) {
         if self.cursor_row < self.scroll_top || self.cursor_row > self.scroll_bottom {
             self.cursor_row = self.cursor_row.saturating_add(1).min(self.rows - 1);
         } else if self.cursor_row < self.scroll_bottom {
             self.cursor_row += 1;
         } else {
             self.scroll_region_up();
+        }
+    }
+
+    fn reverse_index(&mut self) {
+        if self.cursor_row < self.scroll_top || self.cursor_row > self.scroll_bottom {
+            self.cursor_row = self.cursor_row.saturating_sub(1);
+        } else if self.cursor_row > self.scroll_top {
+            self.cursor_row -= 1;
+        } else {
+            self.scroll_region_down_by(1);
         }
     }
 
@@ -360,10 +384,60 @@ impl TerminalScreen {
     }
 
     fn scroll_region_up(&mut self) {
+        self.scroll_region_up_by(1);
+    }
+
+    fn scroll_region_up_by(&mut self, amount: usize) {
         let region = &mut self.cells[self.scroll_top..=self.scroll_bottom];
-        region.rotate_left(1);
-        if let Some(last_row) = region.last_mut() {
-            last_row.fill(' ');
+        let amount = amount.min(region.len());
+        if amount == 0 {
+            return;
+        }
+        region.rotate_left(amount);
+        for row in region.iter_mut().rev().take(amount) {
+            row.fill(' ');
+        }
+    }
+
+    fn scroll_region_down_by(&mut self, amount: usize) {
+        let region = &mut self.cells[self.scroll_top..=self.scroll_bottom];
+        let amount = amount.min(region.len());
+        if amount == 0 {
+            return;
+        }
+        region.rotate_right(amount);
+        for row in region.iter_mut().take(amount) {
+            row.fill(' ');
+        }
+    }
+
+    fn insert_lines(&mut self, amount: usize) {
+        if self.cursor_row < self.scroll_top || self.cursor_row > self.scroll_bottom {
+            return;
+        }
+        let region = &mut self.cells[self.cursor_row..=self.scroll_bottom];
+        let amount = amount.min(region.len());
+        if amount == 0 {
+            return;
+        }
+        region.rotate_right(amount);
+        for row in region.iter_mut().take(amount) {
+            row.fill(' ');
+        }
+    }
+
+    fn delete_lines(&mut self, amount: usize) {
+        if self.cursor_row < self.scroll_top || self.cursor_row > self.scroll_bottom {
+            return;
+        }
+        let region = &mut self.cells[self.cursor_row..=self.scroll_bottom];
+        let amount = amount.min(region.len());
+        if amount == 0 {
+            return;
+        }
+        region.rotate_left(amount);
+        for row in region.iter_mut().rev().take(amount) {
+            row.fill(' ');
         }
     }
 
@@ -529,6 +603,42 @@ mod tests {
         screen.reset();
         screen.feed("abc\x1b[1G\x1b[0@z");
         assert_eq!(screen.snapshot(), "zabc");
+    }
+
+    #[test]
+    fn inserts_and_deletes_lines_inside_the_active_scroll_region() {
+        let mut screen = TerminalScreen::new(8, 4);
+        screen.feed("a\nb\nc\nd");
+        screen.feed("\x1b[2;1H\x1b[LX");
+        assert_eq!(screen.snapshot(), "a\nX\nb\nc");
+
+        screen.reset();
+        screen.feed("a\nb\nc\nd");
+        screen.feed("\x1b[2;1H\x1b[2M");
+        assert_eq!(screen.snapshot(), "a\nd");
+    }
+
+    #[test]
+    fn scrolls_a_configured_region_up_or_down_without_moving_the_cursor() {
+        let mut screen = TerminalScreen::new(8, 4);
+        screen.feed("a\nb\nc\nd");
+        screen.feed("\x1b[2;3r\x1b[2S");
+        assert_eq!(screen.snapshot(), "a\n\n\nd");
+
+        screen.reset();
+        screen.feed("a\nb\nc\nd");
+        screen.feed("\x1b[2;3r\x1b[T");
+        assert_eq!(screen.snapshot(), "a\n\nb\nd");
+    }
+
+    #[test]
+    fn supports_index_and_reverse_index_escape_controls() {
+        let mut screen = TerminalScreen::new(8, 3);
+        screen.feed("ab\x1bDc");
+        assert_eq!(screen.snapshot(), "ab\n  c");
+        screen.reset();
+        screen.feed("a\nb\nc\x1b[1;1H\x1bMtop");
+        assert_eq!(screen.snapshot(), "top\na\nb");
     }
 
     #[test]

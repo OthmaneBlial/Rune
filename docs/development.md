@@ -152,8 +152,9 @@ source-level incremental rendering path, not Apple runtime behavior or
 byte-level WASM streaming.
 The Rust session feeds those same bounded output events into its own terminal
 cursor grid before forwarding them to the caller, preserving CSI/OSC parser
-state across chunk boundaries and bounded `CSI r` scroll regions without
-replaying the aggregate response. Session persistence separately writes a
+state across chunk boundaries, bounded `CSI r` scroll regions, line insertion /
+deletion (`L`/`M`), and region scrolling (`S`/`T`) without replaying the
+aggregate response. Session persistence separately writes a
 bounded visible-text window and zero-based cursor position to `terminal.state`;
 styles, scroll margins, and incomplete control sequences are not serialized.
 The source-only terminal viewport sends bounded geometry updates back through
