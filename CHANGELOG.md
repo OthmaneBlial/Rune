@@ -4,6 +4,13 @@ All notable public changes to Rune are documented here. The project is
 pre-1.0; entries describe verified repository behavior and do not imply an
 iOS runtime release.
 
+## [Unreleased]
+
+### Added
+
+- Bounded alternate terminal screen support through `CSI ?1049h` / `CSI
+  ?1049l`, including primary-screen restoration after viewport resizing.
+
 ## [0.1.0-alpha.2] - 2026-09-14
 
 ### Added

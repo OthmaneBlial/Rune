@@ -22,6 +22,19 @@ enum ParserState {
     Osc { bytes: usize, escaped: bool },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AlternateScreenBackup {
+    columns: usize,
+    rows: usize,
+    cells: Vec<Vec<char>>,
+    cursor_row: usize,
+    cursor_column: usize,
+    saved_cursor: (usize, usize),
+    scroll_top: usize,
+    scroll_bottom: usize,
+    last_written: Option<char>,
+}
+
 /// A bounded, text-only terminal state suitable for session persistence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PersistedTerminal {
@@ -41,6 +54,7 @@ pub struct TerminalScreen {
     cursor_column: usize,
     cursor_visible: bool,
     last_written: Option<char>,
+    alternate_backup: Option<AlternateScreenBackup>,
     saved_cursor: (usize, usize),
     scroll_top: usize,
     scroll_bottom: usize,
@@ -67,6 +81,7 @@ impl TerminalScreen {
             cursor_column: 0,
             cursor_visible: true,
             last_written: None,
+            alternate_backup: None,
             saved_cursor: (0, 0),
             scroll_top: 0,
             scroll_bottom: rows - 1,
@@ -95,6 +110,60 @@ impl TerminalScreen {
         self.scroll_top = 0;
         self.scroll_bottom = self.rows - 1;
         self.parser = ParserState::Ground;
+    }
+
+    fn enter_alternate_screen(&mut self) {
+        if self.alternate_backup.is_some() {
+            return;
+        }
+        self.alternate_backup = Some(AlternateScreenBackup {
+            columns: self.columns,
+            rows: self.rows,
+            cells: std::mem::take(&mut self.cells),
+            cursor_row: self.cursor_row,
+            cursor_column: self.cursor_column,
+            saved_cursor: self.saved_cursor,
+            scroll_top: self.scroll_top,
+            scroll_bottom: self.scroll_bottom,
+            last_written: self.last_written,
+        });
+        self.cells = vec![vec![' '; self.columns]; self.rows];
+        self.cursor_row = 0;
+        self.cursor_column = 0;
+        self.saved_cursor = (0, 0);
+        self.scroll_top = 0;
+        self.scroll_bottom = self.rows - 1;
+        self.last_written = None;
+    }
+
+    fn leave_alternate_screen(&mut self) {
+        let Some(backup) = self.alternate_backup.take() else {
+            return;
+        };
+        let (cells, source_start) = resize_cells(
+            &backup.cells,
+            backup.columns,
+            backup.rows,
+            self.columns,
+            self.rows,
+        );
+        self.cells = cells;
+        self.cursor_row = backup
+            .cursor_row
+            .saturating_sub(source_start)
+            .min(self.rows - 1);
+        self.cursor_column = backup.cursor_column.min(self.columns);
+        self.saved_cursor = (
+            backup
+                .saved_cursor
+                .0
+                .saturating_sub(source_start)
+                .min(self.rows - 1),
+            backup.saved_cursor.1.min(self.columns),
+        );
+        self.scroll_top = backup.scroll_top.min(self.rows - 1);
+        self.scroll_bottom = backup.scroll_bottom.min(self.rows - 1).max(self.scroll_top);
+        self.last_written = backup.last_written;
     }
 
     /// Returns the visible rows through the last non-blank row.
@@ -361,6 +430,8 @@ impl TerminalScreen {
             }
             'h' if values.first() == Some(&25) => self.cursor_visible = true,
             'l' if values.first() == Some(&25) => self.cursor_visible = false,
+            'h' if values.first() == Some(&1049) => self.enter_alternate_screen(),
+            'l' if values.first() == Some(&1049) => self.leave_alternate_screen(),
             'r' => self.set_scroll_region(&values),
             's' => self.saved_cursor = self.cursor_position(),
             'u' => self.restore_cursor(),
@@ -578,6 +649,28 @@ impl TerminalScreen {
     }
 }
 
+fn resize_cells(
+    old_cells: &[Vec<char>],
+    old_columns: usize,
+    old_rows: usize,
+    columns: usize,
+    rows: usize,
+) -> (Vec<Vec<char>>, usize) {
+    let active_end = old_cells
+        .iter()
+        .rposition(|row| row.iter().any(|character| *character != ' '))
+        .unwrap_or(old_rows.saturating_sub(1));
+    let source_start = active_end.saturating_add(1).saturating_sub(rows);
+    let copied_rows = rows.min(old_rows.saturating_sub(source_start));
+    let copied_columns = old_columns.min(columns);
+    let mut cells = vec![vec![' '; columns]; rows];
+    for (index, destination) in cells.iter_mut().enumerate().take(copied_rows) {
+        let source_row = source_start + index;
+        destination[..copied_columns].copy_from_slice(&old_cells[source_row][..copied_columns]);
+    }
+    (cells, source_start)
+}
+
 fn is_csi_final(character: char) -> bool {
     ('@'..='~').contains(&character)
 }
@@ -627,6 +720,31 @@ mod tests {
         let mut screen = TerminalScreen::new(8, 2);
         screen.feed("x\x1b[3b");
         assert_eq!(screen.snapshot(), "xxxx");
+        assert_eq!(screen.cursor_position(), (0, 4));
+    }
+
+    #[test]
+    fn switches_to_a_bounded_alternate_screen_and_restores_primary_text() {
+        let mut screen = TerminalScreen::new(12, 3);
+        screen.feed("primary");
+        screen.feed("\x1b[?1049h");
+        assert_eq!(screen.snapshot(), "");
+        screen.feed("alternate");
+        assert_eq!(screen.snapshot(), "alternate");
+
+        screen.feed("\x1b[?1049l");
+        assert_eq!(screen.snapshot(), "primary");
+        assert_eq!(screen.cursor_position(), (0, 7));
+    }
+
+    #[test]
+    fn restores_alternate_screen_backup_after_a_resize() {
+        let mut screen = TerminalScreen::new(8, 2);
+        screen.feed("primary");
+        screen.feed("\x1b[?1049halt");
+        screen.resize(4, 2);
+        screen.feed("\x1b[?1049l");
+        assert_eq!(screen.snapshot(), "prim");
         assert_eq!(screen.cursor_position(), (0, 4));
     }
 
