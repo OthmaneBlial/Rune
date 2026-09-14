@@ -148,10 +148,11 @@ uses the legacy default state file; additional tabs receive bounded opaque Rust
 session IDs and persist their cwd/history/bookmarks below
 `~/.rune/sessions/{id}/session.state`. This keeps tab state separate without
 duplicating shell behavior in Swift. A bounded UserDefaults record now restores
-tab titles and Rust session IDs across launches without persisting external
-paths or security-scoped bookmark bytes. The named `WindowGroup` accepts a
-typed `RuneWindowRoute`; each additional iPad window receives a distinct Rust
-session namespace and tab-metadata key. This is source/API evidence only:
+tab titles, Rust session IDs, and the selected tab across launches without
+persisting external paths or security-scoped bookmark bytes. The named
+`WindowGroup` accepts a typed `RuneWindowRoute`; each additional iPad window
+receives a distinct Rust session namespace, tab-metadata key, and selected-tab
+key. This is source/API evidence only:
 tab rendering, lifecycle behavior, scene restoration, and Apple runtime
 integration remain unverified.
 

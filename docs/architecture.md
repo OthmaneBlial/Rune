@@ -228,8 +228,9 @@ tab and named Rust sessions for additional tabs. Swift owns tab selection and
 presentation; Rust owns each tab's shell state and persistence. Swift persists
 only bounded tab metadata in UserDefaults, excluding external paths and Apple
 bookmark bytes. The named WindowGroup accepts a typed window route: each
-additional iPad window receives its own Rust session namespace and its own
-bounded tab metadata key, while the default window preserves the legacy key.
+additional iPad window receives its own Rust session namespace, bounded tab
+metadata key, and selected-tab key, while the default window preserves the
+legacy key.
 This is source/API evidence for routing; it does not yet prove SwiftUI
 lifecycle behavior, scene restoration, or device runtime behavior.
 

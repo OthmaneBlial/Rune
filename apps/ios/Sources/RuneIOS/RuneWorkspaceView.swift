@@ -32,6 +32,7 @@ public struct RuneWorkspaceView: View {
     private static let maximumTitleCharacters = 64
 
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.scenePhase) private var scenePhase
     @State private var tabs: [RuneWorkspaceTab]
     @State private var selectedTabID: UUID
     private let rootURL: URL?
@@ -52,7 +53,12 @@ public struct RuneWorkspaceView: View {
             storageKey: storageKey
         )
         _tabs = State(initialValue: restoredTabs)
-        _selectedTabID = State(initialValue: restoredTabs[0].id)
+        _selectedTabID = State(
+            initialValue: Self.restoreSelectedTabID(
+                tabs: restoredTabs,
+                storageKey: storageKey
+            )
+        )
     }
 
     public var body: some View {
@@ -129,6 +135,14 @@ public struct RuneWorkspaceView: View {
         .onChange(of: tabs) { _, _ in
             persistTabs()
         }
+        .onChange(of: selectedTabID) { _, _ in
+            persistSelectedTab()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase != .active else { return }
+            persistTabs()
+            persistSelectedTab()
+        }
     }
 
     private func addTab() {
@@ -159,6 +173,14 @@ public struct RuneWorkspaceView: View {
         }
         guard let data = try? JSONEncoder().encode(stored) else { return }
         UserDefaults.standard.set(data, forKey: storageKey)
+        persistSelectedTab()
+    }
+
+    private func persistSelectedTab() {
+        UserDefaults.standard.set(
+            selectedTabID.uuidString,
+            forKey: Self.selectedTabStorageKey(for: storageKey)
+        )
     }
 
     private static func restoreTabs(
@@ -192,6 +214,22 @@ public struct RuneWorkspaceView: View {
         return valid.map {
             RuneWorkspaceTab(id: $0.id, title: $0.title, rootURL: rootURL, sessionID: $0.sessionID)
         }
+    }
+
+    private static func restoreSelectedTabID(
+        tabs: [RuneWorkspaceTab],
+        storageKey: String
+    ) -> UUID {
+        guard let rawID = UserDefaults.standard.string(forKey: selectedTabStorageKey(for: storageKey)),
+              let selectedID = UUID(uuidString: rawID),
+              tabs.contains(where: { $0.id == selectedID }) else {
+            return tabs[0].id
+        }
+        return selectedID
+    }
+
+    private static func selectedTabStorageKey(for storageKey: String) -> String {
+        storageKey + ".selected-tab"
     }
 
     private static func storageKey(for sessionID: String?) -> String {

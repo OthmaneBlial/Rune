@@ -26,7 +26,7 @@ working iOS application or a feature-parity claim.
 | Sessions/history | 70% |
 | Configuration | 75% |
 | WASM | 52% |
-| Native iOS UI | 72% |
+| Native iOS UI | 73% |
 | Swift/Rust bridge | 64% |
 | Package manager | 66% |
 | Compatibility evidence | 3% |
@@ -345,7 +345,8 @@ The source-only Swift workspace uses this FFI boundary for independent
 terminal tabs. Rust persists each named session's state, while Swift persists
 only bounded tab metadata and does not store external paths or bookmark bytes;
 the named WindowGroup routes additional windows to independent Rust session
-namespaces and separate tab metadata. SwiftUI rendering, scene restoration,
+namespaces and separate tab metadata; each window also restores its selected
+tab from a bounded route-specific key. SwiftUI rendering, scene restoration,
 iPad runtime behavior, and Apple runtime behavior remain unverified without an
 Apple build toolchain.
 
