@@ -262,7 +262,8 @@ is source-level performance evidence;
 Apple frame-time and device-memory measurements remain unverified.
 
 In parallel, `rune-core` maintains a bounded cursor grid with streaming
-CSI/OSC parsing, cursor addressing, scrolling, and character/line erasure;
+CSI/OSC parsing, cursor addressing, bounded scroll regions, and
+character/line erasure;
 `rune_session_terminal_snapshot` and `rune_session_terminal_cursor` expose
 its visible text and zero-based caret position through the C ABI.
 The Swift terminal view can switch to a source-only screen surface that draws

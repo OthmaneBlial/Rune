@@ -29,6 +29,8 @@ pub struct TerminalScreen {
     cursor_row: usize,
     cursor_column: usize,
     saved_cursor: (usize, usize),
+    scroll_top: usize,
+    scroll_bottom: usize,
     parser: ParserState,
 }
 
@@ -51,6 +53,8 @@ impl TerminalScreen {
             cursor_row: 0,
             cursor_column: 0,
             saved_cursor: (0, 0),
+            scroll_top: 0,
+            scroll_bottom: rows - 1,
             parser: ParserState::Ground,
         }
     }
@@ -71,6 +75,8 @@ impl TerminalScreen {
         self.cursor_row = 0;
         self.cursor_column = 0;
         self.saved_cursor = (0, 0);
+        self.scroll_top = 0;
+        self.scroll_bottom = self.rows - 1;
         self.parser = ParserState::Ground;
     }
 
@@ -216,6 +222,7 @@ impl TerminalScreen {
             'P' => self.delete_characters(first(1)),
             '@' => self.insert_characters(first(1)),
             'X' => self.erase_characters(first(1)),
+            'r' => self.set_scroll_region(&values),
             's' => self.saved_cursor = self.cursor_position(),
             'u' => self.restore_cursor(),
             // SGR and mode changes are intentionally state-free here. The
@@ -234,26 +241,42 @@ impl TerminalScreen {
 
     fn line_feed(&mut self) {
         self.cursor_column = 0;
-        if self.cursor_row + 1 < self.rows {
+        if self.cursor_row < self.scroll_top || self.cursor_row > self.scroll_bottom {
+            self.cursor_row = self.cursor_row.saturating_add(1).min(self.rows - 1);
+        } else if self.cursor_row < self.scroll_bottom {
             self.cursor_row += 1;
         } else {
-            self.cells.remove(0);
-            self.cells.push(vec![' '; self.columns]);
+            self.scroll_region_up();
         }
     }
 
     fn cursor_down(&mut self, amount: usize) {
-        let target = self.cursor_row.saturating_add(amount);
-        if target < self.rows {
-            self.cursor_row = target;
+        let limit = if (self.scroll_top..=self.scroll_bottom).contains(&self.cursor_row) {
+            self.scroll_bottom
+        } else {
+            self.rows - 1
+        };
+        self.cursor_row = self.cursor_row.saturating_add(amount).min(limit);
+    }
+
+    fn scroll_region_up(&mut self) {
+        let region = &mut self.cells[self.scroll_top..=self.scroll_bottom];
+        region.rotate_left(1);
+        if let Some(last_row) = region.last_mut() {
+            last_row.fill(' ');
+        }
+    }
+
+    fn set_scroll_region(&mut self, values: &[usize]) {
+        let top = values.first().copied().unwrap_or(1);
+        let bottom = values.get(1).copied().unwrap_or(self.rows);
+        if top == 0 || bottom == 0 || top > bottom || bottom > self.rows {
             return;
         }
-        let scroll = target - (self.rows - 1);
-        for _ in 0..scroll.min(self.rows) {
-            self.cells.remove(0);
-            self.cells.push(vec![' '; self.columns]);
-        }
-        self.cursor_row = self.rows - 1;
+        self.scroll_top = top - 1;
+        self.scroll_bottom = bottom - 1;
+        self.cursor_row = 0;
+        self.cursor_column = 0;
     }
 
     fn restore_cursor(&mut self) {
@@ -374,6 +397,19 @@ mod tests {
         assert_eq!(screen.snapshot(), "a  bcdef\n123");
         screen.feed("\x1b[1;2H\x1b[2P");
         assert_eq!(screen.snapshot(), "abcdef\n123");
+    }
+
+    #[test]
+    fn scrolls_only_inside_a_configured_region_and_resets_on_full_reset() {
+        let mut screen = TerminalScreen::new(8, 4);
+        screen.feed("a\nb\nc\nd");
+        screen.feed("\x1b[2;3r");
+        assert_eq!(screen.cursor_position(), (0, 0));
+        screen.feed("\x1b[2;1HX\nY\nZ");
+        assert_eq!(screen.snapshot(), "a\nY\nZ\nd");
+        screen.feed("\x1bc");
+        screen.feed("reset");
+        assert_eq!(screen.snapshot(), "reset");
     }
 
     #[test]

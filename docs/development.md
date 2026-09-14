@@ -152,8 +152,9 @@ source-level incremental rendering path, not Apple runtime behavior or
 byte-level WASM streaming.
 The Rust session feeds those same bounded output events into its own terminal
 cursor grid before forwarding them to the caller, preserving CSI/OSC parser
-state across chunk boundaries without replaying the aggregate response. The
-exposed snapshot is visible text only; Swift still owns event-local ANSI style
+state across chunk boundaries and bounded `CSI r` scroll regions without
+replaying the aggregate response. The exposed snapshot is visible text only;
+Swift still owns event-local ANSI style
 rendering and has not yet replaced its line-oriented transcript with a full
 terminal surface.
 The Swift transcript stores parsed ANSI spans once per immutable transcript

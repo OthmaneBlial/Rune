@@ -204,7 +204,8 @@ for common SGR foreground/background colors, 256-color/RGB colors, bold,
 underline, and inverse output. Common carriage-return, backspace, and
 erase-line controls are normalized for progress-style output. Rust now also
 maintains a bounded cursor grid with split-chunk CSI/OSC parsing, cursor
-addressing, scrolling, character insertion/deletion, and `J`/`K` erasure;
+addressing, scrolling (including bounded `CSI r` regions), character
+insertion/deletion, and `J`/`K` erasure;
 the native bridge exposes its visible snapshot and zero-based cursor position.
 Swift defaults to its
 line-oriented styled transcript and also offers a source-only Rust screen view
