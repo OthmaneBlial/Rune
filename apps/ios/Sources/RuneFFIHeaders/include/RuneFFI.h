@@ -132,6 +132,7 @@ typedef bool (*RuneClipboardWriteCallback)(
     size_t length
 );
 
+// Handles a validated URL or confined file. target_kind is one of RUNE_OPEN_*.
 typedef bool (*RuneOpenCallback)(
     void *user_data,
     const char *target,
@@ -140,6 +141,8 @@ typedef bool (*RuneOpenCallback)(
 
 #define RUNE_OPEN_URL 1
 #define RUNE_OPEN_FILE 2
+#define RUNE_OPEN_PLAY 3
+#define RUNE_OPEN_VIEW 4
 
 void *rune_session_new(const char *root);
 // Create a session with an independent bounded persistence namespace.

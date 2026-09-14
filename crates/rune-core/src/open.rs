@@ -9,7 +9,7 @@ use std::fmt::{Display, Formatter};
 /// Maximum UTF-8 target size accepted by `open` and `openurl`.
 pub const MAX_OPEN_TARGET_BYTES: usize = 8 * 1024;
 
-/// Kind of target passed to a host external-open provider.
+/// Kind of target passed to a host external-interaction provider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum OpenTargetKind {
@@ -18,6 +18,10 @@ pub enum OpenTargetKind {
     /// An existing confined regular file or directory represented by its
     /// approved host path.
     File = 2,
+    /// An existing confined media file to play through the host.
+    Play = 3,
+    /// An existing confined file to preview through the host.
+    View = 4,
 }
 
 /// One validated target sent to an explicit host provider.
@@ -53,9 +57,9 @@ impl Display for OpenError {
 
 impl std::error::Error for OpenError {}
 
-/// Host capability used by `open` and `openurl`.
+/// Host capability used by `open`, `openurl`, `play`, and `view`.
 pub trait OpenProvider {
-    /// Opens one already-validated URL or confined host file path.
+    /// Handles one already-validated URL or confined host file interaction.
     ///
     /// # Errors
     ///

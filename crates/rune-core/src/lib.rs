@@ -4816,9 +4816,13 @@ mod tests {
         assert_eq!(opened_file.status, 0);
         let opened_url = session.execute_line("openurl https://example.test/docs");
         assert_eq!(opened_url.status, 0);
+        let played_file = session.execute_line("play note.txt");
+        assert_eq!(played_file.status, 0);
+        let viewed_file = session.execute_line("view note.txt");
+        assert_eq!(viewed_file.status, 0);
 
         let recorded = requests.lock().expect("open request log lock");
-        assert_eq!(recorded.len(), 2);
+        assert_eq!(recorded.len(), 4);
         assert_eq!(recorded[0].kind, OpenTargetKind::File);
         let expected_file_path =
             std::fs::canonicalize(root.join("note.txt")).expect("file path canonicalized");
@@ -4828,6 +4832,16 @@ mod tests {
         );
         assert_eq!(recorded[1].kind, OpenTargetKind::Url);
         assert_eq!(recorded[1].target, "https://example.test/docs");
+        assert_eq!(recorded[2].kind, OpenTargetKind::Play);
+        assert_eq!(
+            recorded[2].target,
+            expected_file_path.to_string_lossy().as_ref()
+        );
+        assert_eq!(recorded[3].kind, OpenTargetKind::View);
+        assert_eq!(
+            recorded[3].target,
+            expected_file_path.to_string_lossy().as_ref()
+        );
         drop(recorded);
 
         let invalid_scheme = session.execute_line("openurl ftp://example.test/file");
@@ -4835,7 +4849,7 @@ mod tests {
         let escaped = session.execute_line("open ../outside.txt");
         assert_eq!(escaped.status, 1);
         assert!(escaped.stderr.contains("sandbox"));
-        assert_eq!(requests.lock().expect("open request log lock").len(), 2);
+        assert_eq!(requests.lock().expect("open request log lock").len(), 4);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 
@@ -4875,12 +4889,23 @@ mod tests {
             requests: Arc::clone(&requests),
         }));
 
+        assert_eq!(session.execute_line("mkdir folder").status, 0);
+        assert_eq!(session.execute_line("ln -s folder folder-link").status, 0);
         let invalid_url = session.execute_line("openurl https://");
         assert_eq!(invalid_url.status, 2);
         assert!(invalid_url.stderr.contains("host"));
         let invalid_scheme = session.execute_line("openurl javascript:alert");
         assert_eq!(invalid_scheme.status, 2);
         assert!(invalid_scheme.stderr.contains("not allowed"));
+        let missing_media = session.execute_line("play missing.mp4");
+        assert_eq!(missing_media.status, 1);
+        assert!(missing_media.stderr.contains("no such file"));
+        let directory_preview = session.execute_line("view .");
+        assert_eq!(directory_preview.status, 1);
+        assert!(directory_preview.stderr.contains("directory"));
+        let symlink_directory_preview = session.execute_line("view folder-link");
+        assert_eq!(symlink_directory_preview.status, 1);
+        assert!(symlink_directory_preview.stderr.contains("directory"));
         assert!(requests.lock().expect("open request log lock").is_empty());
 
         let disabled = Session::new(SandboxedFileSystem::new(&root).expect("root reopened"))

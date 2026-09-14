@@ -202,13 +202,17 @@ pub type RuneClipboardReadCallback = Option<
 pub type RuneClipboardWriteCallback =
     Option<unsafe extern "C" fn(user_data: *mut c_void, text: *const u8, length: usize) -> bool>;
 
-/// Native callback for opening a validated URL or confined host file path.
+/// Native callback for opening a validated URL or handling a confined host
+/// file. `target_kind` is one of the `RUNE_OPEN_*` constants and distinguishes
+/// normal opening, playback, and preview.
 pub type RuneOpenCallback = Option<
     unsafe extern "C" fn(user_data: *mut c_void, target: *const c_char, target_kind: i32) -> bool,
 >;
 
 pub const RUNE_OPEN_URL: i32 = 1;
 pub const RUNE_OPEN_FILE: i32 = 2;
+pub const RUNE_OPEN_PLAY: i32 = 3;
+pub const RUNE_OPEN_VIEW: i32 = 4;
 
 struct CallbackNetworkProvider {
     callback: unsafe extern "C" fn(
@@ -1562,9 +1566,9 @@ mod tests {
         rune_session_terminal_snapshot, rune_string_free, RuneClipboardResponse, RuneEvent,
         RuneNetworkResponse, RuneTerminalCursor, RuneToolchainArtifactBuffer,
         RuneToolchainEnvironmentEntry, RuneToolchainResponse, RuneToolchainSlice,
-        RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS, RUNE_OPEN_FILE, RUNE_OPEN_URL,
-        RUNE_SESSION_ACTION_EXIT, RUNE_SESSION_ACTION_NEW_WINDOW, RUNE_SESSION_ACTION_NONE,
-        RUNE_SESSION_ACTION_PICK_FOLDER, RUNE_TOOLCHAIN_C,
+        RUNE_EVENT_OUTPUT, RUNE_EVENT_STATUS, RUNE_OPEN_FILE, RUNE_OPEN_PLAY, RUNE_OPEN_URL,
+        RUNE_OPEN_VIEW, RUNE_SESSION_ACTION_EXIT, RUNE_SESSION_ACTION_NEW_WINDOW,
+        RUNE_SESSION_ACTION_NONE, RUNE_SESSION_ACTION_PICK_FOLDER, RUNE_TOOLCHAIN_C,
     };
     use rune_core::MAX_EVENT_CHUNK_BYTES;
     use std::ffi::{c_void, CStr, CString};
@@ -2495,13 +2499,31 @@ mod tests {
             rune_string_free(output.stdout);
             rune_string_free(output.stderr);
         }
-        assert_eq!(state.targets.len(), 2);
+        let play_command = CString::new("play note.txt").expect("valid play command");
+        let output = rune_session_execute(handle, play_command.as_ptr());
+        assert_eq!(output.status, 0);
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+        let view_command = CString::new("view note.txt").expect("valid view command");
+        let output = rune_session_execute(handle, view_command.as_ptr());
+        assert_eq!(output.status, 0);
+        unsafe {
+            rune_string_free(output.stdout);
+            rune_string_free(output.stderr);
+        }
+        assert_eq!(state.targets.len(), 4);
         assert_eq!(state.targets[0].0, RUNE_OPEN_FILE);
         assert!(state.targets[0].1.ends_with("/note.txt"));
         assert_eq!(
             state.targets[1],
             (RUNE_OPEN_URL, "shortcuts://run-shortcut".to_string())
         );
+        assert_eq!(state.targets[2].0, RUNE_OPEN_PLAY);
+        assert!(state.targets[2].1.ends_with("/note.txt"));
+        assert_eq!(state.targets[3].0, RUNE_OPEN_VIEW);
+        assert!(state.targets[3].1.ends_with("/note.txt"));
 
         assert_eq!(
             rune_session_set_open_callback(handle, None, std::ptr::null_mut()),

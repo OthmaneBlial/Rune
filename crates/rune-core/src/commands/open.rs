@@ -9,6 +9,14 @@ pub(super) fn openurl(context: &mut CommandContext<'_>) -> CommandOutput {
     open_target(context, "openurl", false)
 }
 
+pub(super) fn play(context: &mut CommandContext<'_>) -> CommandOutput {
+    open_file_target(context, "play", OpenTargetKind::Play)
+}
+
+pub(super) fn view(context: &mut CommandContext<'_>) -> CommandOutput {
+    open_file_target(context, "view", OpenTargetKind::View)
+}
+
 fn open_target(context: &mut CommandContext<'_>, command: &str, allow_file: bool) -> CommandOutput {
     if context.args.is_empty() {
         return usage(command, &format!("usage: {command} TARGET"));
@@ -19,20 +27,13 @@ fn open_target(context: &mut CommandContext<'_>, command: &str, allow_file: bool
     }
 
     let request = if allow_file && !has_url_scheme(&target) {
-        let host_path = match context.fs.host_path(&target) {
-            Ok(Some(path)) => path,
-            Ok(None) => return failure(command, &OpenError::FileUnavailable),
-            Err(error) => return CommandOutput::failure(1, format!("{command}: {error}\n")),
+        let host_path = match validated_host_file(context, command, &target, false) {
+            Ok(path) => path,
+            Err(output) => return output,
         };
-        let Some(host_path) = host_path.to_str() else {
-            return failure(command, &OpenError::FileUnavailable);
-        };
-        if let Err(error) = validate_target_size(host_path) {
-            return invalid_target(command, &error);
-        }
         OpenRequest {
             kind: OpenTargetKind::File,
-            target: host_path.to_string(),
+            target: host_path,
         }
     } else {
         if let Err(error) = validate_url_target(&target) {
@@ -48,6 +49,65 @@ fn open_target(context: &mut CommandContext<'_>, command: &str, allow_file: bool
         |error| failure(command, &error),
         |()| CommandOutput::success(""),
     )
+}
+
+fn open_file_target(
+    context: &mut CommandContext<'_>,
+    command: &str,
+    kind: OpenTargetKind,
+) -> CommandOutput {
+    if context.args.len() != 1 {
+        return usage(command, &format!("usage: {command} FILE"));
+    }
+    let target = context.args[0].clone();
+    let host_path = match validated_host_file(context, command, &target, true) {
+        Ok(path) => path,
+        Err(output) => return output,
+    };
+    context
+        .opener
+        .open(&OpenRequest {
+            kind,
+            target: host_path,
+        })
+        .map_or_else(
+            |error| failure(command, &error),
+            |()| CommandOutput::success(""),
+        )
+}
+
+fn validated_host_file(
+    context: &mut CommandContext<'_>,
+    command: &str,
+    target: &str,
+    regular_file_only: bool,
+) -> Result<String, CommandOutput> {
+    let host_path = match context.fs.host_path(target) {
+        Ok(Some(path)) => path,
+        Ok(None) => return Err(failure(command, &OpenError::FileUnavailable)),
+        Err(error) => return Err(CommandOutput::failure(1, format!("{command}: {error}\n"))),
+    };
+    if regular_file_only {
+        let canonical_target = match context.fs.canonical_path(target) {
+            Ok(path) => path,
+            Err(error) => return Err(CommandOutput::failure(1, format!("{command}: {error}\n"))),
+        };
+        let info = match context.fs.metadata(&canonical_target) {
+            Ok(info) => info,
+            Err(error) => return Err(CommandOutput::failure(1, format!("{command}: {error}\n"))),
+        };
+        if info.is_directory {
+            return Err(CommandOutput::failure(
+                1,
+                format!("{command}: target is a directory, not a regular file\n"),
+            ));
+        }
+    }
+    let Some(host_path) = host_path.to_str() else {
+        return Err(failure(command, &OpenError::FileUnavailable));
+    };
+    validate_target_size(host_path).map_err(|error| invalid_target(command, &error))?;
+    Ok(host_path.to_string())
 }
 
 fn has_url_scheme(target: &str) -> bool {

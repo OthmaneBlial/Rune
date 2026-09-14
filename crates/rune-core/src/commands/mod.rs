@@ -425,6 +425,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         handler: shell::pick_folder,
     },
     CommandDefinition {
+        name: "play",
+        summary: "play a confined media file through the host",
+        handler: open::play,
+    },
+    CommandDefinition {
         name: "rm",
         summary: "remove files or directories",
         handler: filesystem::rm,
@@ -603,6 +608,11 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
         name: "wasm",
         summary: "run a bounded WASI preview1 module",
         handler: wasm::wasm,
+    },
+    CommandDefinition {
+        name: "view",
+        summary: "preview a confined file through the host",
+        handler: open::view,
     },
     CommandDefinition {
         name: "xargs",

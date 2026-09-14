@@ -43,7 +43,7 @@ the supported built-in commands `pwd`, `cd`, `ls`, `cat`, `base64`, `bc`, `cksum
 `bookmark`, `showmarks`, `jump`, `renamemark`, `deletemark`, `clear`, `config`,
 `apropos`, `help`, `history`, `sleep`, `uname`, `which`, `whoami`, `xargs`, `pbcopy`, `pbpaste`,
 `test`, `[`, `source`, `.`, `sh`, `dash`, `return`, `local`, `shift`, `set`, `exit`,
-`newWindow`, `new-window`, `pickFolder`, and the short bookmark aliases `s`,
+`newWindow`, `new-window`, `pickFolder`, `open`, `openurl`, `play`, `view`, and the short bookmark aliases `s`,
 `g`, `l`, `p`, `r`, and `d` against a
 bounded filesystem,
 including basic `*`/`?` pathname
@@ -311,9 +311,12 @@ WHOIS socket implementation; live RDAP routing and server behavior remain
 runtime/provider gates.
 The open and openurl commands validate approved URL schemes or existing
 confined VFS files/directories, then call an explicit host-open capability.
-The default CLI has no launcher, and the source-only Apple adapter schedules
-UIKit opening on the main queue; it does not expose arbitrary host paths or
-claim completion before Apple runtime validation.
+`play FILE` and `view FILE` use the same confined-file validation but select
+explicit playback and preview target kinds for the host. The default CLI has
+no launcher, and the source-only Apple adapter schedules UIKit opening,
+AVPlayer playback, or Quick Look preview on the main queue when those Apple
+frameworks are available; it does not expose arbitrary host paths or claim
+completion before Apple runtime validation.
 
 The Rust core also provides bounded `ar -rcs`/`ar t`/`ar x` member archives,
 zip -r ARCHIVE FILE ..., unzip ARCHIVE [DESTINATION], unzip -l ARCHIVE
@@ -655,6 +658,7 @@ result.
 - [x] Source-only terminal viewport sizing through Rust
 - [x] Source-only external folders and bounded security-scoped bookmarks
 - [x] Explicit host URL/file opening capability with bounded open/openurl
+- [x] Source-only host media playback and file preview boundary (`play`/`view`)
 - [x] Rust-namespaced sessions and source-only terminal tabs
 - [x] Versioned non-secret Rust session snapshot through the FFI
 - [x] Source-only typed iPad window routing

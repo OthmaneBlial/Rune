@@ -111,10 +111,12 @@ there is no ambient socket access for the core or WASM. This is source/API
 evidence only: URLSession, ATS configuration, TLS, redirects, and runtime
 behavior remain unverified without an Apple build.
 The bridge also installs an explicit external-open callback. Rust validates
-approved URL schemes and confined file targets; RuneOpenBridge.swift hands
-those accepted targets to UIKit on the main queue. The callback is an
-asynchronous host acceptance boundary, so URL routing and document opening
-remain unverified without an Apple runtime.
+approved URL schemes and confined file targets; `open` uses the normal file or
+URL target, while `play` and `view` use explicit media/playback and preview
+target kinds. RuneOpenBridge.swift hands those accepted targets to UIKit,
+AVPlayer, or Quick Look on the main queue when available. The callback is an
+asynchronous host acceptance boundary, so URL routing, document/media handling,
+and completion remain unverified without an Apple runtime.
 `RuneFFI.h` and `RuneCoreBridge.swift` also describe the explicit C/C++/TeX
 toolchain callback. It provides Rune-owned output buffers and an aggregate
 artifact arena, so a future provider can return copied, validated artifacts
@@ -204,8 +206,9 @@ source-only session labeling.
 
 ## Current evidence
 
-RuneOpenBridge.swift provides the source-only UIKit adapter for the Rust
-open/openurl capability; the portable CLI remains launcher-disabled by default.
+RuneOpenBridge.swift provides the source-only UIKit/AVPlayer/Quick Look adapter
+for the Rust open/openurl/play/view capability; the portable CLI remains
+launcher-disabled by default.
 
 - `Package.swift` is a source/package boundary.
 - `RuneFFI.h` documents the C ABI layout.

@@ -271,9 +271,11 @@ bounded chunks.
 The external-open tests use an injected provider and verify confined file
 canonicalization, approved URL schemes, disabled-provider behavior, rejected
 targets before callback invocation, and the C callback target-kind boundary.
-The source-only Apple adapter schedules UIKit opening on the main queue, but
-does not prove URL routing, document handling, or completion on an Apple
-runtime.
+They also verify that `play` and `view` select their distinct target kinds and
+reject missing files or directories before invoking the provider. The
+source-only Apple adapter schedules UIKit opening, AVPlayer playback, or Quick
+Look preview on the main queue, but does not prove URL routing, document/media
+handling, or completion on an Apple runtime.
 
 ## Local checks
 

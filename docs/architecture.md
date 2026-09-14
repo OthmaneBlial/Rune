@@ -654,6 +654,11 @@ to the provider. Sessions default to a disabled opener, and the source-only
 UIKit adapter schedules the accepted target on the main queue. The callback
 never searches for or launches a host executable, and its asynchronous
 acceptance does not prove that another application opened successfully.
+The `play` and `view` commands reuse that explicit callback with distinct
+target kinds after resolving one existing confined regular file. The source-only
+Apple adapter maps them to AVPlayer and Quick Look when those frameworks are
+available; the portable CLI keeps the capability disabled and no Apple media
+runtime behavior is claimed.
 
 The native configuration query is also Rust-owned: its FFI serialization now
 includes every persisted key consumed by Swift, including cursor shape, while Swift applies only values
