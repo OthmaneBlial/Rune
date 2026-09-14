@@ -5,6 +5,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 header_dir="$repo_root/apps/ios/Sources/RuneFFIHeaders/include"
 binary="$repo_root/target/debug/rune-ffi-smoke"
+trap 'rm -f "$binary"' EXIT
 
 cargo build -p rune-ffi --quiet
 
@@ -16,4 +17,3 @@ cc -std=c11 -Wall -Wextra -Werror \
   -o "$binary"
 
 "$binary"
-rm -f "$binary"
