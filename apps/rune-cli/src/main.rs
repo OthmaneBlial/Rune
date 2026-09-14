@@ -10,6 +10,7 @@ struct CliEventSink {
 
 const MAX_SCRIPT_ARGUMENTS: usize = 64;
 const MAX_SCRIPT_ARGUMENT_BYTES: usize = 16 * 1024;
+const MAX_SCRIPT_COMMAND_BYTES: usize = 64 * 1024;
 
 impl EventSink for CliEventSink {
     fn emit(&mut self, event: CommandEvent) {
@@ -123,6 +124,11 @@ fn arguments() -> Result<(PathBuf, Option<String>), String> {
         for argument in script_args {
             source.push(' ');
             source.push_str(&quote_shell_word(&argument));
+        }
+        if source.len() > MAX_SCRIPT_COMMAND_BYTES {
+            return Err(format!(
+                "--script arguments exceed the {MAX_SCRIPT_COMMAND_BYTES}-byte command limit"
+            ));
         }
         command = Some(source);
     } else if !script_args.is_empty() {
