@@ -5582,6 +5582,18 @@ mod tests {
         let unsafe_output = session.execute_line("python3 unsafe.py");
         assert_eq!(unsafe_output.status, 1);
         assert!(unsafe_output.stderr.contains("PermissionError"));
+
+        let inline = session.execute_line(
+            "printf input | python3 -c 'print(sys.argv[1]); print(rune.stdin)' inline-arg",
+        );
+        assert_eq!(inline.stdout, "inline-arg\ninput\n");
+        assert_eq!(inline.status, 0);
+        let stdin_script =
+            session.execute_line("printf 'print(sys.argv[1])' | python3 - stdin-arg");
+        assert_eq!(stdin_script.stdout, "stdin-arg\n");
+        assert_eq!(stdin_script.status, 0);
+        let missing_code = session.execute_line("python3 -c");
+        assert_eq!(missing_code.status, 2);
         std::fs::remove_dir_all(root).expect("test root removed");
     }
 

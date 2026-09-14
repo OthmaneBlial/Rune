@@ -183,9 +183,10 @@ from session state. The explicit opt-in can still store exported values, so it
 must not be enabled for secrets. Broader terminal-state and scene recovery
 remain planned.
 The bounded Python, Lua 5.4, and JavaScript providers are implemented in Rust.
-Python intentionally starts with a finite, tested subset: host imports and
-dynamic code are denied, and loops/functions are rejected until a public
-instruction budget is available in the embedded VM.
+Python supports sandbox files plus `python3 -c CODE` and `python3 -` stdin
+entry points. It intentionally starts with a finite, tested subset: host
+imports and dynamic code are denied, and loops/functions are rejected until a
+public instruction budget is available in the embedded VM.
 
 The Rust package boundary now validates bounded, versioned JSON manifests and
 registry indexes, and checks declared file bytes with SHA-256. Local installation

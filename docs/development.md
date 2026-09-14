@@ -47,7 +47,8 @@ The core toolchain integration test verifies that `cc` is unavailable by
 default, `clang` can use an explicitly injected C provider, and its returned
 artifact is materialized through the confined VFS; the recording provider is
 test-only and is not a compiler implementation.
-Python runtime tests cover `python3`, captured `print`/stream output, explicit
+Python runtime tests cover sandbox-file, `python3 -c`, and `python3 -` entry
+points, captured `print`/stream output, explicit
 argv/environment/stdin inputs, denied host file access, source/input bounds,
 and package `.py` execution with installed-file integrity verification. The
 provider uses RustPython without its host standard library; imports, dynamic

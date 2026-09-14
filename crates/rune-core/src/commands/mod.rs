@@ -281,12 +281,12 @@ pub(super) const DEFINITIONS: &[CommandDefinition] = &[
     },
     CommandDefinition {
         name: "python",
-        summary: "run a bounded sandbox Python script",
+        summary: "run bounded Python code or a sandbox script",
         handler: python::python,
     },
     CommandDefinition {
         name: "python3",
-        summary: "run a bounded sandbox Python script",
+        summary: "run bounded Python code or a sandbox script",
         handler: python::python,
     },
     CommandDefinition {
