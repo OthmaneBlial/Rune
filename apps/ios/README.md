@@ -61,8 +61,10 @@ not a background execution claim. It can open a directory with the native
 Files importer. The
 Apple layer stores a bounded security-scoped bookmark, keeps the access scope
 alive while the matching Rust session is active, and hands Rust only the
-approved folder root. This is source/API evidence; picker behavior and
-entitlements remain unverified without an Apple build/runtime.
+approved folder root. The settings sheet can reopen, rename, or remove saved
+folder bookmarks without exposing bookmark bytes to Rust. This is source/API
+evidence; picker behavior and entitlements remain unverified without an Apple
+build/runtime.
 
 The configuration query crosses the FFI as all twelve persisted Rust-owned keys,
 including history redaction, cursor color, cursor shape, font, background, and foreground overrides; Swift

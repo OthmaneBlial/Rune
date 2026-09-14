@@ -55,6 +55,7 @@ public final class RuneTerminalModel: ObservableObject {
     @Published public private(set) var cursorShape = "bar"
     @Published public private(set) var background = "auto"
     @Published public private(set) var foreground = "auto"
+    @Published public private(set) var savedFolderNames: [String] = []
     @Published public private(set) var initializationError: String?
     @Published public private(set) var isExecuting = false
     @Published public private(set) var historyMatches: [String] = []
@@ -75,6 +76,7 @@ public final class RuneTerminalModel: ObservableObject {
 
     public init(rootURL: URL? = nil, sessionID: String? = nil) {
         self.sessionID = sessionID
+        savedFolderNames = RuneExternalFolderAccess.shared.names
         let documentsURL = FileManager.default
             .urls(for: .documentDirectory, in: .userDomainMask)
             .first
@@ -148,6 +150,50 @@ public final class RuneTerminalModel: ObservableObject {
             let name = access.suggestedName(for: url)
             try access.save(url: url, as: name)
             let scope = try access.open(url: url)
+            try installExternalFolder(scope)
+            savedFolderNames = access.names
+        } catch {
+            initializationError = error.localizedDescription
+        }
+    }
+
+    public func openSavedFolder(named name: String) {
+        guard !isExecuting else {
+            initializationError = "Rune is still executing a command. Cancel it before opening a folder."
+            return
+        }
+        do {
+            let scope = try RuneExternalFolderAccess.shared.open(named: name)
+            try installExternalFolder(scope)
+        } catch {
+            initializationError = error.localizedDescription
+        }
+    }
+
+    public func renameSavedFolder(named oldName: String, to newName: String) {
+        do {
+            try RuneExternalFolderAccess.shared.rename(named: oldName, to: newName)
+            savedFolderNames = RuneExternalFolderAccess.shared.names
+        } catch {
+            initializationError = error.localizedDescription
+        }
+    }
+
+    public func removeSavedFolder(named name: String) {
+        guard !isExecuting else {
+            initializationError = "Rune is still executing a command. Cancel it before changing folders."
+            return
+        }
+        RuneExternalFolderAccess.shared.remove(named: name)
+        savedFolderNames = RuneExternalFolderAccess.shared.names
+    }
+
+    public func reportFolderImportError(_ error: Error) {
+        initializationError = error.localizedDescription
+    }
+
+    private func installExternalFolder(_ scope: RuneScopedFolder) throws {
+        do {
             let nextSession = try RuneFFISession(rootURL: scope.url, sessionID: sessionID)
             let previousScope = scopedFolder
             session = nextSession
@@ -164,12 +210,9 @@ public final class RuneTerminalModel: ObservableObject {
             refreshConfiguration()
             previousScope?.stopAccessing()
         } catch {
-            initializationError = error.localizedDescription
+            scope.stopAccessing()
+            throw error
         }
-    }
-
-    public func reportFolderImportError(_ error: Error) {
-        initializationError = error.localizedDescription
     }
 
     public func submit() {
@@ -1079,6 +1122,8 @@ private struct RuneUIKitCommandEditor: UIViewRepresentable {
 private struct RuneSettingsView: View {
     @ObservedObject var model: RuneTerminalModel
     @Environment(\.dismiss) private var dismiss
+    @State private var renamingFolder: String?
+    @State private var renameValue = ""
 
     private let themes = ["ink", "light", "ember"]
     private let cursorColors = ["cyan", "ember", "foreground"]
@@ -1250,6 +1295,50 @@ private struct RuneSettingsView: View {
                 }
 
                 Section {
+                    if model.savedFolderNames.isEmpty {
+                        Text("No saved folders")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(model.savedFolderNames, id: \.self) { name in
+                            HStack(spacing: 10) {
+                                Button {
+                                    model.openSavedFolder(named: name)
+                                    dismiss()
+                                } label: {
+                                    Label(name, systemImage: "folder")
+                                        .lineLimit(1)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Open saved folder \(name)")
+                                .accessibilityHint("Open this security-scoped folder as the current Rust session root.")
+
+                                Button {
+                                    renameValue = name
+                                    renamingFolder = name
+                                } label: {
+                                    Image(systemName: "pencil")
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Rename saved folder \(name)")
+
+                                Button(role: .destructive) {
+                                    model.removeSavedFolder(named: name)
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Remove saved folder \(name)")
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Saved folders")
+                } footer: {
+                    Text("Folder bookmarks stay in Apple storage. Rust receives only the folder selected for the active session.")
+                }
+
+                Section {
                     Button("Reset Rust settings", role: .destructive) {
                         model.resetConfiguration()
                     }
@@ -1267,6 +1356,29 @@ private struct RuneSettingsView: View {
             }
         }
         .preferredColorScheme(model.theme == "light" ? .light : .dark)
+        .alert(
+            "Rename saved folder",
+            isPresented: Binding(
+                get: { renamingFolder != nil },
+                set: { if !$0 { renamingFolder = nil } }
+            )
+        ) {
+            TextField("Folder name", text: $renameValue)
+            Button("Cancel", role: .cancel) {
+                renamingFolder = nil
+            }
+            Button("Rename") {
+                if let oldName = renamingFolder {
+                    model.renameSavedFolder(
+                        named: oldName,
+                        to: renameValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                    )
+                }
+                renamingFolder = nil
+            }
+        } message: {
+            Text("Use letters, numbers, dots, dashes, or underscores.")
+        }
     }
 
     private func adjustFontSize(by delta: Int) {

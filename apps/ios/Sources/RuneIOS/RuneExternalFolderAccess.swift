@@ -4,6 +4,7 @@ public enum RuneFolderAccessError: LocalizedError {
     case invalidFolder
     case invalidBookmarkName
     case bookmarkMissing(String)
+    case bookmarkAlreadyExists(String)
     case bookmarkResolutionFailed(String)
     case bookmarkStorageLimit
     case folderUnavailable(String)
@@ -16,6 +17,8 @@ public enum RuneFolderAccessError: LocalizedError {
             return "The folder bookmark name is invalid."
         case .bookmarkMissing(let name):
             return "Rune has no saved folder bookmark named \(name)."
+        case .bookmarkAlreadyExists(let name):
+            return "Rune already has a saved folder bookmark named \(name)."
         case .bookmarkResolutionFailed(let name):
             return "Rune could not resolve the saved folder bookmark \(name)."
         case .bookmarkStorageLimit:
@@ -149,6 +152,29 @@ public final class RuneExternalFolderAccess {
         defaults.set(next, forKey: Self.storageKey)
         if lastActiveName == name {
             defaults.removeObject(forKey: Self.lastActiveKey)
+        }
+    }
+
+    public func rename(named oldName: String, to newName: String) throws {
+        guard isValidBookmarkName(oldName), isValidBookmarkName(newName) else {
+            throw RuneFolderAccessError.invalidBookmarkName
+        }
+        guard oldName != newName else { return }
+        guard let bookmark = bookmarks[oldName] else {
+            throw RuneFolderAccessError.bookmarkMissing(oldName)
+        }
+        var next = bookmarks
+        next.removeValue(forKey: oldName)
+        guard next[newName] == nil else {
+            throw RuneFolderAccessError.bookmarkAlreadyExists(newName)
+        }
+        next[newName] = bookmark
+        guard next.reduce(0, { $0 + $1.key.utf8.count + $1.value.count }) <= Self.maximumStorageBytes else {
+            throw RuneFolderAccessError.bookmarkStorageLimit
+        }
+        defaults.set(next, forKey: Self.storageKey)
+        if lastActiveName == oldName {
+            defaults.set(newName, forKey: Self.lastActiveKey)
         }
     }
 
