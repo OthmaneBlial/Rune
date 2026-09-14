@@ -134,7 +134,7 @@ Apple build footprint needed to produce one.
 | SwiftUI/UIKit source boundary | **Source-only** — package manifest, C header target, and host swiftc typecheck pass |
 | iOS application build, linking, simulator, and device behavior | **Unverified** — no Xcode/SDK/simulator installed |
 | Direct a-Shell behavior comparison | **Pending** — the checkout is reference-only and no Apple harness is available |
-| Release | **v0.1.0-alpha.3** — source preview, not a stable iOS application |
+| Release | **v0.1.0-alpha.4** — source preview, not a stable iOS application |
 
 The compatibility matrix in
 [compat/a-Shell-compatibility.json](compat/a-shell-compatibility.json)
