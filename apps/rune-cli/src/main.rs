@@ -65,6 +65,7 @@ fn arguments() -> Result<(PathBuf, Option<String>), String> {
     let mut root = std::env::current_dir()
         .map_err(|error| format!("cannot read current directory: {error}"))?;
     let mut command = None;
+    let mut script = None;
     let mut args = std::env::args().skip(1);
     while let Some(argument) = args.next() {
         match argument.as_str() {
@@ -80,8 +81,17 @@ fn arguments() -> Result<(PathBuf, Option<String>), String> {
                         .ok_or_else(|| "-c requires a command".to_string())?,
                 );
             }
+            "--script" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--script requires a virtual path".to_string())?;
+                if value.is_empty() || value.chars().any(char::is_control) {
+                    return Err("--script path must contain printable characters".to_string());
+                }
+                script = Some(value);
+            }
             "-h" | "--help" => {
-                println!("usage: rune [--root PATH] [-c COMMAND]");
+                println!("usage: rune [--root PATH] [-c COMMAND | --script PATH]");
                 std::process::exit(0);
             }
             "-V" | "--version" => {
@@ -91,7 +101,17 @@ fn arguments() -> Result<(PathBuf, Option<String>), String> {
             unknown => return Err(format!("unknown argument: {unknown}")),
         }
     }
+    if command.is_some() && script.is_some() {
+        return Err("-c/--command and --script are mutually exclusive".to_string());
+    }
+    if let Some(path) = script {
+        command = Some(format!("source {}", quote_shell_word(&path)));
+    }
     Ok((root, command))
+}
+
+fn quote_shell_word(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn repl(session: &mut Session, interactive: bool) -> io::Result<()> {

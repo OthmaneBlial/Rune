@@ -1610,7 +1610,7 @@ impl Session {
         record_history: bool,
         source_depth: usize,
         external_stdin: &str,
-        sink: &mut dyn EventSink,
+        _sink: &mut dyn EventSink,
     ) -> CommandOutput {
         if arguments.len() > MAX_FUNCTION_ARGUMENTS {
             return usage(
@@ -1642,12 +1642,16 @@ impl Session {
         self.script_parameters = parameters;
         self.function_depth += 1;
         self.function_local_bindings.push(BTreeMap::new());
+        // A function is one command from the caller's event stream. Its
+        // internal lines must not be emitted once here and once again as the
+        // function's aggregate pipeline result.
+        let mut nested_sink = NoopEventSink;
         let output = self.execute_script_internal(
             &definition.body,
             record_history,
             source_depth,
             external_stdin,
-            sink,
+            &mut nested_sink,
         );
         let returned_status = self.function_return.take();
         self.function_return = previous_return;
@@ -2509,7 +2513,7 @@ impl Session {
         record_history: bool,
         source_depth: usize,
         external_stdin: &str,
-        sink: &mut dyn EventSink,
+        _sink: &mut dyn EventSink,
     ) -> CommandOutput {
         if arguments.first().map(String::as_str) != Some("-c")
             || arguments.get(1).is_none()
@@ -2545,12 +2549,16 @@ impl Session {
         self.function_depth = 0;
         self.function_return = None;
         self.function_local_bindings = Vec::new();
+        // `sh -c` is itself a command in the caller's pipeline. Let the
+        // caller emit its aggregate result so nested lines cannot be
+        // delivered a second time through the same event stream.
+        let mut nested_sink = NoopEventSink;
         let output = self.execute_script_internal(
             script,
             record_history,
             source_depth + 1,
             external_stdin,
-            sink,
+            &mut nested_sink,
         );
         self.script_parameters = previous_parameters;
         self.loop_depth = previous_loop_depth;
@@ -2756,7 +2764,7 @@ impl Session {
         record_history: bool,
         source_depth: usize,
         external_stdin: &str,
-        sink: &mut dyn EventSink,
+        _sink: &mut dyn EventSink,
     ) -> CommandOutput {
         if arguments.is_empty() || arguments.len() > MAX_SOURCE_ARGUMENTS + 1 {
             return usage(
@@ -2788,12 +2796,16 @@ impl Session {
         };
         let previous_parameters =
             std::mem::replace(&mut self.script_parameters, arguments.to_vec());
+        // `source` is itself a command in the caller's pipeline. Let the
+        // caller emit its aggregate result so sourced lines cannot be
+        // delivered a second time through the same event stream.
+        let mut nested_sink = NoopEventSink;
         let output = self.execute_script_internal(
             &script,
             record_history,
             source_depth + 1,
             external_stdin,
-            sink,
+            &mut nested_sink,
         );
         self.script_parameters = previous_parameters;
         output
@@ -4512,6 +4524,35 @@ mod tests {
             3
         );
         std::fs::remove_dir_all(root).expect("test root removed");
+    }
+
+    #[test]
+    fn sourced_script_emits_aggregate_output_once() {
+        let root = test_root();
+        let mut session = Session::new(SandboxedFileSystem::new(&root).expect("root created"));
+        std::fs::write(root.join("script.rune"), "printf script-ok").expect("script written");
+        let mut sink = RecordingEventSink::default();
+
+        let output = session.execute_line_with_events("source script.rune", &mut sink);
+        assert_eq!(output.stdout, "script-ok");
+        assert_eq!(
+            sink.events
+                .iter()
+                .filter_map(|event| match event {
+                    CommandEvent::Output { stdout, .. } => Some(stdout.as_str()),
+                    CommandEvent::Status { .. } => None,
+                })
+                .collect::<String>(),
+            output.stdout
+        );
+        assert_eq!(
+            sink.events
+                .iter()
+                .filter(|event| matches!(event, CommandEvent::Output { .. }))
+                .count(),
+            1
+        );
+        std::fs::remove_dir_all(root).expect("root removed");
     }
 
     #[test]

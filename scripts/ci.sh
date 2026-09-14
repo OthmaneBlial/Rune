@@ -27,7 +27,17 @@ cargo build --workspace
 echo "==> CLI metadata"
 rune_cli_version="$(target/debug/rune-cli --version)"
 test "$rune_cli_version" = "rune-cli 0.1.0"
-target/debug/rune-cli --help | grep -F -- "usage: rune [--root PATH] [-c COMMAND]" >/dev/null
+target/debug/rune-cli --help | grep -F -- "usage: rune [--root PATH] [-c COMMAND | --script PATH]" >/dev/null
+rune_cli_smoke_root="$(mktemp -d "${TMPDIR:-/tmp}/rune-cli-smoke.XXXXXX")"
+target/debug/rune-cli --root "$rune_cli_smoke_root" -c \
+  "mkdir -p 'folder name'; printf '%s\\n' 'printf script-ok' > 'folder name/script file.rune'" >/dev/null
+test "$(target/debug/rune-cli --root "$rune_cli_smoke_root" --script "folder name/script file.rune")" = "script-ok"
+if target/debug/rune-cli --root "$rune_cli_smoke_root" -c true --script \
+  "folder name/script file.rune" >/dev/null 2>&1; then
+  echo "rune: --command and --script conflict was accepted" >&2
+  exit 1
+fi
+find "$rune_cli_smoke_root" -depth -delete
 
 if command -v swiftc >/dev/null 2>&1; then
   echo "==> swift package dump-package (source-only manifest check)"

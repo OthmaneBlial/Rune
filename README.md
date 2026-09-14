@@ -168,6 +168,16 @@ target/debug/rune-cli --version
 # rune-cli 0.1.0
 ~~~
 
+To run a Rust-planned script stored inside the confined root:
+
+~~~bash
+target/debug/rune-cli --root /tmp/rune-root --script project/profile.rune
+~~~
+
+`--script` resolves a virtual path through Rune's filesystem and executes it
+with the same bounded `source` planner used by the native bridge. It never
+launches the host shell.
+
 ### Check the source-only iOS boundary
 
 The repository deliberately does not install Apple tooling. If the existing
