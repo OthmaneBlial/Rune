@@ -120,17 +120,7 @@ fn arguments() -> Result<(PathBuf, Option<String>), String> {
         return Err("-c/--command and --script are mutually exclusive".to_string());
     }
     if let Some(path) = script {
-        let mut source = format!("source {}", quote_shell_word(&path));
-        for argument in script_args {
-            source.push(' ');
-            source.push_str(&quote_shell_word(&argument));
-        }
-        if source.len() > MAX_SCRIPT_COMMAND_BYTES {
-            return Err(format!(
-                "--script arguments exceed the {MAX_SCRIPT_COMMAND_BYTES}-byte command limit"
-            ));
-        }
-        command = Some(source);
+        command = Some(build_script_command(&path, &script_args)?);
     } else if !script_args.is_empty() {
         return Err("--script-arg requires --script".to_string());
     }
@@ -149,6 +139,20 @@ fn validate_script_argument(value: &str, label: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+fn build_script_command(path: &str, arguments: &[String]) -> Result<String, String> {
+    let mut source = format!("source {}", quote_shell_word(path));
+    for argument in arguments {
+        source.push(' ');
+        source.push_str(&quote_shell_word(argument));
+    }
+    if source.len() > MAX_SCRIPT_COMMAND_BYTES {
+        return Err(format!(
+            "--script arguments exceed the {MAX_SCRIPT_COMMAND_BYTES}-byte command limit"
+        ));
+    }
+    Ok(source)
 }
 
 fn quote_shell_word(value: &str) -> String {
@@ -197,7 +201,10 @@ fn print_output(stdout: &str, stderr: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{quote_shell_word, validate_script_argument, MAX_SCRIPT_ARGUMENT_BYTES};
+    use super::{
+        build_script_command, quote_shell_word, validate_script_argument,
+        MAX_SCRIPT_ARGUMENT_BYTES, MAX_SCRIPT_COMMAND_BYTES,
+    };
 
     #[test]
     fn quotes_script_values_without_shell_expansion() {
@@ -216,5 +223,12 @@ mod tests {
             validate_script_argument(&"x".repeat(MAX_SCRIPT_ARGUMENT_BYTES + 1), "value").is_err()
         );
         assert!(validate_script_argument("safe value", "value").is_ok());
+    }
+
+    #[test]
+    fn rejects_a_generated_script_command_that_exceeds_the_total_limit() {
+        let arguments = vec!["x".repeat(MAX_SCRIPT_COMMAND_BYTES); 1];
+        let error = build_script_command("script.rune", &arguments).unwrap_err();
+        assert!(error.contains("byte command limit"));
     }
 }
